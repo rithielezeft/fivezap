@@ -219,7 +219,8 @@ export default function Customers() {
               const uid = String(pickField(u, ["id", "user_id", "username", "login"]) || idx);
               const username = pickField(u, ["username", "login", "user"]) || "-";
               const name = pickField(u, ["name", "full_name", "customer_name"]) || "-";
-              const whatsapp = pickField(u, ["whatsapp", "phone", "telephone", "mobile"]) || "-";
+              const whatsapp = u._whatsapp || pickField(u, ["whatsapp", "phone", "telephone", "mobile"]) || "-";
+              const waFromNotes = !!u._whatsapp && !pickField(u, ["whatsapp", "phone", "telephone", "mobile"]);
               const mac = pickField(u, ["mac", "mac_address"]);
               const expires = pickField(u, ["expires_at", "expiration", "expiry_date", "expire_date"]);
               const system = detectSystemType(u);
@@ -228,7 +229,18 @@ export default function Customers() {
                 <tr key={uid} className="border-t border-white/[0.05] hover:bg-white/[0.02] transition-colors" data-testid={`user-row-${uid}`}>
                   <td className="px-4 py-3 font-mono text-xs">{username}</td>
                   <td className="px-4 py-3">{name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-white/70">{whatsapp}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-white/70">
+                    {whatsapp}
+                    {waFromNotes && (
+                      <span
+                        className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 uppercase tracking-wide"
+                        title="Extraído do campo de notas/observação"
+                        data-testid={`wa-from-notes-${uid}`}
+                      >
+                        notas
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className="uppercase text-xs px-2 py-1 rounded-md bg-white/[0.05]">{system}</span>
                     {mac && <div className="font-mono text-[9px] text-white/40 mt-0.5">{mac}</div>}

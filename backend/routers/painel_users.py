@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from database import DB_PATH
 from services import painel
+from services.phone_extractor import extract_whatsapp
 
 router = APIRouter(prefix="/api/painel", tags=["painel"])
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ async def list_users(search: Optional[str] = None, background_tasks: BackgroundT
     if should_refresh and background_tasks and not _refresh_state["running"]:
         background_tasks.add_task(refresh_cache_task)
 
-    # Build public pay link for each user
+    # Build public pay link + extract WhatsApp (from structured fields OR notes)
     from database import get_setting
     public_base = await get_setting("public_base_url", "")
     for u in users:
@@ -99,19 +100,25 @@ async def list_users(search: Optional[str] = None, background_tasks: BackgroundT
         if uid and public_base:
             u["_pay_link"] = f"{public_base}/pay/{uid}"
 
+        extracted = extract_whatsapp(u)
+        u["_whatsapp"] = extracted
+        u["_has_whatsapp"] = bool(extracted)
+
     if search:
         s = search.lower()
         def match(u):
-            for k in ("name", "full_name", "username", "login", "whatsapp", "phone"):
+            for k in ("name", "full_name", "username", "login", "whatsapp", "phone", "_whatsapp", "notes", "notas", "obs"):
                 v = u.get(k)
                 if v and s in str(v).lower():
                     return True
             return False
         users = [u for u in users if match(u)]
 
+    with_wa = sum(1 for u in users if u.get("_has_whatsapp"))
     return {
         "users": users,
         "count": len(users),
+        "count_with_whatsapp": with_wa,
         "cache_updated_at": updated_at,
         "refreshing": _refresh_state["running"],
         "last_error": _refresh_state["last_error"],

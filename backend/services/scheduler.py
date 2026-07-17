@@ -14,6 +14,7 @@ import aiosqlite
 from database import DB_PATH, get_setting, set_setting
 from services import painel
 from services.notifier import send_notification
+from services.phone_extractor import extract_whatsapp
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ async def _check_and_notify():
                 continue
 
             user_id = str(_pick(u, ["id", "user_id", "username", "login"]) or "")
-            phone = _pick(u, ["whatsapp", "phone", "telephone", "mobile"])
+            phone = extract_whatsapp(u)
             if not phone or not user_id:
                 continue
 
