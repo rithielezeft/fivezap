@@ -55,6 +55,40 @@ def test_iso_zulu():
     assert r["status"] == "active"
 
 
+# --- Real painel.fun payload tests (exp_date is UNIX SECONDS, enabled is 0/1) ---
+
+def test_painel_fun_unix_timestamp_future():
+    # Very far future timestamp
+    r = compute_expiration_info({"exp_date": 1806853892, "enabled": 1})
+    assert r["status"] == "active"
+    assert r["days_until_expiry"] > 0
+    assert r["expires_at_iso"] is not None
+
+
+def test_painel_fun_unix_timestamp_past_disabled():
+    # Past timestamp + enabled=0
+    r = compute_expiration_info({"exp_date": 1000000000, "enabled": 0})
+    assert r["status"] == "expired"
+
+
+def test_painel_fun_enabled_1_no_date():
+    r = compute_expiration_info({"enabled": 1})
+    assert r["status"] == "active"
+
+
+def test_painel_fun_enabled_0_future_date():
+    # Enabled=0 must override even a future date
+    import time
+    future = int(time.time()) + 86400 * 30  # 30 days from now
+    r = compute_expiration_info({"exp_date": future, "enabled": 0})
+    assert r["status"] == "expired"
+
+
+def test_painel_fun_unix_string():
+    r = compute_expiration_info({"exp_date": "1806853892"})
+    assert r["status"] == "active"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

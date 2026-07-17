@@ -60,6 +60,23 @@ def test_landline_10_digits():
     assert extract_whatsapp(u) == "551134567890"
 
 
+# --- Real painel.fun payload tests ---
+
+def test_painel_fun_as_number():
+    u = {"as_number": "+5511947748236", "reseller_notes": "+55 (11) 94774-8236"}
+    assert extract_whatsapp(u) == "5511947748236"
+
+
+def test_painel_fun_only_reseller_notes():
+    u = {"reseller_notes": "+55 (11) 94774-8236"}
+    assert extract_whatsapp(u) == "5511947748236"
+
+
+def test_painel_fun_as_number_without_plus():
+    u = {"as_number": "5511947748236"}
+    assert extract_whatsapp(u) == "5511947748236"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

@@ -73,6 +73,38 @@ def test_nested_custom_fields():
     assert detect_system_type(u) == "iptv"
 
 
+# --- Real painel.fun payload tests ---
+
+def test_painel_fun_system_1_iptv():
+    assert detect_system_type({"system": 1}) == "iptv"
+
+
+def test_painel_fun_system_2_p2p():
+    assert detect_system_type({"system": 2}) == "p2p"
+
+
+def test_painel_fun_system_3_hybrid():
+    assert detect_system_type({"system": 3}) == "hybrid"
+
+
+def test_painel_fun_real_payload():
+    u = {
+        "id": 227420601,
+        "macaddr": "",
+        "username": "rogeriotvv",
+        "system": 2,
+        "reseller_notes": "+55 (11) 94774-8236",
+        "packages": "[40,41,43,63,61,62,47,65,66,74,26,1021]",
+    }
+    assert detect_system_type(u) == "p2p"
+
+
+def test_painel_fun_system_priority_over_mac():
+    # even with a MAC (would suggest IPTV), system=2 (p2p) wins
+    u = {"macaddr": "AA:BB:CC:DD:EE:FF", "system": 2}
+    assert detect_system_type(u) == "p2p"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

@@ -162,16 +162,17 @@ async def create_trial(
     return resp.json()
 
 
-async def list_users(limit: int = 500, search: str = None) -> list:
-    """List ALL users from painel.fun with automatic pagination.
+async def list_users(limit: int = 10000, search: str = None) -> list:
+    """List ALL users from painel.fun (api.controle.fit).
 
-    Detects Laravel-style (page/per_page + last_page/total) or generic
-    (offset/limit + total) pagination from the first response and fetches
-    remaining pages until exhausted. Falls back to single-page result if
-    the endpoint returns a plain array.
+    Uses actual painel.fun API contract:
+      - Params: `page`, `per` (NOT per_page), `reseller`, `order_by`
+      - Response: `{ data: [...], meta: {page, per, pages, count, total} }`
+      - Filters by the logged-in reseller (painel_username).
     """
     token = await login()
     base = await get_setting("painel_base_url")
+    reseller = await get_setting("painel_username")
 
     def _get(path, params, tok):
         return cffi_requests.get(
@@ -188,110 +189,76 @@ async def list_users(limit: int = 500, search: str = None) -> list:
             timeout=90,
         )
 
-    def _extract_items(data):
-        if isinstance(data, list):
-            return data, None
-        if isinstance(data, dict):
-            for k in ("data", "users", "items", "results", "records"):
-                if isinstance(data.get(k), list):
-                    return data[k], data
-        return [], data
+    per_page = 200  # panel supports up to a few hundred per page
+    all_items: list = []
 
-    def _pagination_info(env: dict) -> dict:
-        """Extract total pages / next page info from response envelope."""
-        if not isinstance(env, dict):
-            return {}
-        # Laravel style
-        last_page = env.get("last_page") or env.get("total_pages") or env.get("pageCount")
-        current_page = env.get("current_page") or env.get("page")
-        total = env.get("total") or env.get("count") or env.get("total_count")
-        next_page = env.get("next_page_url") or env.get("next")
-        # Nested meta (JSON:API)
-        meta = env.get("meta") or {}
-        if isinstance(meta, dict):
-            last_page = last_page or meta.get("last_page") or meta.get("total_pages") or meta.get("pageCount")
-            current_page = current_page or meta.get("current_page") or meta.get("page")
-            total = total or meta.get("total") or meta.get("count")
-        return {
-            "last_page": int(last_page) if last_page else None,
-            "current_page": int(current_page) if current_page else None,
-            "total": int(total) if total else None,
-            "next_page": next_page,
-        }
+    base_params: dict = {
+        "page": 1,
+        "per": per_page,
+        "order_by": "exp_date,asc",  # oldest expiration first (most urgent)
+    }
+    if reseller:
+        base_params["reseller"] = reseller
+    if search:
+        base_params["search"] = search
 
-    attempts = []
-    per_page = 200  # panel-friendly page size
+    try:
+        resp = await asyncio.to_thread(_get, "/api/users", dict(base_params), token)
+        if resp.status_code == 401:
+            token = await login(force=True)
+            resp = await asyncio.to_thread(_get, "/api/users", dict(base_params), token)
 
-    for path in ("/api/users", "/api/customers", "/api/clients", "/api/subscribers", "/api/panel_users"):
-        try:
-            params = {"page": 1, "per_page": per_page, "limit": per_page}
-            if search:
-                params["search"] = search
-
-            resp = await asyncio.to_thread(_get, path, params, token)
-            if resp.status_code == 401:
-                fresh_token = await login(force=True)
-                token = fresh_token
-                resp = await asyncio.to_thread(_get, path, params, token)
-
-            attempts.append(f"{path} p1 → {resp.status_code}")
-            if resp.status_code != 200:
-                continue
-
-            data = resp.json()
-            items, envelope = _extract_items(data)
-            if not items:
-                # Empty result — try next endpoint
-                continue
-
-            all_items = list(items)
-            info = _pagination_info(envelope) if envelope else {}
-            last_page = info.get("last_page")
-            total = info.get("total")
-
-            # Infer last_page if only total was provided
-            if not last_page and total and per_page:
-                last_page = (total + per_page - 1) // per_page
-
-            logger.info(
-                "list_users %s: page 1 got %d items (total=%s, last_page=%s)",
-                path, len(items), total, last_page,
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"list_users GET /api/users HTTP {resp.status_code} — {resp.text[:200]}"
             )
 
-            # Fetch remaining pages
-            if last_page and last_page > 1:
-                # Safety cap to avoid runaway loops
-                pages_to_fetch = min(last_page, 100)
-                for p in range(2, pages_to_fetch + 1):
-                    p_params = {"page": p, "per_page": per_page, "limit": per_page}
-                    if search:
-                        p_params["search"] = search
-                    r = await asyncio.to_thread(_get, path, p_params, token)
-                    if r.status_code == 401:
-                        token = await login(force=True)
-                        r = await asyncio.to_thread(_get, path, p_params, token)
-                    if r.status_code != 200:
-                        logger.warning("Pagination stopped at page %d: HTTP %d", p, r.status_code)
-                        break
-                    p_items, _ = _extract_items(r.json())
-                    if not p_items:
-                        break
-                    all_items.extend(p_items)
-                    if len(all_items) >= (total or 10**9):
-                        break
+        payload = resp.json()
+        items = payload.get("data") if isinstance(payload, dict) else payload
+        if isinstance(items, list):
+            all_items.extend(items)
 
-            # Respect caller limit
-            if limit and len(all_items) > limit:
-                all_items = all_items[:limit]
+        meta = payload.get("meta") if isinstance(payload, dict) else None
+        pages = None
+        total = None
+        if isinstance(meta, dict):
+            pages = meta.get("pages")
+            total = meta.get("total")
 
-            logger.info("list_users success via %s: %d total items", path, len(all_items))
-            return all_items
-        except Exception as e:
-            attempts.append(f"{path} → EXC:{e}")
-            logger.warning("list_users %s error: %s", path, e)
-            continue
+        logger.info(
+            "list_users page 1: %d items (total=%s, pages=%s, reseller=%s)",
+            len(items or []), total, pages, reseller,
+        )
 
-    raise RuntimeError("Nenhum endpoint de listagem funcionou. Tentativas: " + " | ".join(attempts))
+        # Fetch remaining pages
+        if pages and pages > 1:
+            pages_to_fetch = min(int(pages), 200)  # safety cap
+            for p in range(2, pages_to_fetch + 1):
+                page_params = dict(base_params)
+                page_params["page"] = p
+                r = await asyncio.to_thread(_get, "/api/users", page_params, token)
+                if r.status_code == 401:
+                    token = await login(force=True)
+                    r = await asyncio.to_thread(_get, "/api/users", page_params, token)
+                if r.status_code != 200:
+                    logger.warning("Pagination stopped at page %d: HTTP %d", p, r.status_code)
+                    break
+                pd = r.json()
+                more = pd.get("data") if isinstance(pd, dict) else pd
+                if not more:
+                    break
+                all_items.extend(more)
+                if total and len(all_items) >= total:
+                    break
+
+        if limit and len(all_items) > limit:
+            all_items = all_items[:limit]
+
+        logger.info("list_users complete: %d total items", len(all_items))
+        return all_items
+    except Exception as e:
+        logger.exception("list_users failed")
+        raise RuntimeError(f"Falha ao listar usuários: {e}")
 
 
 async def get_account_info() -> dict:

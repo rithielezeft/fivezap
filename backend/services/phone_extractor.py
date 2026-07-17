@@ -22,8 +22,12 @@ _PHONE_RE = re.compile(
 )
 
 # Fields on painel.fun where the phone might live (structured OR free text)
-STRUCTURED_FIELDS = ("whatsapp", "phone", "telephone", "mobile", "celular", "cell")
+STRUCTURED_FIELDS = (
+    "as_number",        # painel.fun normalized WhatsApp (+5511987654321)
+    "whatsapp", "phone", "telephone", "mobile", "celular", "cell",
+)
 NOTES_FIELDS = (
+    "reseller_notes",   # painel.fun reseller notes (free-text WhatsApp)
     "notes", "note", "notas", "nota",
     "obs", "observation", "observations", "observacao", "observacoes",
     "description", "descricao", "comment", "comments", "comentario",

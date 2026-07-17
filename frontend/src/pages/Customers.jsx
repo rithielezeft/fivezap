@@ -356,7 +356,7 @@ export default function Customers() {
               const name = pickField(u, ["name", "full_name", "customer_name"]) || "-";
               const whatsapp = u._whatsapp || pickField(u, ["whatsapp", "phone", "telephone", "mobile"]) || "-";
               const waFromNotes = !!u._whatsapp && !pickField(u, ["whatsapp", "phone", "telephone", "mobile"]);
-              const mac = pickField(u, ["mac", "mac_address"]);
+              const mac = pickField(u, ["macaddr", "mac", "mac_address"]);
               const expires = u._expires_at || pickField(u, ["expires_at", "expiration", "expiry_date", "expire_date"]);
               const system = detectSystemType(u);
               const payLink = u._pay_link;

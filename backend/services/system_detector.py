@@ -1,28 +1,36 @@
 """Detect system_type (iptv | p2p | hybrid) for a painel.fun user record.
 
-Painel.fun doesn't expose a clean `system_type` field. We combine multiple
-signals to classify each user:
-
-  1. `package_id` reverse-lookup against known IPTV / P2P / hybrid packages.
-  2. Structured fields (`system_type`, `type`, `product`, `package_name`, ...).
-  3. Free-text notes / description scanning for keywords.
-  4. Heuristic: presence of MAC address strongly suggests IPTV.
+Painel.fun exposes `system` as a small integer (1/2/3). We combine:
+  1. `system` int field on painel.fun (primary — configurable mapping).
+  2. `package_id` reverse-lookup against known IPTV / P2P / hybrid packages.
+  3. Structured fields (`system_type`, `type`, `product`, `package_name`, ...).
+  4. Free-text notes / description scanning for keywords.
+  5. Heuristic: presence of MAC address strongly suggests IPTV.
 """
 import re
 from typing import Optional
+
+# painel.fun `system` int field → system_type mapping.
+# Educated defaults (adjust via override if user reports otherwise):
+#   1 = IPTV (with MAC / set-top box)
+#   2 = P2P  (streaming apps like Brazuca / Duplex)
+#   3 = Hybrid (both)
+SYSTEM_INT_MAP = {
+    1: "iptv",
+    2: "p2p",
+    3: "hybrid",
+}
 
 # From backend/services/painel.py PACKAGE_IDS
 _IPTV_PACKAGES = {17, 43, 56, 58}
 _P2P_PACKAGES = {17, 42, 55, 57}
 _HYBRID_PACKAGES = {17, 42, 55, 57}
 
-# Ambiguous packages (present in multiple systems) — we need other signals
 _AMBIGUOUS = {17, 42, 55, 57}
-# Unique IPTV markers
 _IPTV_ONLY = {43, 56, 58}
 
 _IPTV_KEYWORDS = ("iptv", "dream", "smarters", "xtream", "set-top", "settop", "tv box", "tvbox")
-_P2P_KEYWORDS = ("p2p", "braz", "brazuca", "sopcast", "peer")
+_P2P_KEYWORDS = ("p2p", "braz", "brazuca", "sopcast", "peer", "duplex")
 _HYBRID_KEYWORDS = ("hybrid", "híbrido", "hibrido", "duo", "combo")
 
 _MAC_RE = re.compile(r"([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}")
@@ -40,7 +48,6 @@ def _scan_keywords(text: str) -> Optional[str]:
     if not text:
         return None
     t = text.lower()
-    # Order: hybrid first (most specific), then iptv, then p2p
     if any(k in t for k in _HYBRID_KEYWORDS):
         return "hybrid"
     if any(k in t for k in _IPTV_KEYWORDS):
@@ -55,7 +62,16 @@ def detect_system_type(user: dict) -> Optional[str]:
     if not isinstance(user, dict):
         return None
 
-    # 1. Package ID reverse lookup (skipping ambiguous ids)
+    # 1. painel.fun `system` int field
+    sys_int = user.get("system")
+    try:
+        sys_int = int(sys_int) if sys_int is not None else None
+    except (TypeError, ValueError):
+        sys_int = None
+    if sys_int is not None and sys_int in SYSTEM_INT_MAP:
+        return SYSTEM_INT_MAP[sys_int]
+
+    # 2. Package ID reverse lookup (skipping ambiguous ids)
     pid = user.get("package_id") or user.get("current_package_id") or user.get("plan_id")
     try:
         pid_int = int(pid) if pid is not None else None
@@ -70,17 +86,17 @@ def detect_system_type(user: dict) -> Optional[str]:
         if pid_int in _HYBRID_PACKAGES:
             return "hybrid"
 
-    # 2. Structured fields
+    # 3. Structured fields
     structured = _pick(user, (
-        "system_type", "type", "system", "product", "product_name",
+        "system_type", "type", "product", "product_name",
         "package_name", "package", "plan_name", "plan", "server",
     ))
     kw = _scan_keywords(structured)
     if kw:
         return kw
 
-    # 3. Free-text notes / description
-    for k in ("notes", "notas", "note", "obs", "observation", "observacao",
+    # 4. Free-text notes / description (including painel.fun reseller_notes)
+    for k in ("reseller_notes", "notes", "notas", "note", "obs", "observation", "observacao",
               "description", "descricao", "info", "comment", "comments"):
         v = user.get(k)
         if v:
@@ -88,7 +104,7 @@ def detect_system_type(user: dict) -> Optional[str]:
             if kw:
                 return kw
 
-    # 4. Nested meta / custom_fields
+    # 5. Nested meta / custom_fields
     for k in ("meta", "metadata", "data", "custom_fields", "profile"):
         sub = user.get(k)
         if isinstance(sub, dict):
@@ -103,17 +119,17 @@ def detect_system_type(user: dict) -> Optional[str]:
                     if kw:
                         return kw
 
-    # 5. Heuristic: MAC address present → IPTV (unless already classified)
-    mac = user.get("mac") or user.get("mac_address")
+    # 6. MAC address present → IPTV
+    mac = user.get("macaddr") or user.get("mac") or user.get("mac_address")
     if mac and _MAC_RE.search(str(mac)):
         return "iptv"
-    # Sometimes MAC is embedded in notes
-    for k in ("notes", "notas", "obs", "description"):
+    # MAC embedded in notes
+    for k in ("reseller_notes", "notes", "notas", "obs", "description"):
         v = user.get(k)
         if v and _MAC_RE.search(str(v)):
             return "iptv"
 
-    # 6. Fallback: ambiguous package_id → best guess (iptv is most common)
+    # 7. Fallback: ambiguous package_id → best guess (iptv is most common)
     if pid_int in _AMBIGUOUS:
         return "iptv"
 
