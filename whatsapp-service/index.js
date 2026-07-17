@@ -79,12 +79,34 @@ client.on('disconnected', (reason) => {
 
 // Use ONLY `message_create` — it fires for BOTH incoming (client) and
 // outgoing (admin) messages, WITHOUT requiring the chat to be opened first.
+// Deduplication: `message_create` sometimes fires more than once for the same
+// message id (especially with LID chats on multi-device). We track recently
+// processed message ids in an in-memory Map with a 60s TTL.
+const _seenMessages = new Map(); // msgId -> timestamp
+function _seenRecently(msgId) {
+  const now = Date.now();
+  // Purge entries older than 60s
+  for (const [k, t] of _seenMessages) {
+    if (now - t > 60_000) _seenMessages.delete(k);
+  }
+  if (_seenMessages.has(msgId)) return true;
+  _seenMessages.set(msgId, now);
+  return false;
+}
+
 client.on('message_create', async (msg) => {
   try {
     if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') return;
     if (msg.from?.endsWith('@g.us') || msg.to?.endsWith('@g.us')) return;
     const body = msg.body || '';
     if (!body.trim()) return;
+
+    // Dedup by message id — prevents double-processing when message_create fires 2x
+    const msgId = msg.id?._serialized || msg.id?.id;
+    if (msgId && _seenRecently(msgId)) {
+      console.log('[WA] duplicate message_create suppressed', msgId);
+      return;
+    }
 
     const fromMe = !!msg.fromMe;
     // Raw jid — this is a valid WhatsApp identifier (either <phone>@c.us OR <lid>@lid).
@@ -209,7 +231,10 @@ app.post('/send', async (req, res) => {
       if (!message) return res.status(400).json({ error: 'message or image_url required' });
       result = await client.sendMessage(chatId, message);
     }
-    res.json({ success: true, id: result.id?._serialized, chat_id: chatId });
+    // In some LID chats, `sendMessage` returns undefined even on success.
+    // Treat undefined/null as "sent OK" — the message was delivered.
+    const messageId = result?.id?._serialized || result?.id?.id || null;
+    res.json({ success: true, id: messageId, chat_id: chatId });
   } catch (e) {
     console.error('[WA] Send error', e);
     res.status(500).json({ error: e.message });

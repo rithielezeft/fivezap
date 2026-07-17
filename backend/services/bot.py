@@ -11,6 +11,9 @@ from services import painel, whatsapp_client
 
 logger = logging.getLogger(__name__)
 
+# In-memory dedup cache: key -> timestamp
+_recent_messages: dict = {}
+
 
 async def log_activity(activity_type: str, message: str, customer_id: str = None, status: str = "info", metadata: dict = None):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -93,6 +96,19 @@ async def process_incoming_message(
 ):
     """Handle a message from Node service."""
     phone_clean = normalize_phone(phone)
+
+    # Backend-side dedup: if the exact same phone+body+direction was processed
+    # in the last 30 seconds, skip. Prevents the bot from creating a trial twice
+    # if the Node service somehow fires message_create more than once.
+    dedup_key = f"{phone_clean}|{'out' if from_me else 'in'}|{body[:80]}"
+    now_ts = datetime.now(timezone.utc).timestamp()
+    global _recent_messages  # noqa: PLW0602
+    _recent_messages = {k: t for k, t in _recent_messages.items() if now_ts - t < 30}
+    if dedup_key in _recent_messages:
+        logger.info("Duplicate incoming message suppressed: %s", dedup_key[:80])
+        return
+    _recent_messages[dedup_key] = now_ts
+
     direction = "out" if from_me else "in"
     customer = await find_or_create_customer(phone_clean, name)
     await save_message(phone_clean, body, direction, customer["id"])
