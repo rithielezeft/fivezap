@@ -30,12 +30,20 @@ function pickField(user, keys) {
 }
 
 function detectSystemType(user) {
+  // Prefer backend-classified value (uses package_id + notes + MAC heuristics)
+  if (user?._system_type) return user._system_type;
   const raw = String(pickField(user, ["system_type", "type", "package_type", "server"]) || "").toLowerCase();
+  if (raw.includes("hybrid") || raw.includes("híbrido") || raw.includes("hibrido")) return "hybrid";
   if (raw.includes("iptv") || raw.includes("dream")) return "iptv";
-  if (raw.includes("hybrid")) return "hybrid";
   if (raw.includes("p2p") || raw.includes("braz")) return "p2p";
   return raw || "—";
 }
+
+const SYSTEM_STYLES = {
+  iptv:   { bg: "bg-[#007AFF]/15",  text: "text-[#5AC8FA]", border: "border-[#007AFF]/30", label: "IPTV" },
+  p2p:    { bg: "bg-[#BF5AF2]/15",  text: "text-[#BF5AF2]", border: "border-[#BF5AF2]/30", label: "P2P" },
+  hybrid: { bg: "bg-[#FF9F0A]/15",  text: "text-[#FF9F0A]", border: "border-[#FF9F0A]/30", label: "HYBRID" },
+};
 
 function StatusBadge({ user }) {
   const exp = pickField(user, ["expires_at", "expiration", "expiry_date", "expire_date"]);
@@ -65,6 +73,7 @@ export default function Customers() {
   const [renewFor, setRenewFor] = useState(null);
   const [renewPlan, setRenewPlan] = useState(1);
   const [trialFor, setTrialFor] = useState(null);
+  const [systemFilter, setSystemFilter] = useState("all"); // all | iptv | p2p | hybrid | unknown
 
   // debounce search
   useState(() => {
@@ -111,6 +120,17 @@ export default function Customers() {
   });
 
   const users = data?.users || [];
+  const filteredUsers = users.filter((u) => {
+    if (systemFilter === "all") return true;
+    const s = u._system_type || null;
+    if (systemFilter === "unknown") return !s;
+    return s === systemFilter;
+  });
+  const counts = users.reduce((acc, u) => {
+    const s = u._system_type || "unknown";
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {});
 
   return (
     <Layout
@@ -143,6 +163,32 @@ export default function Customers() {
           }}
           data-testid="input-search-users"
         />
+      </div>
+
+      {/* System type filter chips */}
+      <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="system-filter-bar">
+        {[
+          { key: "all",     label: "Todos",   cls: "border-white/10 hover:bg-white/[0.05]" },
+          { key: "iptv",    label: "IPTV",    cls: "border-[#007AFF]/30 text-[#5AC8FA] hover:bg-[#007AFF]/10" },
+          { key: "p2p",     label: "P2P",     cls: "border-[#BF5AF2]/30 text-[#BF5AF2] hover:bg-[#BF5AF2]/10" },
+          { key: "hybrid",  label: "Hybrid",  cls: "border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10" },
+          { key: "unknown", label: "Sem sistema", cls: "border-white/10 text-white/60 hover:bg-white/[0.05]" },
+        ].map((f) => {
+          const active = systemFilter === f.key;
+          const n = f.key === "all" ? users.length : (counts[f.key] || 0);
+          return (
+            <button
+              key={f.key}
+              onClick={() => setSystemFilter(f.key)}
+              data-testid={`filter-system-${f.key}`}
+              className={`px-3 py-1.5 rounded-full text-xs uppercase tracking-wide border transition-all ${
+                active ? "bg-white/[0.08] " + f.cls : f.cls + " opacity-70"
+              }`}
+            >
+              {f.label} <span className="ml-1 font-mono opacity-60">{n}</span>
+            </button>
+          );
+        })}
       </div>
 
       {(data?.last_error || data?.refreshing) && !error && (
@@ -215,7 +261,7 @@ export default function Customers() {
                 Buscando no painel.fun...
               </td></tr>
             )}
-            {!isLoading && users.map((u, idx) => {
+            {!isLoading && filteredUsers.map((u, idx) => {
               const uid = String(pickField(u, ["id", "user_id", "username", "login"]) || idx);
               const username = pickField(u, ["username", "login", "user"]) || "-";
               const name = pickField(u, ["name", "full_name", "customer_name"]) || "-";
@@ -242,7 +288,19 @@ export default function Customers() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="uppercase text-xs px-2 py-1 rounded-md bg-white/[0.05]">{system}</span>
+                    {(() => {
+                      const st = SYSTEM_STYLES[system];
+                      return st ? (
+                        <span
+                          className={`uppercase text-[10px] font-semibold px-2 py-1 rounded-md border ${st.bg} ${st.text} ${st.border}`}
+                          data-testid={`system-badge-${uid}`}
+                        >
+                          {st.label}
+                        </span>
+                      ) : (
+                        <span className="uppercase text-xs px-2 py-1 rounded-md bg-white/[0.05]">{system}</span>
+                      );
+                    })()}
                     {mac && <div className="font-mono text-[9px] text-white/40 mt-0.5">{mac}</div>}
                   </td>
                   <td className="px-4 py-3 text-xs text-white/60">{expires ? formatDateBR(expires) : "—"}</td>
@@ -294,9 +352,11 @@ export default function Customers() {
                 </tr>
               );
             })}
-            {!isLoading && users.length === 0 && !error && (
+            {!isLoading && filteredUsers.length === 0 && !error && (
               <tr><td colSpan={8} className="px-4 py-12 text-center text-white/40">
-                Nenhum cliente encontrado no painel.fun
+                {users.length === 0
+                  ? "Nenhum cliente encontrado no painel.fun"
+                  : `Nenhum cliente ${systemFilter === "unknown" ? "sem sistema definido" : systemFilter.toUpperCase()} encontrado`}
               </td></tr>
             )}
           </tbody>

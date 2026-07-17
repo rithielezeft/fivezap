@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from database import DB_PATH
 from services import painel
 from services.phone_extractor import extract_whatsapp
+from services.system_detector import detect_system_type
 
 router = APIRouter(prefix="/api/painel", tags=["painel"])
 logger = logging.getLogger(__name__)
@@ -103,6 +104,8 @@ async def list_users(search: Optional[str] = None, background_tasks: BackgroundT
         extracted = extract_whatsapp(u)
         u["_whatsapp"] = extracted
         u["_has_whatsapp"] = bool(extracted)
+
+        u["_system_type"] = detect_system_type(u)
 
     if search:
         s = search.lower()
