@@ -21,15 +21,17 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 - Dashboard com métricas (testes hoje, ativos, vencendo, receita 7d, chart, distribuição)
-- CRUD Clientes (IPTV/P2P/Hybrid + MAC + credenciais painel)
+- CRUD Clientes locais (mantido) + **NOVA página Clientes puxada direto do painel.fun** com renovação e criação de teste inline
 - Trials — POST via api.controle.fit + 2Captcha Turnstile
-- Templates de comandos (bot lê msg do WhatsApp e cria teste)
-- WhatsApp: QR code, status, envio manual, incoming webhook processado pelo bot
+- **Templates de comandos com `trigger_source`**: cliente | admin | ambos (admin pode enviar comando ao cliente e o bot aciona o teste)
+- WhatsApp: QR code, status, envio manual (**agora com suporte a IMAGEM**), incoming webhook processado pelo bot
 - Conversas (histórico e envio)
 - Pagamentos via InfinitePay checkout (`/links`) + webhook renova via API
-- Configurações completas (todas as chaves)
+- **Notificações editáveis** com corpo + imagem opcional (5 eventos: 3d, 1d, 0d, renewal_success, trial_ready), com prévia estilo WhatsApp e botão "Enviar teste"
+- Scheduler: itera usuários do painel.fun a cada hora e envia cada mensagem personalizada com `{name}`, `{expires_at}`, `{pay_link}` (customer_id do painel), respeitando `notification_days`
+- **Preços em R$** (35,00 formato brasileiro) — internamente convertidos para centavos
+- Configurações completas
 - Público: `/teste` (form) e `/pay/{customer_id}` (planos)
-- Scheduler: notificações de vencimento via WhatsApp (dias configuráveis 3,1,0)
 
 ## Backlog / P1
 - Autenticação admin (senha) para o painel
