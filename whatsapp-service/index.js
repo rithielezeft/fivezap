@@ -87,50 +87,47 @@ client.on('message_create', async (msg) => {
     if (!body.trim()) return;
 
     const fromMe = !!msg.fromMe;
-    // Raw jid could be <phone>@c.us or <lid>@lid (new WhatsApp Web protocol).
+    // Raw jid — this is a valid WhatsApp identifier (either <phone>@c.us OR <lid>@lid).
+    // WhatsApp's new privacy feature: some users have @lid where the real phone is
+    // hidden. Instead of trying to resolve LID→phone (which often returns null),
+    // we FORWARD THE FULL JID to the backend and use it verbatim to send back.
     const rawJid = fromMe ? msg.to : msg.from;
+    if (!rawJid) return;
 
-    // Resolve to actual phone number. For @c.us the number is the digits before @.
-    // For @lid we need to look up the contact and get its .number property.
-    let phone = null;
-    let phoneSource = 'unknown';
+    // Extract a usable "phone identifier" — could be digits (@c.us) OR digits+@lid marker
+    // Backend uses this as the unique key AND as the chat target for sending back.
+    let phone;
+    if (rawJid.endsWith('@lid')) {
+      // Preserve @lid so backend knows to send back using LID chat
+      phone = rawJid;
+    } else if (rawJid.endsWith('@c.us')) {
+      phone = rawJid.split('@')[0];
+    } else {
+      phone = rawJid;
+    }
+
+    // Try to extract a display name for the customer
+    let displayName = null;
     try {
-      if (rawJid?.endsWith('@lid')) {
-        const contact = await client.getContactById(rawJid);
-        phone = contact?.number || null;
-        phoneSource = phone ? 'lid-resolved' : 'lid-unresolved';
-        // Fallback 1: contact.pushname may contain phone in some cases
-        // Fallback 2: check msg.rawData for pn (phone number) field
-        if (!phone && msg._data?.pn) {
-          phone = String(msg._data.pn).replace(/\D/g, '');
-          phoneSource = 'msg._data.pn';
-        }
-        if (!phone && msg.author?.includes('@c.us')) {
-          phone = msg.author.split('@')[0];
-          phoneSource = 'msg.author';
-        }
-        if (!phone) {
-          console.warn('[WA] Could NOT resolve LID → phone. Raw:', rawJid, 'contact:', contact?.id, 'msg._data.pn:', msg._data?.pn, 'author:', msg.author);
-        }
-      } else if (rawJid?.includes('@')) {
-        phone = rawJid.split('@')[0];
-        phoneSource = 'c.us';
-      } else {
-        phone = rawJid;
-        phoneSource = 'raw';
+      displayName = msg._data?.notifyName || msg.notifyName || null;
+      if (!displayName) {
+        const contact = await msg.getContact();
+        displayName = contact?.pushname || contact?.name || contact?.shortName || null;
       }
     } catch (e) {
-      console.warn('[WA] Contact lookup failed:', rawJid, e.message);
-      phone = null;
-      phoneSource = 'error';
+      // Non-fatal
     }
 
-    if (!phone || !/^\d{8,15}$/.test(String(phone))) {
-      console.warn('[WA] ⚠️  DROPPING message: invalid phone', { rawJid, phone, phoneSource, body: body.slice(0, 60) });
-      return;
-    }
+    console.log('[WA] message_create', {
+      from_me: fromMe, phone, name: displayName, body: body.slice(0, 80),
+    });
 
-    console.log('[WA] message_create', { from_me: fromMe, phone, phoneSource, body: body.slice(0, 80) });
+    await axios.post(BACKEND_WEBHOOK_URL, {
+      phone,
+      message: body,
+      from_me: fromMe,
+      name: displayName,
+    }, { timeout: 8000 });
 
     await axios.post(BACKEND_WEBHOOK_URL, {
       phone,
@@ -168,26 +165,32 @@ app.post('/send', async (req, res) => {
   if (!phone) return res.status(400).json({ error: 'phone required' });
   if (!ready) return res.status(503).json({ error: 'whatsapp not ready', state });
   try {
-    // Strip everything but digits (no +, no @c.us — getNumberId handles that)
-    const digits = String(phone).replace(/\D/g, '');
-    if (!digits) return res.status(400).json({ error: 'invalid phone (no digits)' });
-
-    // Resolve to a proper WhatsApp ID (handles LID conversion internally in 1.34.7+)
+    // Accept 3 input formats:
+    //   1. Full JID with @lid  → use as-is (LID chat, new privacy protocol)
+    //   2. Full JID with @c.us → use as-is
+    //   3. Plain digits         → resolve via getNumberId (registered check)
+    const input = String(phone).trim();
     let chatId;
-    try {
-      const numberId = await client.getNumberId(digits);
-      if (!numberId) {
-        console.warn('[WA] Number not registered on WhatsApp:', digits);
-        return res.status(404).json({
-          error: 'Este número não está no WhatsApp',
-          phone: digits,
-        });
+
+    if (input.endsWith('@lid') || input.endsWith('@c.us') || input.endsWith('@g.us')) {
+      chatId = input;
+    } else {
+      const digits = input.replace(/\D/g, '');
+      if (!digits) return res.status(400).json({ error: 'invalid phone (no digits)' });
+      try {
+        const numberId = await client.getNumberId(digits);
+        if (!numberId) {
+          console.warn('[WA] Number not registered on WhatsApp:', digits);
+          return res.status(404).json({
+            error: 'Este número não está no WhatsApp',
+            phone: digits,
+          });
+        }
+        chatId = numberId._serialized;
+      } catch (lidErr) {
+        console.warn('[WA] getNumberId failed, falling back to @c.us:', lidErr.message);
+        chatId = `${digits}@c.us`;
       }
-      chatId = numberId._serialized;
-    } catch (lidErr) {
-      // Fallback to old format if getNumberId fails outright
-      console.warn('[WA] getNumberId failed, falling back to @c.us:', lidErr.message);
-      chatId = `${digits}@c.us`;
     }
 
     let result;

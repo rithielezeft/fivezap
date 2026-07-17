@@ -3,6 +3,7 @@ import json
 import logging
 import aiosqlite
 from datetime import datetime, timezone
+from typing import Optional
 
 from database import DB_PATH
 from models import new_id, now_iso
@@ -31,7 +32,8 @@ async def save_message(phone: str, message: str, direction: str, customer_id: st
 
 
 async def find_or_create_customer(phone: str, name: str = None) -> dict:
-    """Find customer by whatsapp phone."""
+    """Find customer by whatsapp phone. If found and name is provided, update
+    the customer's display name (upgrading from JID/phone to real WhatsApp name)."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
@@ -39,28 +41,60 @@ async def find_or_create_customer(phone: str, name: str = None) -> dict:
         )
         row = await cur.fetchone()
         if row:
-            return dict(row)
+            existing = dict(row)
+            # Upgrade name if the current one is just the phone/JID and we have a real one
+            if name and existing.get("name") in (None, "", phone) and name != phone:
+                await db.execute(
+                    "UPDATE customers SET name = ?, updated_at = ? WHERE id = ?",
+                    (name, now_iso(), existing["id"]),
+                )
+                await db.commit()
+                existing["name"] = name
+            return existing
         # Create a lightweight customer record
         cid = new_id()
         now = now_iso()
+        display_name = name or phone
         await db.execute(
             "INSERT INTO customers (id, name, whatsapp, system_type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (cid, name or phone, phone, "unknown", "prospect", now, now),
+            (cid, display_name, phone, "unknown", "prospect", now, now),
         )
         await db.commit()
-        return {"id": cid, "name": name or phone, "whatsapp": phone, "system_type": "unknown"}
+        return {"id": cid, "name": display_name, "whatsapp": phone, "system_type": "unknown"}
 
 
 def normalize_phone(phone: str) -> str:
-    """Extract digits and strip whatsapp suffix."""
-    return "".join(c for c in phone if c.isdigit())
+    """Normalize phone/JID.
+
+    We preserve @lid suffix because WhatsApp's new privacy protocol uses LID
+    identifiers where the real phone number is hidden. For sending back we need
+    to use the exact same JID (not the digits alone).
+
+    Returns:
+      - '123@lid' → '123@lid' (kept intact — used as chat target)
+      - '5511987654321@c.us' → '5511987654321' (drop suffix, plain phone)
+      - '5511987654321' → '5511987654321' (already plain)
+    """
+    if not phone:
+        return ""
+    s = str(phone).strip()
+    if s.endswith("@lid"):
+        return s
+    if "@" in s:
+        return s.split("@")[0]
+    return "".join(c for c in s if c.isdigit())
 
 
-async def process_incoming_message(phone: str, body: str, from_me: bool = False):
+async def process_incoming_message(
+    phone: str,
+    body: str,
+    from_me: bool = False,
+    name: Optional[str] = None,
+):
     """Handle a message from Node service."""
     phone_clean = normalize_phone(phone)
     direction = "out" if from_me else "in"
-    customer = await find_or_create_customer(phone_clean)
+    customer = await find_or_create_customer(phone_clean, name)
     await save_message(phone_clean, body, direction, customer["id"])
 
     text = (body or "").strip()
@@ -150,7 +184,8 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
             system_type=matched["system_type"],
             mac=mac,
             name=customer.get("name") or phone_clean,
-            whatsapp=phone_clean,
+            # For LID chats we can't send a real phone to painel.fun — send only if plain
+            whatsapp=phone_clean if not phone_clean.endswith("@lid") else "",
         )
 
         # Store trial

@@ -3,6 +3,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 
 from services import whatsapp_client
 from services.bot import process_incoming_message
@@ -21,6 +22,7 @@ class IncomingPayload(BaseModel):
     phone: str
     message: str
     from_me: bool = False
+    name: Optional[str] = None
 
 
 @router.get("/status")
@@ -57,5 +59,7 @@ async def logout():
 async def incoming(payload: IncomingPayload):
     """Called by Node.js service when a message arrives on WhatsApp."""
     # Process asynchronously so we can return 200 immediately
-    asyncio.create_task(process_incoming_message(payload.phone, payload.message, payload.from_me))
+    asyncio.create_task(process_incoming_message(
+        payload.phone, payload.message, payload.from_me, payload.name,
+    ))
     return {"ok": True}
