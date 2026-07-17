@@ -1,0 +1,119 @@
+{
+  "theme_strategy": {
+    "theme": "dark",
+    "archetype": "Archetype 2: The Performance Pro (Tech/Data Focus)",
+    "description": "A high-visibility, technical command-center look optimized for IPTV resellers. Sharp lines, deep dark backgrounds, and vibrant accents to highlight critical data like active tests and WhatsApp connection status."
+  },
+  "typography": {
+    "headings": {
+      "family": "Cabinet Grotesk",
+      "weights": ["700", "800"],
+      "usage": "Dashboard titles, metric numbers, landing page heroes. Tightly tracked (tracking-tight)."
+    },
+    "body": {
+      "family": "IBM Plex Sans",
+      "weights": ["400", "500"],
+      "usage": "Data tables, forms, sidebar navigation, standard text. Geometrically precise and highly legible for data."
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "weights": ["400"],
+      "usage": "MAC addresses, command templates, API logs, and WhatsApp technical statuses."
+    }
+  },
+  "colors": {
+    "background": {
+      "default": "#050505",
+      "surface": "#121212",
+      "surface_hover": "#1A1A1A",
+      "surface_active": "#222222"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A1A1AA",
+      "tertiary": "#71717A",
+      "inverse": "#000000"
+    },
+    "brand": {
+      "primary": "#007AFF",
+      "primary_hover": "#005BB5",
+      "secondary": "#0A84FF"
+    },
+    "status": {
+      "success": "#34C759",
+      "success_bg": "rgba(52, 199, 89, 0.1)",
+      "warning": "#FF9F0A",
+      "error": "#FF3B30",
+      "error_bg": "rgba(255, 59, 48, 0.1)",
+      "whatsapp": "#25D366"
+    },
+    "borders": {
+      "default": "rgba(255, 255, 255, 0.1)",
+      "focus": "rgba(0, 122, 255, 0.5)"
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Tactile minimalism. Use flat dark backgrounds (`bg-[#121212]`) with a crisp 1px border (`border-white/10`). Avoid soft heavy shadows. For elevated elements like dropdowns, use Glassmorphism (`backdrop-blur-xl bg-black/80 border-white/10`).",
+    "whatsapp_qr": "CRITICAL: The WhatsApp QR code container MUST have a pure white background with padding (`bg-white p-4 rounded-xl`) to ensure phone cameras can scan it effectively, regardless of the dark theme.",
+    "buttons": "Pill-shaped or sharp slightly-rounded (`rounded-md`) buttons. Primary buttons use `bg-brand-primary text-white hover:bg-brand-primary_hover transition-colors`. No excessive gradients.",
+    "badges": "For Client Status (Ativo, Vencido) or System Type (IPTV, P2P, Hybrid), use solid or tinted badges (e.g., `bg-success_bg text-success border border-success/20`).",
+    "payment_card": "For the InfinitePay checkout block on `/pay/{customer_id}`, use 'The Tracing Beam' or a subtle glow effect behind the selected plan to drive conversion."
+  },
+  "layouts": {
+    "admin_dashboard": {
+      "structure": "Sidebar navigation (left) + Main content area. Mobile: Hamburger to slide-out drawer.",
+      "dashboard_grid": "Bento-style High Density Grid. Metrics: `grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4`. Recent activity/tables: `col-span-full xl:col-span-3`.",
+      "spacing": "Dense inside cards (`p-4` or `p-6`), generous between sections (`gap-6` or `gap-8`)."
+    },
+    "public_landing_teste": {
+      "structure": "Single column, deeply centered. `max-w-lg mx-auto pt-24 px-4`.",
+      "hero": "Bold H1 heading, tech-focused background, clean and trustworthy form asking for Name, WhatsApp, System Type (IPTV/P2P/Hybrid)."
+    },
+    "public_payment": {
+      "structure": "Split screen or centered focused container. Show Plan options (1m, 3m, 6m, 12m) as large toggleable cards, followed by InfinitePay action."
+    }
+  },
+  "components": {
+    "forms": "Use Shadcn UI Inputs and Selects. Ensure high contrast focus states (`focus:ring-2 focus:ring-brand-primary`).",
+    "tables": "Shadcn Table. Flat, dense. Use mono font for MAC addresses. Align numbers to the right, text to the left.",
+    "tabs": "Use Shadcn Tabs to switch between System Types (IPTV, P2P, Hybrid) in the client list.",
+    "modals": "Shadcn Dialog for 'Create Manual Test' and 'WhatsApp Chat History'. Overlay must be dark (`bg-black/80 backdrop-blur-sm`)."
+  },
+  "motion": {
+    "interactions": "Hover states on rows: `hover:bg-white/[0.02] transition-colors`. Button clicks: subtle scale down (`active:scale-95`).",
+    "page_transitions": "Fade in and slight slide up (`framer-motion`: `initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}`).",
+    "reduced_motion": "Respect `prefers-reduced-motion`."
+  },
+  "libraries": {
+    "icons": "@phosphor-icons/react (best for dense tech dashboards, use Duotone or Regular weights)",
+    "charts": "recharts (for displaying daily created tests and revenue metrics in the dashboard)",
+    "3d_and_effects": "react-tsparticles for the `/teste` public landing page to add a subtle drifting node/tech background, avoiding blank empty spaces."
+  },
+  "images": {
+    "public_background": {
+      "url": "https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHRlY2glMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4NDI4NzY4Nnww&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract blue lines and dots background. Use as a low-opacity fixed background layer on the public `/teste` and `/pay` routes.",
+      "category": "background"
+    },
+    "default_avatar": {
+      "url": "https://images.pexels.com/photos/27304923/pexels-photo-27304923.jpeg",
+      "description": "Default avatar for clients in the dashboard.",
+      "category": "avatar"
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure APCA/WCAG AA contrast. Text must be perfectly readable against #050505 and #121212 surfaces.",
+    "testing_attributes": "All inputs, buttons, and row actions MUST have `data-testid` (e.g., `data-testid='btn-create-test'`, `data-testid='input-whatsapp'`).",
+    "transparency_rule": "CRITICAL: Do not use fully transparent backgrounds for dropdowns, tooltips, or modals."
+  },
+  "universal_guidelines_for_main_agent": [
+    "Prioritize using pre-existing components from src/components/ui.",
+    "Do not apply global `transition: all` as it breaks specific transform animations.",
+    "Use 2-3x more spacing for structural layout gaps, but keep data tables dense.",
+    "Do not center-align everything; keep forms and data tables strictly left-aligned.",
+    "Never use generic AI emojis for icons. Use Phosphor Icons instead.",
+    "Use `sonner` for all toast notifications (success, error, payment updates).",
+    "For the dashboard layout, ensure the sidebar is fixed or sticky, and the main content scrolls independently.",
+    "Ensure all text is in Portuguese as requested by the problem statement."
+  ]
+}
