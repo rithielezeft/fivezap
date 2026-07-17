@@ -219,6 +219,43 @@ async def package_ids():
     return painel.PACKAGE_IDS
 
 
+@router.get("/debug-sample")
+async def debug_sample():
+    """Return the raw JSON of the FIRST cached user, plus the list of top-level
+    field names present across all users. Use this to discover the actual
+    field names used by painel.fun so we can add them to the extractors."""
+    users, updated_at = await _read_cache()
+    if not users:
+        return {
+            "error": "cache is empty — click 'Atualizar do painel' first",
+            "cache_updated_at": updated_at,
+        }
+
+    all_keys: dict[str, int] = {}
+    for u in users:
+        if isinstance(u, dict):
+            for k in u.keys():
+                if k.startswith("_"):
+                    continue  # skip our own enrichment fields
+                all_keys[k] = all_keys.get(k, 0) + 1
+
+    # Sort by frequency desc
+    field_summary = sorted(all_keys.items(), key=lambda x: -x[1])
+
+    # Strip our _-prefixed keys from the sample for clarity
+    sample = {k: v for k, v in users[0].items() if not str(k).startswith("_")}
+
+    return {
+        "total_users": len(users),
+        "cache_updated_at": updated_at,
+        "sample_first_user_raw": sample,
+        "all_field_names": [
+            {"field": f, "present_in_users": n, "coverage_pct": round(100 * n / len(users), 1)}
+            for f, n in field_summary
+        ],
+    }
+
+
 @router.get("/expiring")
 async def expiring_soon():
     """Preview which users would receive notifications now (does not send)."""

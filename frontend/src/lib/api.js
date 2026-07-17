@@ -112,6 +112,7 @@ export const painelApi = {
   packageIds: () => api.get("/painel/package-ids").then((r) => r.data),
   expiring: () => api.get("/painel/expiring").then((r) => r.data),
   notifyNow: () => api.post("/painel/notify-now", null, { timeout: 120000 }).then((r) => r.data),
+  debugSample: () => api.get("/painel/debug-sample").then((r) => r.data),
 };
 
 export function formatMoney(cents) {

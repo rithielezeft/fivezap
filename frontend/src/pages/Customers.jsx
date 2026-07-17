@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug } from "@phosphor-icons/react";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -75,6 +75,8 @@ export default function Customers() {
   const [trialFor, setTrialFor] = useState(null);
   const [systemFilter, setSystemFilter] = useState("all"); // all | iptv | p2p | hybrid | unknown
   const [statusFilter, setStatusFilter] = useState("all"); // all | active | expiring_soon | expired
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugData, setDebugData] = useState(null);
 
   // debounce search
   useState(() => {
@@ -104,6 +106,15 @@ export default function Customers() {
     mutationFn: painelApi.notifyNow,
     onSuccess: () => toast.success("Notificações enviadas aos clientes vencendo"),
     onError: (e) => toast.error("Falhou: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const debugMut = useMutation({
+    mutationFn: painelApi.debugSample,
+    onSuccess: (d) => {
+      setDebugData(d);
+      setDebugOpen(true);
+    },
+    onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
 
   const renewMut = useMutation({
@@ -169,6 +180,17 @@ export default function Customers() {
       }
       actions={
         <>
+          <Button
+            variant="outline"
+            className="border-white/10 hover:bg-white/[0.05] text-white/70"
+            onClick={() => debugMut.mutate()}
+            disabled={debugMut.isPending}
+            data-testid="btn-debug-fields"
+            title="Inspecionar campos brutos da API do painel.fun"
+          >
+            <Bug size={16} className="mr-2" />
+            {debugMut.isPending ? "Carregando..." : "Ver campos"}
+          </Button>
           <Button
             variant="outline"
             className="border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10"
@@ -494,6 +516,58 @@ export default function Customers() {
               {trialMut.isPending ? "Criando..." : "Criar teste"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* Debug: raw fields dialog */}
+      <Dialog open={debugOpen} onOpenChange={setDebugOpen}>
+        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display">Campos brutos do painel.fun</DialogTitle>
+          </DialogHeader>
+          {debugData?.error ? (
+            <p className="text-sm text-[#FF9F0A]">{debugData.error}</p>
+          ) : (
+            <div className="space-y-4 text-sm">
+              <div>
+                <div className="text-xs uppercase text-white/40 mb-2">
+                  Todos os campos encontrados ({debugData?.all_field_names?.length || 0}) —
+                  copie estes nomes e me envie
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {debugData?.all_field_names?.map((f) => (
+                    <span
+                      key={f.field}
+                      className="px-2 py-1 rounded-md bg-white/[0.05] border border-white/10 font-mono text-[11px]"
+                      title={`${f.present_in_users} usuários (${f.coverage_pct}%)`}
+                    >
+                      {f.field} <span className="text-white/40">{f.coverage_pct}%</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs uppercase text-white/40">
+                    Amostra do 1º usuário (JSON cru)
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      navigator.clipboard.writeText(JSON.stringify(debugData.sample_first_user_raw, null, 2));
+                      toast.success("JSON copiado");
+                    }}
+                    data-testid="btn-copy-debug-json"
+                  >
+                    <Copy size={14} className="mr-1" /> Copiar JSON
+                  </Button>
+                </div>
+                <pre className="text-[11px] bg-black/50 border border-white/10 rounded-lg p-3 overflow-x-auto font-mono max-h-96">
+                  {JSON.stringify(debugData?.sample_first_user_raw, null, 2)}
+                </pre>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </Layout>
