@@ -22,6 +22,32 @@ async def list_payments():
         return [Payment(**dict(r)) for r in await cur.fetchall()]
 
 
+@router.post("/test-link")
+async def test_infinitepay_link():
+    """Diagnostic endpoint: creates a $1 test link so you can confirm the
+    InfinitePay integration is working end-to-end. Returns the URL + which
+    method (api or direct) was used."""
+    public_base = await get_setting("public_base_url", "https://example.com")
+    order_nsu = f"test-{new_id()[:8]}"
+    try:
+        result = await infinitepay.create_payment_link(
+            order_nsu=order_nsu,
+            amount_cents=100,  # R$ 1,00
+            description="Teste de integração — WhatsFlow",
+            redirect_url=f"{public_base}/pay/test?ok=1",
+            webhook_url=f"{public_base}/api/payments/webhook",
+        )
+        return {
+            "success": True,
+            "url": result["url"],
+            "via": result.get("via", "unknown"),
+            "order_nsu": order_nsu,
+            "handle_configured": bool(await get_setting("infinitepay_handle")),
+        }
+    except Exception as e:
+        raise HTTPException(400, f"InfinitePay error: {e}")
+
+
 @router.post("")
 async def create_payment(payload: PaymentCreate):
     """Create InfinitePay checkout link for a customer renewal."""

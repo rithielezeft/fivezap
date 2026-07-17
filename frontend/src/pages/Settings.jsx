@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
-import { settingsApi, painelApi } from "@/lib/api";
+import { settingsApi, painelApi, paymentsApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +64,19 @@ export default function Settings() {
     },
   });
 
+  const [payTestResult, setPayTestResult] = useState(null);
+  const testPayMut = useMutation({
+    mutationFn: paymentsApi.testLink,
+    onSuccess: (r) => {
+      setPayTestResult(r);
+      toast.success(`Link gerado via ${r.via.toUpperCase()}`);
+    },
+    onError: (e) => {
+      setPayTestResult({ success: false, error: e.response?.data?.detail || e.message });
+      toast.error("Falhou: " + (e.response?.data?.detail || e.message));
+    },
+  });
+
   const handleSave = () => {
     const changes = {};
     for (const f of FIELDS) {
@@ -104,7 +117,52 @@ export default function Settings() {
                   {testMut.isPending ? "Testando (pode levar 60s)..." : "Testar conexão"}
                 </Button>
               )}
+              {groupKey === "pay" && (
+                <Button
+                  variant="outline"
+                  className="border-white/10 hover:bg-white/[0.05]"
+                  onClick={() => { setPayTestResult(null); testPayMut.mutate(); }}
+                  disabled={testPayMut.isPending}
+                  data-testid="btn-test-infinitepay"
+                >
+                  <Coin size={16} className={"mr-2 " + (testPayMut.isPending ? "animate-pulse" : "")} />
+                  {testPayMut.isPending ? "Gerando..." : "Testar link R$ 1,00"}
+                </Button>
+              )}
             </div>
+
+            {groupKey === "pay" && payTestResult && (
+              <div className={
+                "mb-4 p-3 rounded-lg border text-xs " +
+                (payTestResult.success !== false
+                  ? "border-[#34C759]/30 bg-[#34C759]/5"
+                  : "border-[#FF3B30]/30 bg-[#FF3B30]/5")
+              }>
+                {payTestResult.success !== false ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-[#34C759] font-medium">
+                      <CheckCircle size={14} /> Link gerado com sucesso (via {payTestResult.via?.toUpperCase()})
+                    </div>
+                    <div className="font-mono text-white/60 break-all">
+                      order_nsu: {payTestResult.order_nsu}
+                    </div>
+                    <a
+                      href={payTestResult.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-block text-[#5AC8FA] underline break-all"
+                      data-testid="test-link-url"
+                    >
+                      {payTestResult.url}
+                    </a>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-[#FF3B30]">
+                    <WarningCircle size={14} /> {payTestResult.error}
+                  </div>
+                )}
+              </div>
+            )}
 
             {groupKey === "painel" && testResult && (
               <div className={
