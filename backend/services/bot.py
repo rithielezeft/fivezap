@@ -227,11 +227,45 @@ async def process_incoming_message(
 
         # Compose response
         template = matched["response_template"] or (
-            "✅ Teste {system_type} criado!\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira em: {expires}"
+            "✅ Teste {system_type} criado!\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira em: {expires}\n\n💳 Já quer garantir sua assinatura? {pay_link}"
         )
         from database import get_setting as _get_setting
+
         public_base = await _get_setting("public_base_url", "")
-        pay_link = f"{public_base}/pay/{trial_user_id or painel_user or ''}" if public_base and (trial_user_id or painel_user) else ""
+        checkout_link = ""
+        pay_links_by_plan: dict = {}
+
+        # Try to generate InfinitePay direct links for each plan.
+        # We create ONE link (monthly / 1m) as the default {pay_link}, and
+        # optionally {pay_link_3m}, {pay_link_6m}, {pay_link_12m} for admins
+        # who want to offer multiple options in the same message.
+        if trial_user_id or painel_user:
+            for months in (1, 3, 6, 12):
+                try:
+                    price_raw = await _get_setting(f"plan_price_{months}m", "35,00")
+                    amount_cents = int(round(float(str(price_raw).replace(",", ".").strip()) * 100))
+                    if amount_cents <= 0:
+                        continue
+                    from services import infinitepay
+                    result_link = await infinitepay.create_payment_link(
+                        order_nsu=f"trial-{trial_id[:8]}-{months}m",
+                        amount_cents=amount_cents,
+                        description=f"Assinatura {matched['system_type'].upper()} — {months} {'mês' if months == 1 else 'meses'}",
+                        redirect_url=f"{public_base}/pay/{trial_user_id or painel_user}?ok=1" if public_base else None,
+                        webhook_url=f"{public_base}/api/payments/webhook" if public_base else None,
+                        customer_name=customer.get("name"),
+                        customer_phone=phone_clean if not phone_clean.endswith("@lid") else None,
+                    )
+                    pay_links_by_plan[months] = result_link["url"]
+                    if months == 1:
+                        checkout_link = result_link["url"]
+                except Exception as pay_err:
+                    logger.warning("Failed to generate InfinitePay link for %dm: %s", months, pay_err)
+
+        # Fallback: static /pay/{id} page (renders our own checkout UI) if
+        # InfinitePay is not configured or all attempts failed.
+        if not checkout_link and public_base and (trial_user_id or painel_user):
+            checkout_link = f"{public_base}/pay/{trial_user_id or painel_user}"
 
         response = (template
                     .replace("{system_type}", matched["system_type"].upper())
@@ -240,7 +274,11 @@ async def process_incoming_message(
                     .replace("{expires}", expires or "24h")
                     .replace("{mac}", mac or "-")
                     .replace("{name}", customer.get("name") or "")
-                    .replace("{pay_link}", pay_link))
+                    .replace("{pay_link}", checkout_link or "")
+                    .replace("{pay_link_1m}", pay_links_by_plan.get(1, checkout_link) or "")
+                    .replace("{pay_link_3m}", pay_links_by_plan.get(3, "") or "")
+                    .replace("{pay_link_6m}", pay_links_by_plan.get(6, "") or "")
+                    .replace("{pay_link_12m}", pay_links_by_plan.get(12, "") or ""))
 
         await whatsapp_client.send_message(phone_clean, response)
         await save_message(phone_clean, response, "out", customer["id"])
@@ -256,7 +294,11 @@ async def process_incoming_message(
                 "expires": expires or "",
                 "system_type": (matched["system_type"] or "").upper(),
                 "mac": mac or "",
-                "pay_link": pay_link,
+                "pay_link": checkout_link,
+                "pay_link_1m": pay_links_by_plan.get(1, checkout_link) or "",
+                "pay_link_3m": pay_links_by_plan.get(3, "") or "",
+                "pay_link_6m": pay_links_by_plan.get(6, "") or "",
+                "pay_link_12m": pay_links_by_plan.get(12, "") or "",
             }
             await _schedule_reminder("trial_1h_reminder", phone_clean, 60 * 60, ctx)
             await _schedule_reminder("trial_expired", phone_clean, 3 * 60 * 60, ctx)
