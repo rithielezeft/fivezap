@@ -142,6 +142,44 @@ async def status():
     }
 
 
+@router.get("/test-connection")
+async def test_connection():
+    """Log into painel.fun and return credits + account info."""
+    try:
+        info = await painel.get_account_info()
+        data = info.get("data", {})
+
+        # Try common credit field names
+        def dig(obj, keys):
+            if not isinstance(obj, dict):
+                return None
+            for k in keys:
+                v = obj.get(k)
+                if v is not None:
+                    return v
+            # nested lookup
+            for v in obj.values():
+                if isinstance(v, dict):
+                    r = dig(v, keys)
+                    if r is not None:
+                        return r
+            return None
+
+        credits = dig(data, ["credits", "credit", "balance", "saldo", "creditos", "available_credits"])
+        username = dig(data, ["username", "login", "name", "email"])
+
+        return {
+            "success": True,
+            "credits": credits,
+            "username": username,
+            "path": info.get("path"),
+            "raw": data if isinstance(data, dict) and len(str(data)) < 2000 else "<truncated>",
+        }
+    except Exception as e:
+        logger.exception("test_connection failed")
+        return {"success": False, "error": str(e)}
+
+
 @router.post("/renew")
 async def renew(payload: RenewPayload):
     """Manually renew a painel user by ID."""

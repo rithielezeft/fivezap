@@ -107,6 +107,7 @@ export const painelApi = {
   listUsers: (params) => api.get("/painel/users", { params }).then((r) => r.data),
   refresh: () => api.post("/painel/users/refresh").then((r) => r.data),
   status: () => api.get("/painel/status").then((r) => r.data),
+  testConnection: () => api.get("/painel/test-connection", { timeout: 120000 }).then((r) => r.data),
   renew: (data) => api.post("/painel/renew", data).then((r) => r.data),
   packageIds: () => api.get("/painel/package-ids").then((r) => r.data),
 };

@@ -185,6 +185,38 @@ async def list_users(limit: int = 500, search: str = None) -> list:
     raise RuntimeError("Nenhum endpoint de listagem funcionou. Tentativas: " + " | ".join(attempts))
 
 
+async def get_account_info() -> dict:
+    """Fetch account info + credits from painel.fun."""
+    token = await login()
+    base = await get_setting("painel_base_url")
+
+    def _get(path, tok):
+        return cffi_requests.get(
+            f"{base}{path}",
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+            },
+            impersonate="chrome124",
+            timeout=60,
+        )
+
+    attempts = []
+    for path in ("/api/user/me", "/api/me", "/api/account", "/api/user", "/api/credits", "/api/dashboard"):
+        try:
+            resp = await asyncio.to_thread(_get, path, token)
+            attempts.append(f"{path}={resp.status_code}")
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"path": path, "data": data, "attempts": attempts}
+        except Exception as e:
+            attempts.append(f"{path}=EXC")
+            logger.warning("account info %s failed: %s", path, e)
+    raise RuntimeError("Nenhum endpoint de conta encontrado. Tentativas: " + " | ".join(attempts))
+
+
 async def renew_user(user_id: str, package_id: int) -> dict:
     """Renew existing user via painel API."""
     token = await login()
