@@ -16,7 +16,11 @@ let state = 'starting';
 let lastError = null;
 
 const path = require('path');
-const SESSION_DIR = process.env.WA_SESSION_DIR || path.join(__dirname, '.wwebjs_auth');
+const os = require('os');
+// Session dir OUTSIDE git repo — avoids EACCES and git pull conflicts.
+// Default: ~/.whatsflow/wwebjs_auth. Override via WA_SESSION_DIR env.
+const SESSION_DIR = process.env.WA_SESSION_DIR || path.join(os.homedir(), '.whatsflow', 'wwebjs_auth');
+console.log('[WA] Session dir:', SESSION_DIR);
 
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: SESSION_DIR }),
