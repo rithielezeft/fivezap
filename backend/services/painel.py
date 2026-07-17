@@ -185,12 +185,17 @@ async def create_trial(
     if mac and system_type in ("iptv", "hybrid"):
         payload["mac"] = mac
         payload["macaddr"] = mac
+    # painel.fun expects `system` as integer: 1=IPTV, 2=P2P, 3=Hybrid
+    system_int_map = {"iptv": 1, "p2p": 2, "hybrid": 3}
     if system_type:
         payload["system_type"] = system_type
+        system_int = system_int_map.get(system_type.lower())
+        if system_int is not None:
+            payload["system"] = system_int
 
     logger.info(
-        "create_trial payload username=%s system=%s mac=%s",
-        username, system_type, mac,
+        "create_trial payload username=%s system=%s (int=%s) mac=%s",
+        username, system_type, payload.get("system"), mac,
     )
 
     def _post_trial(tok):
@@ -239,7 +244,7 @@ async def create_trial(
     if system_type in ("p2p", "hybrid"):
         try:
             trial_id = result.get("id") or result.get("user_id") or username
-            await resync_user(str(trial_id))
+            await resync_user(str(trial_id), system_type=system_type)
             logger.info("Resync OK for %s user id=%s", system_type, trial_id)
         except Exception as e:
             logger.warning("Resync failed for %s (non-fatal): %s", username, e)
@@ -346,14 +351,16 @@ async def list_users(limit: int = 10000, search: str = None) -> list:
         raise RuntimeError(f"Falha ao listar usuários: {e}")
 
 
-async def resync_user(user_id: str) -> dict:
-    """Trigger a resync/refresh on painel.fun for a newly-created P2P/Hybrid user.
+async def resync_user(user_id: str, system_type: Optional[str] = None) -> dict:
+    """Trigger a resync on painel.fun for a newly-created P2P/Hybrid user.
 
-    P2P and Hybrid require this so the bouquet/playlist is loaded into the
-    streaming server after trial creation. Without it, the client sees
-    "invalid credentials" or empty channels.
+    Uses the exact endpoints provided by painel.fun:
+      - P2P:    POST /api/users/{id}/resync_p2p
+      - Hybrid: POST /api/users/{id}/resync_hybrid
 
-    Tries the common painel.fun endpoints in order — first 2xx wins.
+    Without this call, P2P/Hybrid trials show "invalid credentials" or an
+    empty channel list because the bouquet/playlist isn't loaded on the
+    streaming server yet.
     """
     token = await login()
     base = await get_setting("painel_base_url")
@@ -371,24 +378,28 @@ async def resync_user(user_id: str) -> dict:
             timeout=60,
         )
 
-    attempts = []
-    for path in (
-        f"/api/users/{user_id}/resync",
-        f"/api/users/{user_id}/refresh",
-        f"/api/users/{user_id}/reload",
-        f"/api/user/{user_id}/resync",
-        f"/api/trial_users/{user_id}/resync",
-    ):
-        try:
-            resp = await asyncio.to_thread(_post, path, token)
-            attempts.append(f"{path}→{resp.status_code}")
-            if resp.status_code < 400:
-                logger.info("Resync succeeded via %s", path)
-                return {"endpoint": path, "response": resp.text[:300]}
-        except Exception as e:
-            attempts.append(f"{path}→EXC:{e}")
+    # Map system_type → exact resync endpoint. Default to p2p for backward compat.
+    endpoint_map = {
+        "p2p": f"/api/users/{user_id}/resync_p2p",
+        "hybrid": f"/api/users/{user_id}/resync_hybrid",
+    }
+    key = (system_type or "p2p").lower()
+    path = endpoint_map.get(key, endpoint_map["p2p"])
 
-    raise RuntimeError("Nenhum endpoint de resync funcionou. Tentativas: " + " | ".join(attempts))
+    try:
+        resp = await asyncio.to_thread(_post, path, token)
+        if resp.status_code == 401:
+            new_token = await login(force=True)
+            resp = await asyncio.to_thread(_post, path, new_token)
+        if resp.status_code < 400:
+            logger.info("Resync OK via %s (HTTP %s)", path, resp.status_code)
+            return {"endpoint": path, "status": resp.status_code, "response": resp.text[:300]}
+        logger.error("Resync failed %s HTTP %s: %s", path, resp.status_code, resp.text[:300])
+        raise RuntimeError(f"Resync failed {path}: HTTP {resp.status_code} — {resp.text[:200]}")
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Resync exception on {path}: {e}")
 
 
 

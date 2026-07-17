@@ -20,6 +20,9 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FIX 2026-02-P0]** `create_trial` agora envia `system` como inteiro no payload: 1=IPTV, 2=P2P, 3=Hybrid (bug: P2P estava sendo criado como IPTV no painel externo)
+- **[FIX 2026-02-P0]** `resync_user` usa endpoints exatos do painel.fun: `/api/users/{id}/resync_p2p` e `/api/users/{id}/resync_hybrid` (substituiu loop de URLs adivinhadas)
+
 - Dashboard com métricas (testes hoje, ativos, vencendo, receita 7d, chart, distribuição)
 - CRUD Clientes locais (mantido) + **NOVA página Clientes puxada direto do painel.fun** com renovação e criação de teste inline
 - Trials — POST via api.controle.fit + 2Captcha Turnstile + curl_cffi (bypass Cloudflare TLS)
