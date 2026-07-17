@@ -108,9 +108,9 @@ done
 
 # ----- 3) Puxar mudanças -----
 echo "▶ Baixando atualizações do GitHub..." | tee -a "$LOG_FILE"
-git stash push -u -m "auto-update-${STAMP}" 2>/dev/null || true
+sudo -u "$APP_USER" git stash push -u -m "auto-update-${STAMP}" 2>/dev/null || true
 
-git fetch origin
+sudo -u "$APP_USER" git fetch origin
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 [ "$BRANCH" = "HEAD" ] && BRANCH="main"
 
@@ -120,7 +120,7 @@ if [ "$CURRENT_COMMIT" = "$NEW_COMMIT" ]; then
   echo "   (Prosseguindo com reinstalação de deps e restart mesmo assim.)"
 fi
 
-git reset --hard "origin/$BRANCH" | tee -a "$LOG_FILE"
+sudo -u "$APP_USER" git reset --hard "origin/$BRANCH" | tee -a "$LOG_FILE"
 
 # Restaura DB + .env preservados
 [ -f "$BACKUP_DIR/whatsflow.db" ] && cp -f "$BACKUP_DIR/whatsflow.db" backend/whatsflow.db
@@ -196,7 +196,7 @@ fi
 # ----- ROLLBACK -----
 echo "❌ Health check falhou! Fazendo rollback para $CURRENT_COMMIT..." | tee -a "$LOG_FILE"
 cd "$APP_DIR"
-git reset --hard "$CURRENT_COMMIT" | tee -a "$LOG_FILE"
+sudo -u "$APP_USER" git reset --hard "$CURRENT_COMMIT" | tee -a "$LOG_FILE"
 [ -f "$BACKUP_DIR/whatsflow.db" ] && cp -f "$BACKUP_DIR/whatsflow.db" backend/whatsflow.db
 [ -f "$BACKUP_DIR/backend.env"  ] && cp -f "$BACKUP_DIR/backend.env"  backend/.env
 systemctl restart whatsflow-backend
