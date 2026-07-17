@@ -25,6 +25,53 @@ async def list_templates():
         return [_row_to_template(r) for r in await cur.fetchall()]
 
 
+@router.get("/bot-diagnostics")
+async def bot_diagnostics():
+    """Return recent bot activity + templates to diagnose why the bot may not
+    be responding to a client message.
+
+    Shows: last 20 messages, last 20 activity_logs (bot_trigger/no_match/trial_error),
+    all templates with their enabled state.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Templates summary
+        cur = await db.execute("SELECT id, name, trigger_command, system_type, enabled, trigger_source, requires_mac FROM command_templates ORDER BY created_at DESC")
+        templates = [dict(r) for r in await cur.fetchall()]
+        for t in templates:
+            t["enabled"] = bool(t["enabled"])
+            t["requires_mac"] = bool(t["requires_mac"])
+        enabled_count = sum(1 for t in templates if t["enabled"])
+
+        # Recent messages (last 20)
+        cur = await db.execute(
+            "SELECT phone, message, direction, timestamp FROM messages ORDER BY timestamp DESC LIMIT 20"
+        )
+        recent_messages = [dict(r) for r in await cur.fetchall()]
+
+        # Recent bot events
+        cur = await db.execute(
+            "SELECT type, message, status, created_at FROM activity_logs "
+            "WHERE type IN ('bot_trigger','bot_no_match','bot_no_templates','trial_created','trial_error') "
+            "ORDER BY created_at DESC LIMIT 20"
+        )
+        recent_events = [dict(r) for r in await cur.fetchall()]
+
+    return {
+        "templates_total": len(templates),
+        "templates_enabled": enabled_count,
+        "templates": templates,
+        "recent_messages": recent_messages,
+        "recent_bot_events": recent_events,
+        "hint": (
+            "Se templates_enabled = 0, o bot NUNCA responde. Configure ao menos "
+            "1 template ativo. Se recent_bot_events tem 'bot_no_match', a mensagem "
+            "do cliente não bate com nenhum trigger cadastrado."
+        ),
+    }
+
+
 @router.post("", response_model=Template)
 async def create_template(payload: TemplateCreate):
     tid = new_id()

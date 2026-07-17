@@ -63,8 +63,12 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
     customer = await find_or_create_customer(phone_clean)
     await save_message(phone_clean, body, direction, customer["id"])
 
-    # Only process bot commands from client (incoming) or from admin (from_me)
-    text = body.strip()
+    text = (body or "").strip()
+    logger.info(
+        "process_incoming: phone=%s from_me=%s text=%r customer=%s",
+        phone_clean, from_me, text[:80], customer["id"],
+    )
+
     if not text:
         return
 
@@ -76,9 +80,23 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
         )
         templates = [dict(r) for r in await cur.fetchall()]
 
+    logger.info("Loaded %d enabled command_templates", len(templates))
+
+    if not templates:
+        # Loud alert: no templates = bot won't respond to anyone
+        logger.warning(
+            "⚠️  NENHUM template ativo em command_templates. Configure em /templates "
+            "no painel WhatsFlow ou o bot NUNCA vai responder."
+        )
+        await log_activity(
+            "bot_no_templates",
+            f"Mensagem recebida mas nenhum template ativo. Texto: {text[:100]}",
+            customer["id"], "warning",
+        )
+        return
+
     matched = None
     for tpl in templates:
-        # Respect trigger_source: client | admin | both
         source = (tpl.get("trigger_source") or "both").lower()
         if from_me and source == "client":
             continue
@@ -87,21 +105,32 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
         trigger = tpl["trigger_command"].strip().lower()
         if text.lower().startswith(trigger):
             matched = tpl
+            logger.info("Matched template '%s' (trigger=%r)", tpl["name"], trigger)
             break
 
     if not matched:
+        available = ", ".join(t["trigger_command"] for t in templates)
+        logger.info(
+            "No template matched. Text=%r (available triggers: %s)",
+            text[:80], available,
+        )
+        await log_activity(
+            "bot_no_match",
+            f"'{text[:60]}' não bateu com nenhum template. Disponíveis: {available}",
+            customer["id"], "info",
+        )
         return
 
     # Extract MAC if needed
     remainder = text[len(matched["trigger_command"]):].strip()
     mac = None
     if matched["requires_mac"]:
-        # Look for a mac-like pattern (12 hex chars with optional separators)
         import re
         m = re.search(r"([0-9A-Fa-f]{2}[:\-]?){5}[0-9A-Fa-f]{2}", remainder)
         if m:
             mac = m.group(0).upper()
         else:
+            logger.info("Requires MAC but none in message — asking client")
             await whatsapp_client.send_message(
                 phone_clean,
                 f"⚠️ Para criar teste {matched['system_type'].upper()} preciso do seu MAC.\nEnvie: {matched['trigger_command']} AA:BB:CC:DD:EE:FF"
@@ -110,6 +139,10 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
             return
 
     await log_activity("bot_trigger", f"Comando '{matched['trigger_command']}' de {phone_clean}", customer["id"], "info")
+    logger.info(
+        "Creating trial via painel.fun: system=%s mac=%s customer=%s",
+        matched["system_type"], mac, customer["id"],
+    )
 
     try:
         # Call painel.fun to create trial
@@ -181,8 +214,12 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
 
     except Exception as e:
         logger.exception("Failed to create trial: %s", e)
+        # Show detailed error to help debugging — the client will see the actual reason
+        err_short = str(e)[:200] if str(e) else "erro desconhecido"
         await whatsapp_client.send_message(
             phone_clean,
-            f"❌ Ocorreu um erro ao criar seu teste. Já avisamos o suporte."
+            f"❌ Não conseguimos criar seu teste agora.\n\n"
+            f"Motivo: {err_short}\n\n"
+            f"Já avisamos o suporte, tente novamente em alguns minutos."
         )
-        await log_activity("trial_error", str(e), customer["id"], "error")
+        await log_activity("trial_error", str(e)[:500], customer["id"], "error")
