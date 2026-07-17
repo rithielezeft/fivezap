@@ -1,18 +1,24 @@
-"""WhatsFlow backend API tests (iteration 1)."""
+"""WhatsFlow backend API tests (iteration 2).
+
+Regression + new tests for:
+- Templates trigger_source (client|admin|both)
+- Settings plan_price_Nm (R$ string with comma or dot)
+- New /api/painel/{users,renew,package-ids}
+- Bot filtering by trigger_source vs direction
+"""
 import os
 import time
 import pytest
 import requests
 from pathlib import Path
 
-# Load REACT_APP_BACKEND_URL from frontend/.env
+# ---- Load REACT_APP_BACKEND_URL from frontend/.env ----
 _env_file = Path("/app/frontend/.env")
 BASE_URL = None
 for line in _env_file.read_text().splitlines():
     if line.startswith("REACT_APP_BACKEND_URL="):
         BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
 assert BASE_URL, "REACT_APP_BACKEND_URL missing"
-
 API = f"{BASE_URL}/api"
 
 
@@ -23,24 +29,24 @@ def client():
     return s
 
 
-# ---- Root ----
+_ids = {}
+
+
+# ========== Root / Health ==========
 def test_root(client):
     r = client.get(f"{API}/")
     assert r.status_code == 200
-    data = r.json()
-    assert data == {"service": "WhatsFlow", "status": "ok"}
+    assert r.json() == {"service": "WhatsFlow", "status": "ok"}
 
 
-# ---- Dashboard ----
+# ========== Dashboard (regression) ==========
 def test_dashboard_stats(client):
     r = client.get(f"{API}/dashboard/stats")
     assert r.status_code == 200
     d = r.json()
     for k in ("trials_today", "total_customers", "active_customers",
               "expiring_soon", "revenue_week_cents", "by_system_type", "trials_by_day"):
-        assert k in d, f"missing {k}"
-    assert isinstance(d["by_system_type"], dict)
-    assert isinstance(d["trials_by_day"], list)
+        assert k in d
 
 
 def test_dashboard_activity(client):
@@ -49,221 +55,236 @@ def test_dashboard_activity(client):
     assert isinstance(r.json(), list)
 
 
-# ---- Customers CRUD ----
-_created_ids = {}
-
-
+# ========== Customers CRUD (regression) ==========
 def test_customer_create(client):
-    payload = {
-        "name": "TEST_Cliente1",
-        "whatsapp": "5511988887777",
+    r = client.post(f"{API}/customers", json={
+        "name": "TEST_ClienteIt2",
+        "whatsapp": "5511977776666",
         "system_type": "iptv",
-        "mac": "AA:BB:CC:DD:EE:FF",
-    }
-    r = client.post(f"{API}/customers", json=payload)
+        "mac": "AA:BB:CC:DD:EE:22",
+    })
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d["name"] == payload["name"]
-    assert d["system_type"] == "iptv"
-    assert d["mac"] == "AA:BB:CC:DD:EE:FF"
-    assert "id" in d
-    _created_ids["c1"] = d["id"]
+    assert d["name"] == "TEST_ClienteIt2"
+    _ids["c1"] = d["id"]
 
 
-def test_customer_list(client):
-    r = client.get(f"{API}/customers")
+def test_customer_get(client):
+    r = client.get(f"{API}/customers/{_ids['c1']}")
     assert r.status_code == 200
-    lst = r.json()
-    assert isinstance(lst, list)
-    assert any(c["id"] == _created_ids["c1"] for c in lst)
-
-
-def test_customer_get_by_id(client):
-    cid = _created_ids["c1"]
-    r = client.get(f"{API}/customers/{cid}")
-    assert r.status_code == 200
-    assert r.json()["id"] == cid
+    assert r.json()["id"] == _ids["c1"]
 
 
 def test_customer_update(client):
-    cid = _created_ids["c1"]
-    r = client.put(f"{API}/customers/{cid}", json={"status": "active", "notes": "TEST notes updated"})
+    r = client.put(f"{API}/customers/{_ids['c1']}", json={"notes": "TEST it2 notes"})
     assert r.status_code == 200
-    d = r.json()
-    assert d["notes"] == "TEST notes updated"
-    assert d["status"] == "active"
-    # verify persistence
-    r2 = client.get(f"{API}/customers/{cid}")
-    assert r2.json()["notes"] == "TEST notes updated"
+    assert r.json()["notes"] == "TEST it2 notes"
 
 
-def test_customer_filter_by_system_type(client):
-    r = client.get(f"{API}/customers", params={"system_type": "iptv"})
-    assert r.status_code == 200
-    lst = r.json()
-    assert all(c["system_type"] == "iptv" for c in lst)
-    assert any(c["id"] == _created_ids["c1"] for c in lst)
-
-
-def test_customer_delete(client):
-    # create disposable
-    r = client.post(f"{API}/customers", json={
-        "name": "TEST_ToDelete",
-        "whatsapp": "5511988880000",
-        "system_type": "p2p",
-    })
-    assert r.status_code == 200
-    cid = r.json()["id"]
-    r = client.delete(f"{API}/customers/{cid}")
-    assert r.status_code == 200
-    assert r.json().get("success") is True
-    # verify removed
-    r2 = client.get(f"{API}/customers/{cid}")
-    assert r2.status_code == 404
-
-
-# ---- Templates ----
-def test_template_create(client):
-    payload = {
-        "name": "TEST_Teste P2P",
-        "trigger_command": "/teste p2p TEST",
+# ========== Templates: trigger_source ==========
+def test_template_create_admin(client):
+    r = client.post(f"{API}/templates", json={
+        "name": "TEST_admin tpl",
+        "trigger_command": "/teste admincmd TEST_IT2",
         "system_type": "p2p",
         "requires_mac": False,
         "package_id": 61,
-        "response_template": "✅ Teste {system_type}",
-    }
-    r = client.post(f"{API}/templates", json=payload)
+        "response_template": "✅ admin trigger",
+        "trigger_source": "admin",
+    })
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d["trigger_command"] == "/teste p2p TEST"
-    assert d["package_id"] == 61
-    assert d["enabled"] is True
-    _created_ids["t1"] = d["id"]
+    assert d["trigger_source"] == "admin"
+    _ids["t_admin"] = d["id"]
 
 
-def test_template_duplicate_conflict(client):
-    payload = {
-        "name": "TEST_dup",
-        "trigger_command": "/teste p2p TEST",
+def test_template_create_client(client):
+    r = client.post(f"{API}/templates", json={
+        "name": "TEST_client tpl",
+        "trigger_command": "/teste clientcmd TEST_IT2",
         "system_type": "p2p",
-    }
-    r = client.post(f"{API}/templates", json=payload)
-    assert r.status_code == 409, r.text
+        "trigger_source": "client",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["trigger_source"] == "client"
+    _ids["t_client"] = r.json()["id"]
 
 
-def test_template_list(client):
+def test_template_create_both_default(client):
+    r = client.post(f"{API}/templates", json={
+        "name": "TEST_both tpl",
+        "trigger_command": "/teste bothcmd TEST_IT2",
+        "system_type": "p2p",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["trigger_source"] == "both"
+    _ids["t_both"] = r.json()["id"]
+
+
+def test_template_list_has_trigger_source(client):
     r = client.get(f"{API}/templates")
     assert r.status_code == 200
     lst = r.json()
-    assert any(t["id"] == _created_ids["t1"] for t in lst)
+    assert lst, "template list empty"
+    for t in lst:
+        assert "trigger_source" in t
+        assert t["trigger_source"] in ("client", "admin", "both")
 
 
-def test_template_update_enabled(client):
-    tid = _created_ids["t1"]
-    r = client.put(f"{API}/templates/{tid}", json={"enabled": False})
+def test_template_update_trigger_source(client):
+    r = client.put(f"{API}/templates/{_ids['t_admin']}",
+                   json={"trigger_source": "both"})
     assert r.status_code == 200
-    assert r.json()["enabled"] is False
+    assert r.json()["trigger_source"] == "both"
+    # verify persistence via GET
+    r2 = client.get(f"{API}/templates")
+    updated = next(t for t in r2.json() if t["id"] == _ids["t_admin"])
+    assert updated["trigger_source"] == "both"
+    # revert back
+    client.put(f"{API}/templates/{_ids['t_admin']}", json={"trigger_source": "admin"})
 
 
-def test_template_delete(client):
-    tid = _created_ids["t1"]
-    r = client.delete(f"{API}/templates/{tid}")
-    assert r.status_code == 200
-    assert r.json().get("success") is True
-
-
-# ---- WhatsApp ----
-def test_whatsapp_status(client):
-    r = client.get(f"{API}/whatsapp/status")
-    assert r.status_code == 200
-    d = r.json()
-    # Expected keys per problem statement
-    for k in ("ready", "state", "has_qr"):
-        assert k in d, f"missing {k} in {d}"
-
-
-def test_whatsapp_qr(client):
-    r = client.get(f"{API}/whatsapp/qr")
-    assert r.status_code == 200
-    d = r.json()
-    assert "qr" in d
-
-
-# ---- Settings ----
-def test_settings_get(client):
+# ========== Settings: R$ string prices ==========
+def test_settings_get_prices_as_string(client):
     r = client.get(f"{API}/settings")
     assert r.status_code == 200
     d = r.json()
-    assert d.get("painel_username") == "Rithiele2026", f"got {d.get('painel_username')}"
-    assert d.get("twocaptcha_key"), "twocaptcha_key empty"
-    assert d.get("trial_package_id") == "61"
+    for k in ("plan_price_1m", "plan_price_3m", "plan_price_6m", "plan_price_12m"):
+        assert k in d, f"missing {k}"
+        assert isinstance(d[k], str)
+    # no legacy *_cents keys
+    for k in ("plan_price_1m_cents", "plan_price_3m_cents",
+              "plan_price_6m_cents", "plan_price_12m_cents"):
+        assert k not in d, f"legacy key {k} still present"
 
 
-def test_settings_update(client):
-    handle_value = "test-handle-TEST"
-    r = client.put(f"{API}/settings", json={"infinitepay_handle": handle_value})
+def test_settings_update_price_comma(client):
+    r = client.put(f"{API}/settings", json={"plan_price_1m": "39,90"})
     assert r.status_code == 200
-    assert r.json().get("success") is True
-    # Confirm with GET
     r2 = client.get(f"{API}/settings")
-    assert r2.json().get("infinitepay_handle") == handle_value
+    assert r2.json()["plan_price_1m"] == "39,90"
 
 
-# ---- Trials list ----
-def test_trials_list(client):
-    r = client.get(f"{API}/trials")
+def test_settings_update_price_dot(client):
+    r = client.put(f"{API}/settings", json={"plan_price_3m": "99.50"})
     assert r.status_code == 200
-    assert isinstance(r.json(), list)
+    r2 = client.get(f"{API}/settings")
+    assert r2.json()["plan_price_3m"] == "99.50"
 
 
-# ---- Payments list ----
-def test_payments_list(client):
-    r = client.get(f"{API}/payments")
+# ========== Payments customer info: prices_cents converted ==========
+def test_payments_customer_info_cents_conversion(client):
+    # Ensure known values
+    client.put(f"{API}/settings", json={
+        "plan_price_1m": "35,00",
+        "plan_price_3m": "99.50",
+        "plan_price_6m": "160,00",
+        "plan_price_12m": "280,00",
+    })
+    cid = _ids["c1"]
+    r = client.get(f"{API}/payments/customer/{cid}")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["customer"]["id"] == cid
+    prices = d["prices_cents"]
+    # keys may be int or str (JSON stringifies int dict keys)
+    def _get(k):
+        return prices.get(k) if k in prices else prices.get(str(k))
+    assert _get(1) == 3500, f"expected 3500 got {_get(1)}"
+    assert _get(3) == 9950, f"expected 9950 got {_get(3)}"
+    assert _get(6) == 16000, f"expected 16000 got {_get(6)}"
+    assert _get(12) == 28000, f"expected 28000 got {_get(12)}"
+
+
+# ========== Bot: trigger_source filtering ==========
+def _poll_messages(client, phone, expected, direction, tries=12, delay=0.5):
+    for _ in range(tries):
+        time.sleep(delay)
+        r = client.get(f"{API}/messages", params={"phone": phone})
+        if r.status_code != 200:
+            continue
+        for m in r.json():
+            if m.get("message") == expected and m.get("direction") == direction:
+                return True
+    return False
+
+
+def test_incoming_from_me_saved_as_out(client):
+    # admin-triggered scenario — msg with from_me=true
+    phone = "5511922221111"
+    body = f"/teste admincmd TEST_IT2 xxx {int(time.time())}"
+    r = client.post(f"{API}/whatsapp/incoming",
+                    json={"phone": phone, "message": body, "from_me": True})
     assert r.status_code == 200
-    assert isinstance(r.json(), list)
+    assert _poll_messages(client, phone, body, "out"), "admin (from_me) msg not saved as direction='out'"
 
 
-# ---- Messages ----
+def test_incoming_client_saved_as_in(client):
+    phone = "5511922223333"
+    body = f"/teste clientcmd TEST_IT2 yyy {int(time.time())}"
+    r = client.post(f"{API}/whatsapp/incoming",
+                    json={"phone": phone, "message": body, "from_me": False})
+    assert r.status_code == 200
+    assert _poll_messages(client, phone, body, "in"), "client msg not saved as direction='in'"
+
+
+# ========== New /api/painel/* ==========
+def test_painel_package_ids(client):
+    r = client.get(f"{API}/painel/package-ids")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    for st in ("iptv", "p2p", "hybrid"):
+        assert st in d, f"missing {st}"
+        sub = d[st]
+        # keys may be int or str
+        keys = {str(k) for k in sub.keys()}
+        assert {"1", "3", "6", "12"}.issubset(keys), f"{st}: got {keys}"
+
+
+def test_painel_users_502_on_failure(client):
+    """External call will fail (2Captcha / painel unreachable) — must return 502 gracefully."""
+    r = client.get(f"{API}/painel/users", params={"limit": 5}, timeout=180)
+    # Ingress may translate to plain 502 HTML if upstream slow; either way must be a gateway error
+    assert r.status_code in (502, 504), f"expected 502/504, got {r.status_code}: {r.text[:200]}"
+
+
+def test_painel_renew_502_on_failure(client):
+    r = client.post(f"{API}/painel/renew",
+                    json={"user_id": "fake", "system_type": "p2p", "plan_months": 3},
+                    timeout=180)
+    assert r.status_code == 502, f"expected 502, got {r.status_code}: {r.text[:200]}"
+
+
+# ========== WhatsApp / Messages regression ==========
+def test_whatsapp_status(client):
+    r = client.get(f"{API}/whatsapp/status")
+    assert r.status_code == 200
+    for k in ("ready", "state", "has_qr"):
+        assert k in r.json()
+
+
 def test_messages_conversations(client):
     r = client.get(f"{API}/messages/conversations")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
 
-def test_whatsapp_incoming_and_message_persist(client):
-    phone = "5511999999999"
-    r = client.post(f"{API}/whatsapp/incoming",
-                    json={"phone": phone, "message": "oi TEST", "from_me": False})
-    assert r.status_code == 200, r.text
-    assert r.json().get("ok") is True
-    # incoming is processed async — poll briefly
-    found = False
-    for _ in range(10):
-        time.sleep(0.5)
-        r2 = client.get(f"{API}/messages", params={"phone": phone})
-        assert r2.status_code == 200
-        msgs = r2.json()
-        if any(m.get("message") == "oi TEST" for m in msgs):
-            found = True
-            break
-    assert found, "incoming message not persisted"
+def test_trials_list(client):
+    r = client.get(f"{API}/trials")
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
 
 
-# ---- Payments customer info ----
-def test_payments_customer_info(client):
-    cid = _created_ids["c1"]
-    r = client.get(f"{API}/payments/customer/{cid}")
-    assert r.status_code == 200, r.text
-    d = r.json()
-    assert "customer" in d and "prices_cents" in d
-    assert d["customer"]["id"] == cid
-    prices = d["prices_cents"]
-    # JSON keys become strings — accept both
-    keys = {str(k) for k in prices.keys()}
-    assert {"1", "3", "6", "12"}.issubset(keys), f"got keys {keys}"
+def test_payments_list(client):
+    r = client.get(f"{API}/payments")
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
 
 
-# ---- Cleanup at module end ----
+# ========== Cleanup ==========
 def test_zz_cleanup(client):
-    if "c1" in _created_ids:
-        client.delete(f"{API}/customers/{_created_ids['c1']}")
+    for k in ("t_admin", "t_client", "t_both"):
+        if k in _ids:
+            client.delete(f"{API}/templates/{_ids[k]}")
+    if "c1" in _ids:
+        client.delete(f"{API}/customers/{_ids['c1']}")

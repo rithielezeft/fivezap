@@ -33,8 +33,14 @@ async def create_payment(payload: PaymentCreate):
             raise HTTPException(404, "Customer not found")
         customer = dict(customer)
 
-    price_key = f"plan_price_{payload.plan_months}m_cents"
-    amount = int(await get_setting(price_key, "3500"))
+    price_key = f"plan_price_{payload.plan_months}m"
+    price_str = await get_setting(price_key, "35,00")
+    # Convert "35,00" or "35.00" to cents
+    normalized = price_str.replace(",", ".").strip()
+    try:
+        amount = int(round(float(normalized) * 100))
+    except ValueError:
+        amount = 3500
     package_id = painel.get_package_id(customer["system_type"], payload.plan_months)
 
     public_base = await get_setting("public_base_url")
@@ -146,6 +152,10 @@ async def get_customer_payment_info(customer_id: str):
 
     prices = {}
     for m in (1, 3, 6, 12):
-        prices[m] = int(await get_setting(f"plan_price_{m}m_cents", "3500"))
+        v = await get_setting(f"plan_price_{m}m", "35,00")
+        try:
+            prices[m] = int(round(float(v.replace(",", ".").strip()) * 100))
+        except ValueError:
+            prices[m] = 3500
 
     return {"customer": customer, "prices_cents": prices}

@@ -78,6 +78,12 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
 
     matched = None
     for tpl in templates:
+        # Respect trigger_source: client | admin | both
+        source = (tpl.get("trigger_source") or "both").lower()
+        if from_me and source == "client":
+            continue
+        if not from_me and source == "admin":
+            continue
         trigger = tpl["trigger_command"].strip().lower()
         if text.lower().startswith(trigger):
             matched = tpl

@@ -62,6 +62,12 @@ export const publicApi = {
   requestTrial: (data) => api.post("/public/trial", data).then((r) => r.data),
 };
 
+export const painelApi = {
+  listUsers: (params) => api.get("/painel/users", { params }).then((r) => r.data),
+  renew: (data) => api.post("/painel/renew", data).then((r) => r.data),
+  packageIds: () => api.get("/painel/package-ids").then((r) => r.data),
+};
+
 export function formatMoney(cents) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }

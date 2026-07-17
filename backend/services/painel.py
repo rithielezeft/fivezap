@@ -115,7 +115,37 @@ async def create_trial(
         return resp.json()
 
 
-async def renew_user(user_id: str, package_id: int) -> dict:
+async def list_users(limit: int = 500, search: str = None) -> list:
+    """List users from painel.fun. Tries common endpoints."""
+    token = await login()
+    base = await get_setting("painel_base_url")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        # Try /api/users first, then fallbacks
+        for path in ("/api/users", "/api/customers", "/api/clients"):
+            try:
+                params = {"limit": limit}
+                if search:
+                    params["search"] = search
+                resp = await client.get(f"{base}{path}", headers=headers, params=params)
+                if resp.status_code == 401:
+                    # Retry with fresh token
+                    fresh_token = await login(force=True)
+                    resp = await client.get(f"{base}{path}", headers={"Authorization": f"Bearer {fresh_token}"}, params=params)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list):
+                        return data
+                    if isinstance(data, dict):
+                        return data.get("data") or data.get("users") or data.get("items") or []
+            except Exception as e:
+                logger.warning("list_users %s error: %s", path, e)
+                continue
+    raise RuntimeError("Nenhum endpoint de listagem de usuários funcionou (/api/users, /api/customers, /api/clients)")
+
+
+
     """Renew existing user via painel API."""
     token = await login()
     base = await get_setting("painel_base_url")

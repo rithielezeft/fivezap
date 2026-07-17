@@ -21,6 +21,7 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
     package_id: initial?.package_id ?? 61,
     response_template: initial?.response_template || "✅ Teste {system_type} criado!\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira: {expires}",
     enabled: initial?.enabled ?? true,
+    trigger_source: initial?.trigger_source || "both",
   });
 
   return (
@@ -30,7 +31,7 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
         <Input data-testid="input-template-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Teste P2P automático" />
       </div>
       <div className="col-span-2">
-        <Label>Comando (o que o cliente envia)</Label>
+        <Label>Comando</Label>
         <Input data-testid="input-template-trigger" className="font-mono" value={f.trigger_command} onChange={(e) => setF({ ...f, trigger_command: e.target.value })} placeholder="/teste p2p" />
       </div>
       <div>
@@ -45,13 +46,24 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
         </Select>
       </div>
       <div>
+        <Label>Quem dispara o comando</Label>
+        <Select value={f.trigger_source} onValueChange={(v) => setF({ ...f, trigger_source: v })}>
+          <SelectTrigger data-testid="select-trigger-source"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="both">Ambos (cliente + admin)</SelectItem>
+            <SelectItem value="client">Só cliente envia</SelectItem>
+            <SelectItem value="admin">Só admin envia (você → cliente)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="col-span-2">
         <Label>Package ID (teste)</Label>
         <Input type="number" value={f.package_id} onChange={(e) => setF({ ...f, package_id: parseInt(e.target.value) || 0 })} />
       </div>
       <div className="col-span-2 flex items-center justify-between p-3 rounded-md bg-white/[0.03] border border-white/10">
         <div>
           <div className="text-sm font-medium">Requer MAC</div>
-          <div className="text-xs text-white/50">Se ativado, o bot pede o MAC quando o cliente enviar o comando</div>
+          <div className="text-xs text-white/50">Se ativado, o bot pede o MAC quando o comando for enviado</div>
         </div>
         <Switch data-testid="switch-requires-mac" checked={f.requires_mac} onCheckedChange={(v) => setF({ ...f, requires_mac: v })} />
       </div>
@@ -120,7 +132,9 @@ export default function Templates() {
                 </div>
                 <div>
                   <div className="font-medium">{t.name}</div>
-                  <div className="text-[10px] uppercase tracking-widest text-white/40">{t.system_type}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-white/40">
+                    {t.system_type} · {t.trigger_source === "client" ? "cliente" : t.trigger_source === "admin" ? "admin" : "ambos"}
+                  </div>
                 </div>
               </div>
               <span className={"text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " + (t.enabled ? "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30" : "bg-white/5 text-white/40 border-white/10")}>

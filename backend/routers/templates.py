@@ -13,6 +13,7 @@ def _row_to_template(row) -> Template:
     d = dict(row)
     d["requires_mac"] = bool(d["requires_mac"])
     d["enabled"] = bool(d["enabled"])
+    d["trigger_source"] = d.get("trigger_source") or "both"
     return Template(**d)
 
 
@@ -30,10 +31,10 @@ async def create_template(payload: TemplateCreate):
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             await db.execute(
-                "INSERT INTO command_templates (id, name, trigger_command, system_type, requires_mac, package_id, response_template, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO command_templates (id, name, trigger_command, system_type, requires_mac, package_id, response_template, enabled, trigger_source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (tid, payload.name, payload.trigger_command.strip(), payload.system_type,
                  int(payload.requires_mac), payload.package_id, payload.response_template,
-                 int(payload.enabled), now_iso()),
+                 int(payload.enabled), payload.trigger_source, now_iso()),
             )
             await db.commit()
         except aiosqlite.IntegrityError:

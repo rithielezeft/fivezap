@@ -17,10 +17,10 @@ const FIELDS = [
   { key: "turnstile_sitekey", label: "Turnstile — sitekey", group: "captcha" },
   { key: "turnstile_pageurl", label: "Turnstile — pageurl", group: "captcha" },
   { key: "infinitepay_handle", label: "InfinitePay — Handle (InfiniteTag)", group: "pay" },
-  { key: "plan_price_1m_cents", label: "Preço 1 mês (centavos)", group: "pay" },
-  { key: "plan_price_3m_cents", label: "Preço 3 meses (centavos)", group: "pay" },
-  { key: "plan_price_6m_cents", label: "Preço 6 meses (centavos)", group: "pay" },
-  { key: "plan_price_12m_cents", label: "Preço 12 meses (centavos)", group: "pay" },
+  { key: "plan_price_1m", label: "Preço 1 mês (R$)", group: "pay", placeholder: "35,00" },
+  { key: "plan_price_3m", label: "Preço 3 meses (R$)", group: "pay", placeholder: "90,00" },
+  { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },
+  { key: "plan_price_12m", label: "Preço 12 meses (R$)", group: "pay", placeholder: "280,00" },
   { key: "notification_days", label: "Dias antes do vencimento p/ notificar (ex: 3,1,0)", group: "notify" },
   { key: "public_base_url", label: "URL pública (WhatsFlow)", group: "notify" },
   { key: "timezone", label: "Fuso horário", group: "notify" },
@@ -80,6 +80,7 @@ export default function Settings() {
                   <Label className="text-xs">{f.label}</Label>
                   <Input
                     type={f.type || "text"}
+                    placeholder={f.placeholder || ""}
                     className={f.key.includes("mac") ? "font-mono" : ""}
                     value={form[f.key] ?? ""}
                     onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}

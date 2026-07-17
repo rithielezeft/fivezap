@@ -83,6 +83,7 @@ class TemplateCreate(BaseModel):
     package_id: Optional[int] = None
     response_template: Optional[str] = None
     enabled: bool = True
+    trigger_source: str = "both"  # client | admin | both
 
 
 class TemplateUpdate(BaseModel):
@@ -93,6 +94,7 @@ class TemplateUpdate(BaseModel):
     package_id: Optional[int] = None
     response_template: Optional[str] = None
     enabled: Optional[bool] = None
+    trigger_source: Optional[str] = None
 
 
 class Template(BaseModel):
@@ -104,6 +106,7 @@ class Template(BaseModel):
     package_id: Optional[int] = None
     response_template: Optional[str] = None
     enabled: bool
+    trigger_source: str = "both"
     created_at: str
 
 
@@ -155,10 +158,10 @@ class SettingsUpdate(BaseModel):
     trial_package_id: Optional[str] = None
     public_base_url: Optional[str] = None
     timezone: Optional[str] = None
-    plan_price_1m_cents: Optional[str] = None
-    plan_price_3m_cents: Optional[str] = None
-    plan_price_6m_cents: Optional[str] = None
-    plan_price_12m_cents: Optional[str] = None
+    plan_price_1m: Optional[str] = None
+    plan_price_3m: Optional[str] = None
+    plan_price_6m: Optional[str] = None
+    plan_price_12m: Optional[str] = None
 
 
 # ---- Public trial request ----

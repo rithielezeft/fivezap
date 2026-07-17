@@ -1,3 +1,3 @@
-2026/07/17-11:49:39.710 3fc Reusing MANIFEST /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/MANIFEST-000001
-2026/07/17-11:49:39.720 3fc Recovering log #3
-2026/07/17-11:49:39.722 3fc Reusing old log /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/000003.log 
+2026/07/17-12:07:17.252 dd6 Reusing MANIFEST /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/MANIFEST-000001
+2026/07/17-12:07:17.257 dd6 Recovering log #3
+2026/07/17-12:07:17.258 dd6 Reusing old log /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/000003.log 

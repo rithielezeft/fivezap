@@ -70,6 +70,7 @@ async def init_db():
                 package_id INTEGER,
                 response_template TEXT,
                 enabled INTEGER DEFAULT 1,
+                trigger_source TEXT DEFAULT 'both',
                 created_at TEXT NOT NULL
             );
 
@@ -129,16 +130,23 @@ async def init_db():
             "trial_package_id": "61",
             "public_base_url": "https://whatsflow.zeferius.com",
             "timezone": "America/Sao_Paulo",
-            "plan_price_1m_cents": "3500",
-            "plan_price_3m_cents": "9000",
-            "plan_price_6m_cents": "16000",
-            "plan_price_12m_cents": "28000",
+            "plan_price_1m": "35,00",
+            "plan_price_3m": "90,00",
+            "plan_price_6m": "160,00",
+            "plan_price_12m": "280,00",
         }
         for key, value in defaults.items():
             await db.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                 (key, value),
             )
+        # Migration: add trigger_source column if missing
+        try:
+            await db.execute("ALTER TABLE command_templates ADD COLUMN trigger_source TEXT DEFAULT 'both'")
+        except Exception:
+            pass
+        # Cleanup: remove old *_cents price keys (kept if you rely on them)
+        await db.execute("DELETE FROM settings WHERE key IN ('plan_price_1m_cents','plan_price_3m_cents','plan_price_6m_cents','plan_price_12m_cents')")
         await db.commit()
 
 
