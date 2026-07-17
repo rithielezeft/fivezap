@@ -121,23 +121,52 @@ async def create_trial(
 ) -> dict:
     """Create a trial user via POST /api/trial_users.
 
-    Painel.fun requires `username` and `password` in the payload; we auto-generate
-    both from the phone number + a random 6-char suffix.
+    Username format: `{firstname}{last_2_digits_of_phone}new` (e.g., guilherme44new).
+    Falls back to `test{phone_tail}{rand}` if name is missing.
+    Password: 8 random chars.
     """
     import secrets
     import string
+    import re
+    import unicodedata
 
     token = await login()
     base = await get_setting("painel_base_url")
     package_id = int(await get_setting("trial_package_id") or "61")
 
-    # Auto-generate credentials if not provided
     def _rand(n=6):
         return "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(n))
 
-    # Username = short phone tail + suffix, all lowercase, safe chars
-    phone_tail = "".join(c for c in (whatsapp or "") if c.isdigit())[-6:] or _rand(6)
-    username = f"test{phone_tail}{_rand(3)}"
+    def _slugify_first_name(s: str) -> str:
+        """Extract first alphabetic word, remove accents, keep only [a-z], max 15 chars.
+
+        Skips leading words that have no ASCII letters (emojis, punctuation).
+        """
+        if not s:
+            return ""
+        for word in s.strip().split():
+            # Remove accents (é→e, ã→a, ç→c)
+            normalized = unicodedata.normalize("NFKD", word).encode("ascii", "ignore").decode("ascii")
+            # Keep only letters
+            cleaned = re.sub(r"[^a-zA-Z]", "", normalized).lower()
+            if cleaned:
+                return cleaned[:15]
+        return ""
+
+    # Build username: {firstname}{last_2_digits}new
+    digits_only = "".join(c for c in (whatsapp or "") if c.isdigit())
+    last2 = digits_only[-2:] if len(digits_only) >= 2 else ""
+    first_name = _slugify_first_name(name or "")
+
+    if first_name and last2:
+        username = f"{first_name}{last2}new"
+    elif first_name:
+        username = f"{first_name}{_rand(2)}new"
+    else:
+        # Fallback: no name available — use phone tail + random
+        phone_tail = digits_only[-6:] or _rand(6)
+        username = f"test{phone_tail}{_rand(3)}"
+
     password = _rand(8)
 
     payload: dict = {
@@ -182,15 +211,39 @@ async def create_trial(
     if resp.status_code == 401:
         token = await login(force=True)
         resp = await asyncio.to_thread(_post_trial, token)
+
+    # If username already exists on painel.fun, retry once with a short random suffix
+    if resp.status_code >= 400 and any(
+        keyword in resp.text.lower()
+        for keyword in ("já existe", "already exist", "already taken", "duplicate", "username")
+    ):
+        logger.warning("Username '%s' rejected (%s), retrying with suffix", username, resp.text[:100])
+        username_retry = f"{username[:12]}{_rand(2)}"
+        payload["username"] = username_retry
+        resp = await asyncio.to_thread(_post_trial, token)
+        if resp.status_code < 400:
+            username = username_retry  # store the new one for response
+
     if resp.status_code >= 400:
         logger.error("Create trial failed %s: %s", resp.status_code, resp.text[:400])
         raise RuntimeError(f"Create trial failed: {resp.status_code} — {resp.text[:200]}")
 
     result = resp.json() if resp.text else {}
-    # Ensure username/password we generated are in the response (painel may not echo them)
     if isinstance(result, dict):
         result.setdefault("username", username)
         result.setdefault("password", password)
+
+    # For P2P and Hybrid systems, painel.fun requires a resync after trial creation
+    # so the newly-created bouquet/playlist becomes active on the streaming server.
+    # Without this, the client sees "invalid credentials" or empty channel list.
+    if system_type in ("p2p", "hybrid"):
+        try:
+            trial_id = result.get("id") or result.get("user_id") or username
+            await resync_user(str(trial_id))
+            logger.info("Resync OK for %s user id=%s", system_type, trial_id)
+        except Exception as e:
+            logger.warning("Resync failed for %s (non-fatal): %s", username, e)
+
     return result
 
 
@@ -291,6 +344,52 @@ async def list_users(limit: int = 10000, search: str = None) -> list:
     except Exception as e:
         logger.exception("list_users failed")
         raise RuntimeError(f"Falha ao listar usuários: {e}")
+
+
+async def resync_user(user_id: str) -> dict:
+    """Trigger a resync/refresh on painel.fun for a newly-created P2P/Hybrid user.
+
+    P2P and Hybrid require this so the bouquet/playlist is loaded into the
+    streaming server after trial creation. Without it, the client sees
+    "invalid credentials" or empty channels.
+
+    Tries the common painel.fun endpoints in order — first 2xx wins.
+    """
+    token = await login()
+    base = await get_setting("painel_base_url")
+    hdrs = {
+        "Origin": "https://painel.fun",
+        "Referer": "https://painel.fun/",
+        "Accept": "application/json, text/plain, */*",
+    }
+
+    def _post(path, tok):
+        return cffi_requests.post(
+            f"{base}{path}",
+            headers={**hdrs, "Authorization": f"Bearer {tok}"},
+            impersonate="chrome124",
+            timeout=60,
+        )
+
+    attempts = []
+    for path in (
+        f"/api/users/{user_id}/resync",
+        f"/api/users/{user_id}/refresh",
+        f"/api/users/{user_id}/reload",
+        f"/api/user/{user_id}/resync",
+        f"/api/trial_users/{user_id}/resync",
+    ):
+        try:
+            resp = await asyncio.to_thread(_post, path, token)
+            attempts.append(f"{path}→{resp.status_code}")
+            if resp.status_code < 400:
+                logger.info("Resync succeeded via %s", path)
+                return {"endpoint": path, "response": resp.text[:300]}
+        except Exception as e:
+            attempts.append(f"{path}→EXC:{e}")
+
+    raise RuntimeError("Nenhum endpoint de resync funcionou. Tentativas: " + " | ".join(attempts))
+
 
 
 async def get_account_info() -> dict:
