@@ -60,6 +60,40 @@ async def create_trial(payload: TrialCreate):
 
     await log_activity("trial_created", f"Teste {payload.system_type} criado manualmente", payload.customer_id, "success", result)
 
+    # Fire trial_ready + schedule 1h/3h reminders (only if we have a phone)
+    phone = payload.whatsapp
+    if not phone and payload.customer_id:
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                db.row_factory = aiosqlite.Row
+                cur = await db.execute("SELECT whatsapp, name FROM customers WHERE id = ?", (payload.customer_id,))
+                row = await cur.fetchone()
+                if row:
+                    phone = row["whatsapp"]
+                    payload_name = payload.name or row["name"]
+                else:
+                    payload_name = payload.name
+        except Exception:
+            payload_name = payload.name
+    else:
+        payload_name = payload.name
+
+    if phone:
+        try:
+            from services.trial_flow import post_trial_flow
+            await post_trial_flow(
+                phone=phone,
+                name=payload_name or "",
+                system_type=payload.system_type,
+                painel_user=painel_user or "",
+                painel_pass=painel_pass or "",
+                expires_at=expires or "",
+                mac=payload.mac,
+                painel_user_id=trial_user_id,
+            )
+        except Exception:
+            logger.exception("post_trial_flow failed")
+
     return {
         "id": trial_id,
         "painel_user": painel_user,

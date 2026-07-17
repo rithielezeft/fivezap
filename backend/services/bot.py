@@ -145,17 +145,39 @@ async def process_incoming_message(phone: str, body: str, from_me: bool = False)
         template = matched["response_template"] or (
             "✅ Teste {system_type} criado!\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira em: {expires}"
         )
+        from database import get_setting as _get_setting
+        public_base = await _get_setting("public_base_url", "")
+        pay_link = f"{public_base}/pay/{trial_user_id or painel_user or ''}" if public_base and (trial_user_id or painel_user) else ""
+
         response = (template
                     .replace("{system_type}", matched["system_type"].upper())
                     .replace("{user}", painel_user or "-")
                     .replace("{pass}", painel_pass or "-")
                     .replace("{expires}", expires or "24h")
                     .replace("{mac}", mac or "-")
-                    .replace("{name}", customer.get("name") or ""))
+                    .replace("{name}", customer.get("name") or "")
+                    .replace("{pay_link}", pay_link))
 
         await whatsapp_client.send_message(phone_clean, response)
         await save_message(phone_clean, response, "out", customer["id"])
         await log_activity("trial_created", f"Teste {matched['system_type']} criado para {phone_clean}", customer["id"], "success", result)
+
+        # Schedule 1h + 3h reminders
+        try:
+            from services.reminders import schedule as _schedule_reminder
+            ctx = {
+                "name": customer.get("name") or "",
+                "user": painel_user or "",
+                "pass": painel_pass or "",
+                "expires": expires or "",
+                "system_type": (matched["system_type"] or "").upper(),
+                "mac": mac or "",
+                "pay_link": pay_link,
+            }
+            await _schedule_reminder("trial_1h_reminder", phone_clean, 60 * 60, ctx)
+            await _schedule_reminder("trial_expired", phone_clean, 3 * 60 * 60, ctx)
+        except Exception:
+            logger.exception("Failed to schedule trial reminders")
 
     except Exception as e:
         logger.exception("Failed to create trial: %s", e)

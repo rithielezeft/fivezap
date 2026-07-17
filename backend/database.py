@@ -129,6 +129,18 @@ async def init_db():
                 data TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS scheduled_reminders (
+                id TEXT PRIMARY KEY,
+                event_key TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                context TEXT NOT NULL,
+                send_at TEXT NOT NULL,
+                sent INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_reminders_pending ON scheduled_reminders(sent, send_at);
             """
         )
         await db.commit()
@@ -186,7 +198,19 @@ async def init_db():
             {
                 "event_key": "trial_ready",
                 "title": "Teste criado",
-                "body": "✅ Teste {system_type} criado com sucesso!\n\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira em: {expires}\n\nAproveite! Se quiser contratar, é só chamar 😉",
+                "body": "✅ Teste {system_type} criado com sucesso!\n\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira em: {expires}\n\nGostou? Já garanta seu plano:\n{pay_link}",
+                "image_url": "",
+            },
+            {
+                "event_key": "trial_1h_reminder",
+                "title": "Lembrete 1h após teste",
+                "body": "Oi {name}, já faz *1h* que você começou o teste do sistema {system_type}. 😊\n\nGostou da qualidade? Aproveita e já contrata seu plano com condição especial:\n{pay_link}\n\nSuas credenciais continuam ativas:\n👤 {user}  🔑 {pass}",
+                "image_url": "",
+            },
+            {
+                "event_key": "trial_expired",
+                "title": "Teste finalizado (3h)",
+                "body": "⏰ {name}, seu teste do sistema {system_type} chegou ao fim.\n\nGostou do que viu? Assine agora e continue assistindo sem interrupções:\n{pay_link}\n\nQualquer dúvida é só chamar! 💬",
                 "image_url": "",
             },
         ]

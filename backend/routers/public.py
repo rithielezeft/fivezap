@@ -65,6 +65,22 @@ async def public_request_trial(payload: PublicTrialRequest):
 
     await log_activity("public_trial_created", f"Teste solicitado por {payload.name}", customer_id, "success")
 
+    # Fire trial_ready + schedule 1h/3h reminders
+    try:
+        from services.trial_flow import post_trial_flow
+        await post_trial_flow(
+            phone=phone_digits,
+            name=payload.name,
+            system_type=payload.system_type,
+            painel_user=painel_user,
+            painel_pass=painel_pass,
+            expires_at=expires,
+            mac=payload.mac,
+            painel_user_id=str(result.get("id") or result.get("user_id") or ""),
+        )
+    except Exception:
+        logger.exception("post_trial_flow failed")
+
     return {
         "user": painel_user,
         "password": painel_pass,

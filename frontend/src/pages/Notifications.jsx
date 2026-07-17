@@ -64,7 +64,19 @@ const EVENT_META = {
     icon: "🎁",
     color: "#007AFF",
     description: "Enviado quando um teste é criado (via /teste ou WhatsApp)",
-    vars: ["{name}", "{user}", "{pass}", "{expires}", "{system_type}", "{mac}"],
+    vars: ["{name}", "{user}", "{pass}", "{expires}", "{system_type}", "{mac}", "{pay_link}"],
+  },
+  trial_1h_reminder: {
+    icon: "⏱️",
+    color: "#5AC8FA",
+    description: "Enviado 1 hora após a criação do teste (upsell)",
+    vars: ["{name}", "{user}", "{pass}", "{system_type}", "{pay_link}"],
+  },
+  trial_expired: {
+    icon: "🏁",
+    color: "#FF9F0A",
+    description: "Enviado 3 horas após a criação (fim do teste)",
+    vars: ["{name}", "{system_type}", "{pay_link}"],
   },
 };
 

@@ -16,8 +16,9 @@ load_dotenv(ROOT_DIR / ".env")
 
 from database import init_db
 from services.scheduler import check_expirations_loop
+from services.reminders import reminder_loop
 from services.auth import seed_admin_password, is_public, require_admin
-from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads
+from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads, reminders
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,9 +71,11 @@ async def lifespan(app: FastAPI):
     await init_db()
     await seed_admin_password()
     _start_whatsapp_service()
-    task = asyncio.create_task(check_expirations_loop())
+    task_exp = asyncio.create_task(check_expirations_loop())
+    task_rem = asyncio.create_task(reminder_loop())
     yield
-    task.cancel()
+    task_exp.cancel()
+    task_rem.cancel()
     _stop_whatsapp_service()
 
 
@@ -121,6 +124,7 @@ app.include_router(dashboard.router)
 app.include_router(messages.router)
 app.include_router(painel_users.router)
 app.include_router(notifications.router)
+app.include_router(reminders.router)
 
 
 @app.get("/api/")
