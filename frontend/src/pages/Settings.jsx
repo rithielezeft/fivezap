@@ -141,10 +141,10 @@ export default function Settings() {
                 {payTestResult.success !== false ? (
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2 text-[#34C759] font-medium">
-                      <CheckCircle size={14} /> Link gerado com sucesso (via {payTestResult.via?.toUpperCase()})
+                      <CheckCircle size={14} /> Link gerado com sucesso (HTTP {payTestResult.http_status})
                     </div>
-                    <div className="font-mono text-white/60 break-all">
-                      order_nsu: {payTestResult.order_nsu}
+                    <div className="font-mono text-white/60 text-[10px]">
+                      handle: {payTestResult.handle_used} • order_nsu: {payTestResult.order_nsu}
                     </div>
                     <a
                       href={payTestResult.url}
@@ -155,10 +155,22 @@ export default function Settings() {
                     >
                       {payTestResult.url}
                     </a>
+                    <details className="mt-2 text-[10px] text-white/40">
+                      <summary className="cursor-pointer">Ver payload + resposta da API</summary>
+                      <pre className="mt-2 p-2 bg-black/40 rounded border border-white/10 overflow-x-auto font-mono">
+{JSON.stringify({ payload: payTestResult.payload_sent, response: payTestResult.response_raw }, null, 2)}
+                      </pre>
+                    </details>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 text-[#FF3B30]">
-                    <WarningCircle size={14} /> {payTestResult.error}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-[#FF3B30] font-medium">
+                      <WarningCircle size={14} /> {payTestResult.error}
+                    </div>
+                    <div className="text-[10px] text-white/50">
+                      Verifique se o handle está correto, se sua conta InfinitePay está verificada,
+                      e se o valor é maior que R$ 0,01.
+                    </div>
                   </div>
                 )}
               </div>

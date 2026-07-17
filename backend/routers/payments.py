@@ -24,10 +24,11 @@ async def list_payments():
 
 @router.post("/test-link")
 async def test_infinitepay_link():
-    """Diagnostic endpoint: creates a $1 test link so you can confirm the
-    InfinitePay integration is working end-to-end. Returns the URL + which
-    method (api or direct) was used."""
+    """Diagnostic endpoint: creates a R$ 1,00 test link so you can validate
+    the InfinitePay integration end-to-end. Returns the URL + full request
+    payload + raw response, so if it fails you know EXACTLY why."""
     public_base = await get_setting("public_base_url", "https://example.com")
+    handle_raw = await get_setting("infinitepay_handle", "")
     order_nsu = f"test-{new_id()[:8]}"
     try:
         result = await infinitepay.create_payment_link(
@@ -40,12 +41,16 @@ async def test_infinitepay_link():
         return {
             "success": True,
             "url": result["url"],
-            "via": result.get("via", "unknown"),
+            "handle_used": result["handle"],
+            "handle_raw_in_settings": handle_raw,
+            "http_status": result["http_status"],
             "order_nsu": order_nsu,
-            "handle_configured": bool(await get_setting("infinitepay_handle")),
+            "payload_sent": result["payload_sent"],
+            "response_raw": result["raw"],
         }
     except Exception as e:
-        raise HTTPException(400, f"InfinitePay error: {e}")
+        # Return the DETAILED error so user sees exactly what InfinitePay complained about
+        raise HTTPException(400, str(e))
 
 
 @router.post("")

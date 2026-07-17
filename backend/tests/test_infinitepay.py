@@ -1,11 +1,11 @@
-"""Tests for InfinitePay direct URL builder + handle sanitization."""
+"""Tests for InfinitePay integration."""
 import sys
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from services.infinitepay import _sanitize_handle, _build_direct_url  # noqa: E402
+from services.infinitepay import _sanitize_handle, build_direct_url  # noqa: E402
 
 
 def test_sanitize_handle_strips_dollar():
@@ -15,20 +15,20 @@ def test_sanitize_handle_strips_dollar():
 
 def test_sanitize_handle_plain():
     assert _sanitize_handle("rithiele") == "rithiele"
+    assert _sanitize_handle("zeferius-solutions") == "zeferius-solutions"
 
 
 def test_sanitize_handle_empty():
     assert _sanitize_handle("") == ""
     assert _sanitize_handle("   ") == ""
+    assert _sanitize_handle(None or "") == ""
 
 
-def test_direct_url_structure():
-    url = _build_direct_url(
+def test_build_direct_url_structure():
+    url = build_direct_url(
         handle="rithiele",
         amount_cents=3500,
-        description="Renovação IPTV 1 mês",
-        order_nsu="ord-abc123",
-        redirect_url="https://example.com/thanks",
+        description="Renovação IPTV",
     )
     parsed = urlparse(url)
     assert parsed.scheme == "https"
@@ -36,45 +36,17 @@ def test_direct_url_structure():
     assert parsed.path == "/rithiele"
 
     qs = parse_qs(parsed.query)
-    assert qs["order_nsu"] == ["ord-abc123"]
-    assert qs["redirect_url"] == ["https://example.com/thanks"]
-
-    # items must be a valid URL-encoded JSON array
     import json
-    items_raw = qs["items"][0]
-    items = json.loads(items_raw)
-    assert len(items) == 1
-    assert items[0]["name"] == "Renovação IPTV 1 mês"
+    items = json.loads(qs["items"][0])
     assert items[0]["price"] == 3500
     assert items[0]["quantity"] == 1
+    assert items[0]["description"] == "Renovação IPTV"
 
 
-def test_direct_url_no_redirect():
-    url = _build_direct_url(
-        handle="rithiele",
-        amount_cents=1000,
-        description="Teste",
-        order_nsu="ord-1",
-        redirect_url="",
-    )
-    parsed = urlparse(url)
-    qs = parse_qs(parsed.query)
-    assert "redirect_url" not in qs
-
-
-def test_direct_url_long_description_truncates():
-    url = _build_direct_url(
-        handle="foo",
-        amount_cents=100,
-        description="a" * 500,
-        order_nsu="o",
-        redirect_url="",
-    )
-    import json
-    parsed = urlparse(url)
-    qs = parse_qs(parsed.query)
-    items = json.loads(qs["items"][0])
-    assert len(items[0]["name"]) <= 100
+def test_build_direct_url_sanitizes_handle():
+    url = build_direct_url(handle="$rithiele", amount_cents=100, description="teste")
+    assert "checkout.infinitepay.io/rithiele?" in url
+    assert "$" not in urlparse(url).path
 
 
 if __name__ == "__main__":
