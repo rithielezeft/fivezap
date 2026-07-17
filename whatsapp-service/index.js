@@ -93,31 +93,44 @@ client.on('message_create', async (msg) => {
     // Resolve to actual phone number. For @c.us the number is the digits before @.
     // For @lid we need to look up the contact and get its .number property.
     let phone = null;
+    let phoneSource = 'unknown';
     try {
       if (rawJid?.endsWith('@lid')) {
         const contact = await client.getContactById(rawJid);
-        // contact.number is the phone; contact.id.user is the LID (fallback)
         phone = contact?.number || null;
+        phoneSource = phone ? 'lid-resolved' : 'lid-unresolved';
+        // Fallback 1: contact.pushname may contain phone in some cases
+        // Fallback 2: check msg.rawData for pn (phone number) field
+        if (!phone && msg._data?.pn) {
+          phone = String(msg._data.pn).replace(/\D/g, '');
+          phoneSource = 'msg._data.pn';
+        }
+        if (!phone && msg.author?.includes('@c.us')) {
+          phone = msg.author.split('@')[0];
+          phoneSource = 'msg.author';
+        }
         if (!phone) {
-          console.warn('[WA] Could not resolve @lid to phone:', rawJid);
+          console.warn('[WA] Could NOT resolve LID → phone. Raw:', rawJid, 'contact:', contact?.id, 'msg._data.pn:', msg._data?.pn, 'author:', msg.author);
         }
       } else if (rawJid?.includes('@')) {
         phone = rawJid.split('@')[0];
+        phoneSource = 'c.us';
       } else {
         phone = rawJid;
+        phoneSource = 'raw';
       }
     } catch (e) {
       console.warn('[WA] Contact lookup failed:', rawJid, e.message);
-      // Last resort: use rawJid — backend will reject but we still log it
-      phone = rawJid;
+      phone = null;
+      phoneSource = 'error';
     }
 
     if (!phone || !/^\d{8,15}$/.test(String(phone))) {
-      console.warn('[WA] Skipping message: invalid resolved phone', { rawJid, phone });
+      console.warn('[WA] ⚠️  DROPPING message: invalid phone', { rawJid, phone, phoneSource, body: body.slice(0, 60) });
       return;
     }
 
-    console.log('[WA] message_create', { from_me: fromMe, phone, body: body.slice(0, 80) });
+    console.log('[WA] message_create', { from_me: fromMe, phone, phoneSource, body: body.slice(0, 80) });
 
     await axios.post(BACKEND_WEBHOOK_URL, {
       phone,
