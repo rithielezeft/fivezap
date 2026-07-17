@@ -65,24 +65,49 @@ echo "▶ Fazendo backup do estado atual..." | tee -a "$LOG_FILE"
 [ -f backend/.env ]        && cp -f backend/.env        "$BACKUP_DIR/backend.env"
 [ -f frontend/.env ]       && cp -f frontend/.env       "$BACKUP_DIR/frontend.env"
 [ -d whatsapp-service/.wwebjs_auth ] && cp -r whatsapp-service/.wwebjs_auth "$BACKUP_DIR/wwebjs_auth" 2>/dev/null || true
-CURRENT_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+CURRENT_COMMIT="$(sudo -u "$APP_USER" git rev-parse HEAD 2>/dev/null || echo 'unknown')"
 echo "  Commit atual: $CURRENT_COMMIT" | tee -a "$LOG_FILE"
 echo "$CURRENT_COMMIT" > "$BACKUP_DIR/commit.txt"
 
+# ----- 1.5) PARAR o backend ANTES de mexer em qualquer arquivo do WA -----
+# O Chromium mantém locks em .wwebjs_auth/ e pode ter criado arquivos como root.
+# Parar o serviço libera os locks. Depois vamos garantir que a pasta é toda do
+# usuário para o git conseguir operar.
+echo "▶ Parando backend para liberar locks do WhatsApp..." | tee -a "$LOG_FILE"
+systemctl stop whatsflow-backend 2>/dev/null || true
+sleep 2
+
+# Elimina o cache do WhatsApp (não é necessário — será regenerado)
+rm -rf whatsapp-service/.wwebjs_cache 2>/dev/null || true
+
+# Corrige ownership de .wwebjs_auth para o app user, senão git falha ao dar
+# reset --hard com "Permission denied" (arquivos criados pelo Chromium como root)
+if [ -d whatsapp-service/.wwebjs_auth ]; then
+  echo "▶ Corrigindo ownership de whatsapp-service/.wwebjs_auth..." | tee -a "$LOG_FILE"
+  chown -R "$APP_USER":"$APP_USER" whatsapp-service/.wwebjs_auth 2>/dev/null || true
+fi
+
 # ----- 2) Limpar conflitos de git -----
 echo "▶ Limpando estado sujo do git..." | tee -a "$LOG_FILE"
-git merge --abort 2>/dev/null || true
-git rebase --abort 2>/dev/null || true
-git cherry-pick --abort 2>/dev/null || true
+sudo -u "$APP_USER" git merge --abort 2>/dev/null || true
+sudo -u "$APP_USER" git rebase --abort 2>/dev/null || true
+sudo -u "$APP_USER" git cherry-pick --abort 2>/dev/null || true
 
-# Remove do índice tudo que deveria estar no gitignore mas foi commitado
+# Remove do índice tudo que deveria estar no gitignore mas foi commitado.
+# Fazemos os que dão para deletar de uma vez, mas o .wwebjs_auth pode ter
+# 500+ arquivos tracked — usamos `git ls-files` + `git rm --cached` pra pegar TUDO.
+sudo -u "$APP_USER" git ls-files -z 'whatsapp-service/.wwebjs_auth/*' 2>/dev/null \
+  | xargs -0 -r sudo -u "$APP_USER" git rm -rf --cached >/dev/null 2>&1 || true
+sudo -u "$APP_USER" git ls-files -z 'whatsapp-service/.wwebjs_cache/*' 2>/dev/null \
+  | xargs -0 -r sudo -u "$APP_USER" git rm -rf --cached >/dev/null 2>&1 || true
+
 for f in \
     backend/whatsflow.db backend/whatsflow.db-journal \
     backend/whatsflow.db-wal backend/whatsflow.db-shm \
     whatsapp-service/.wwebjs_auth whatsapp-service/.wwebjs_cache \
     whatsapp-service/node_modules backend/.venv frontend/build \
     frontend/node_modules; do
-  git rm -rf --cached "$f" >/dev/null 2>&1 || true
+  sudo -u "$APP_USER" git rm -rf --cached "$f" >/dev/null 2>&1 || true
 done
 
 # Reforça .gitignore
@@ -111,21 +136,35 @@ echo "▶ Baixando atualizações do GitHub..." | tee -a "$LOG_FILE"
 sudo -u "$APP_USER" git stash push -u -m "auto-update-${STAMP}" 2>/dev/null || true
 
 sudo -u "$APP_USER" git fetch origin
-BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+BRANCH="$(sudo -u "$APP_USER" git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 [ "$BRANCH" = "HEAD" ] && BRANCH="main"
 
-NEW_COMMIT="$(git rev-parse "origin/$BRANCH")"
+NEW_COMMIT="$(sudo -u "$APP_USER" git rev-parse "origin/$BRANCH")"
 if [ "$CURRENT_COMMIT" = "$NEW_COMMIT" ]; then
   echo "✅ Já está no commit mais recente ($NEW_COMMIT). Nada a atualizar." | tee -a "$LOG_FILE"
   echo "   (Prosseguindo com reinstalação de deps e restart mesmo assim.)"
 fi
 
-sudo -u "$APP_USER" git reset --hard "origin/$BRANCH" | tee -a "$LOG_FILE"
+# Tentativa 1 de reset — pode falhar por permissão em .wwebjs_auth
+if ! sudo -u "$APP_USER" git reset --hard "origin/$BRANCH" 2>&1 | tee -a "$LOG_FILE"; then
+  echo "▶ Reset falhou por permissão. Forçando limpeza da sessão do WhatsApp..." | tee -a "$LOG_FILE"
+  # Última linha de defesa: rm -rf como root da pasta problemática, depois retry.
+  # O backup já foi feito em $BACKUP_DIR/wwebjs_auth.
+  rm -rf whatsapp-service/.wwebjs_auth 2>/dev/null || true
+  sudo -u "$APP_USER" git reset --hard "origin/$BRANCH" | tee -a "$LOG_FILE"
+fi
 
 # Restaura DB + .env preservados
 [ -f "$BACKUP_DIR/whatsflow.db" ] && cp -f "$BACKUP_DIR/whatsflow.db" backend/whatsflow.db
 [ -f "$BACKUP_DIR/backend.env"  ] && cp -f "$BACKUP_DIR/backend.env"  backend/.env
 [ -f "$BACKUP_DIR/frontend.env" ] && cp -f "$BACKUP_DIR/frontend.env" frontend/.env
+
+# Restaura sessão do WhatsApp (evita re-scan do QR code)
+if [ -d "$BACKUP_DIR/wwebjs_auth" ] && [ ! -d whatsapp-service/.wwebjs_auth ]; then
+  echo "▶ Restaurando sessão do WhatsApp do backup..." | tee -a "$LOG_FILE"
+  cp -r "$BACKUP_DIR/wwebjs_auth" whatsapp-service/.wwebjs_auth
+  chown -R "$APP_USER":"$APP_USER" whatsapp-service/.wwebjs_auth 2>/dev/null || true
+fi
 
 # Detecta se frontend mudou
 FRONTEND_CHANGED=0
