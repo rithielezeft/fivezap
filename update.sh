@@ -89,6 +89,17 @@ if [ -d whatsapp-service/.wwebjs_auth ]; then
   chown -R "$APP_USER":"$APP_USER" whatsapp-service/.wwebjs_auth 2>/dev/null || true
 fi
 
+# Corrige ownership do .git — comandos anteriores rodados como root deixaram
+# objects/ com dono root, causando "insufficient permission for adding an
+# object to repository database .git/objects" no próximo git fetch.
+if [ -d .git ]; then
+  echo "▶ Corrigindo ownership do .git..." | tee -a "$LOG_FILE"
+  chown -R "$APP_USER":"$APP_USER" .git 2>/dev/null || true
+fi
+
+# Garante que git aceita esse repo (safe.directory) mesmo se o dono divergir
+sudo -u "$APP_USER" git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+
 # ----- 2) Limpar conflitos de git -----
 echo "▶ Limpando estado sujo do git..." | tee -a "$LOG_FILE"
 sudo -u "$APP_USER" git merge --abort 2>/dev/null || true
