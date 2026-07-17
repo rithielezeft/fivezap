@@ -126,6 +126,12 @@ sudo -u "$APP_USER" yarn install
 # Placeholder build — vai ser refeito depois de detectar porta
 sudo -u "$APP_USER" yarn build
 
+# Dá permissão pro nginx (www-data) ler o build via o path do home do usuário
+chmod o+x "$APP_HOME" 2>/dev/null || true
+chmod o+x "$APP_DIR" 2>/dev/null || true
+chmod o+x "$APP_DIR/frontend" 2>/dev/null || true
+chmod -R o+rX "$APP_DIR/frontend/build" 2>/dev/null || true
+
 # ------------------------------------------------------------------
 # 5) Systemd services
 # ------------------------------------------------------------------
@@ -231,6 +237,8 @@ if [ "$CURRENT_URL" != "$FRONTEND_URL" ]; then
   echo "▶ Refazendo build do frontend com backend URL: $FRONTEND_URL"
   cd "$APP_DIR/frontend"
   sudo -u "$APP_USER" yarn build
+  # Reajusta permissão do build final
+  chmod -R o+rX "$APP_DIR/frontend/build" 2>/dev/null || true
 fi
 
 # ------------------------------------------------------------------
