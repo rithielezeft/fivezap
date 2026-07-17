@@ -55,14 +55,67 @@ async def test_infinitepay_link():
 
 @router.post("")
 async def create_payment(payload: PaymentCreate):
-    """Create InfinitePay checkout link for a customer renewal."""
+    """Create InfinitePay checkout link for a customer renewal.
+
+    If customer doesn't exist in local `customers` table, auto-create it from
+    the painel.fun cache. This lets any user shown in Clientes be paid for.
+    """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM customers WHERE id = ?", (payload.customer_id,))
         customer = await cur.fetchone()
-        if not customer:
-            raise HTTPException(404, "Customer not found")
-        customer = dict(customer)
+        if customer:
+            customer = dict(customer)
+
+    if not customer:
+        # Auto-create from painel.fun cache
+        from routers.painel_users import _read_cache
+        from services.system_detector import detect_system_type
+        from services.expiration import compute_expiration_info
+        from services.phone_extractor import extract_whatsapp
+
+        users, _ = await _read_cache()
+        found = None
+        for u in users:
+            uid = u.get("id") or u.get("user_id") or u.get("username")
+            if str(uid) == str(payload.customer_id):
+                found = u
+                break
+        if not found:
+            raise HTTPException(
+                404,
+                f"Cliente {payload.customer_id} não encontrado (nem local, nem no painel). "
+                f"Atualize o cache em Clientes → 'Atualizar do painel'."
+            )
+
+        exp_info = compute_expiration_info(found)
+        customer = {
+            "id": str(found.get("id") or found.get("user_id") or found.get("username")),
+            "name": found.get("full_name") or found.get("name") or found.get("username") or "Cliente",
+            "system_type": detect_system_type(found) or "iptv",
+            "expires_at": exp_info["expires_at_iso"] or "",
+            "whatsapp": extract_whatsapp(found) or "",
+            "painel_username": found.get("username") or "",
+        }
+        # Persist so the webhook can find it later
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO customers "
+                "(id, name, whatsapp, system_type, painel_username, expires_at, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+                (
+                    customer["id"],
+                    customer["name"],
+                    customer["whatsapp"] or "",
+                    customer["system_type"],
+                    customer["painel_username"],
+                    customer["expires_at"],
+                    now_iso(),
+                    now_iso(),
+                ),
+            )
+            await db.commit()
+        logger.info("Auto-created customer from painel cache: %s (%s)", customer["name"], customer["id"])
 
     price_key = f"plan_price_{payload.plan_months}m"
     price_str = await get_setting(price_key, "35,00")
@@ -179,15 +232,53 @@ async def webhook(request: Request):
 
 @router.get("/customer/{customer_id}")
 async def get_customer_payment_info(customer_id: str):
-    """Public: fetch payment info for /pay/{customer_id} page."""
+    """Public: fetch payment info for /pay/{customer_id} page.
+
+    Looks up in this order:
+      1. Local `customers` table (manually-created customers).
+      2. Cached painel.fun users (where customer_id == user_id from painel).
+    """
+    # 1. Try local customers table
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT id, name, system_type, expires_at FROM customers WHERE id = ?", (customer_id,))
-        customer = await cur.fetchone()
-        if not customer:
-            raise HTTPException(404, "Customer not found")
-        customer = dict(customer)
+        cur = await db.execute(
+            "SELECT id, name, system_type, expires_at FROM customers WHERE id = ?",
+            (customer_id,),
+        )
+        customer_row = await cur.fetchone()
 
+    if customer_row:
+        customer = dict(customer_row)
+    else:
+        # 2. Fallback: search in painel.fun cache
+        from routers.painel_users import _read_cache
+        from services.system_detector import detect_system_type
+        from services.expiration import compute_expiration_info
+
+        users, _ = await _read_cache()
+        found = None
+        for u in users:
+            uid = u.get("id") or u.get("user_id") or u.get("username")
+            if str(uid) == str(customer_id):
+                found = u
+                break
+
+        if not found:
+            raise HTTPException(
+                404,
+                f"Cliente {customer_id} não encontrado. "
+                f"Atualize o cache do painel em Clientes → 'Atualizar do painel'."
+            )
+
+        exp_info = compute_expiration_info(found)
+        customer = {
+            "id": str(found.get("id") or found.get("user_id") or found.get("username")),
+            "name": found.get("full_name") or found.get("name") or found.get("username") or "Cliente",
+            "system_type": detect_system_type(found) or "iptv",
+            "expires_at": exp_info["expires_at_iso"],
+        }
+
+    # Fetch prices for all 4 plans
     prices = {}
     for m in (1, 3, 6, 12):
         v = await get_setting(f"plan_price_{m}m", "35,00")
