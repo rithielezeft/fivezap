@@ -16,7 +16,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 from database import init_db
 from services.scheduler import check_expirations_loop
-from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users
+from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications
 
 logging.basicConfig(
     level=logging.INFO,
@@ -95,6 +95,7 @@ app.include_router(public.router)
 app.include_router(dashboard.router)
 app.include_router(messages.router)
 app.include_router(painel_users.router)
+app.include_router(notifications.router)
 
 
 @app.get("/api/")

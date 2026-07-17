@@ -113,8 +113,60 @@ async def init_db():
             );
 
             CREATE INDEX IF NOT EXISTS idx_logs_created ON activity_logs(created_at);
+
+            CREATE TABLE IF NOT EXISTS notification_templates (
+                id TEXT PRIMARY KEY,
+                event_key TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                image_url TEXT,
+                enabled INTEGER DEFAULT 1,
+                updated_at TEXT NOT NULL
+            );
             """
         )
+        await db.commit()
+
+        # Seed default notification templates
+        default_notifs = [
+            {
+                "event_key": "expiration_3d",
+                "title": "Vencimento em 3 dias",
+                "body": "Olá {name}! 👋\n\nSeu plano vence em *3 dias* ({expires_at}).\n\nRenove agora e ganhe 5% de desconto no Pix:\n{pay_link}\n\nQualquer dúvida é só chamar aqui! 😉",
+                "image_url": "",
+            },
+            {
+                "event_key": "expiration_1d",
+                "title": "Vencimento amanhã",
+                "body": "⚠️ Olá {name}!\n\nSeu plano vence *amanhã* ({expires_at}).\n\nRenove agora para não perder o acesso:\n{pay_link}",
+                "image_url": "",
+            },
+            {
+                "event_key": "expiration_0d",
+                "title": "Venceu hoje",
+                "body": "🔴 Olá {name}, seu plano *venceu hoje*.\n\nRenove agora para reativar o acesso:\n{pay_link}",
+                "image_url": "",
+            },
+            {
+                "event_key": "renewal_success",
+                "title": "Renovação confirmada",
+                "body": "✅ Pagamento confirmado, {name}!\n\nSeu plano foi renovado por *{plan_months} mês(es)* e já está ativo até {new_expires_at}.\n\nObrigado pela preferência! 🎉",
+                "image_url": "",
+            },
+            {
+                "event_key": "trial_ready",
+                "title": "Teste criado",
+                "body": "✅ Teste {system_type} criado com sucesso!\n\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira em: {expires}\n\nAproveite! Se quiser contratar, é só chamar 😉",
+                "image_url": "",
+            },
+        ]
+        from datetime import datetime, timezone
+        import uuid as _uuid
+        for nt in default_notifs:
+            await db.execute(
+                "INSERT OR IGNORE INTO notification_templates (id, event_key, title, body, image_url, enabled, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
+                (str(_uuid.uuid4()), nt["event_key"], nt["title"], nt["body"], nt["image_url"], datetime.now(timezone.utc).isoformat()),
+            )
         await db.commit()
 
         # Seed default settings

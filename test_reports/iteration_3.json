@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 3: 36/36 backend tests pass. Verified (a) critical regression fix — services.painel.renew_user is now importable and callable; (b) new /api/notifications router — list, get single, 404 for invalid, PUT body+image_url, PUT enabled toggle, PUT invalid 404, PUT empty payload 400; (c) POST /api/whatsapp/send accepts new optional image_url field (parses successfully, returns 502 because WA not connected — never 422) with message-only, image-only, and both variants; (d) all iteration_2 regression tests still pass (templates trigger_source, R$ prices, /api/painel/*, dashboard, customers CRUD, messages). Templates seeded correctly for all 5 events: expiration_3d, expiration_1d, expiration_0d, renewal_success, trial_ready. expiration_3d restored to original state after tests.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/notifications/{event_key} PUT", "issue": "image_url cannot be cleared to empty string because router filters `v is not None` — sending image_url:'' is accepted but PUT payload logic uses .model_dump() filter that keeps empty string (v is not None). Verified via test — passes. Non-issue but worth noting: to explicitly null-out image_url a client must send '' (empty string), which is stored as-is."},
+      {"endpoint": "/api/painel/users", "issue": "Still may take ~60s (upstream painel/2Captcha) before returning 502/504. Carried over from iter_2."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/notifications.py — no create/delete endpoints; only 5 seeded events are mutable. Fine for MVP but flag if new events need to be added dynamically.",
+    "routers/notifications.py update_notification — response_model=NotifTemplate returned even after UPDATE rowcount==0 raises before commit — good. But rowcount check happens before commit; consider adding await db.commit() only after rowcount>0 (already correct).",
+    "routers/whatsapp.py send — outgoing save uses '[imagem] <url>' fallback when message empty; message column now stores this placeholder. Consider a dedicated `media_url` column on messages for cleaner history.",
+    "services/painel.py — renew_user now exists (regression fix confirmed). Recommend adding a unit test with a mocked http client to exercise a success path in a future iteration."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (36/36)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "N/A — no auth in this app",
+  "seed_data_creation": "TEST_ prefixed customers/templates deleted in test_zz_cleanup; expiration_3d notification template restored to original title/body/image_url/enabled after mutation tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 36 backend tests pass in ~46s (parallel workers). Notifications router fully covered. WhatsApp send image_url param parses correctly. renew_user regression fix verified via `from services import painel; hasattr(painel, 'renew_user')`. External painel/2Captcha calls still return 502 gracefully. If future iterations mock painel http_client, a positive-path renew_user test would strengthen coverage."
+}

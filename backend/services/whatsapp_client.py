@@ -27,11 +27,14 @@ async def get_qr() -> dict:
         return {"qr": None, "error": str(e)}
 
 
-async def send_message(phone: str, message: str) -> dict:
-    async with httpx.AsyncClient(timeout=15) as client:
+async def send_message(phone: str, message: str, image_url: str = None) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        payload = {"phone": phone, "message": message}
+        if image_url:
+            payload["image_url"] = image_url
         resp = await client.post(
             f"{WA_SERVICE_URL}/send",
-            json={"phone": phone, "message": message},
+            json=payload,
         )
         if resp.status_code >= 400:
             raise RuntimeError(f"WA send failed: {resp.status_code} {resp.text[:200]}")

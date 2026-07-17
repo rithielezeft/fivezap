@@ -10,6 +10,7 @@ import WhatsAppPage from "@/pages/WhatsAppPage";
 import Messages from "@/pages/Messages";
 import Payments from "@/pages/Payments";
 import Settings from "@/pages/Settings";
+import Notifications from "@/pages/Notifications";
 import PublicTest from "@/pages/PublicTest";
 import PublicPay from "@/pages/PublicPay";
 
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/whatsapp" element={<WhatsAppPage />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/payments" element={<Payments />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/teste" element={<PublicTest />} />
           <Route path="/pay/:customerId" element={<PublicPay />} />

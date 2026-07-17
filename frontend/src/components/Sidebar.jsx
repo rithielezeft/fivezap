@@ -9,6 +9,7 @@ import {
   Command,
   WhatsappLogo,
   CreditCard,
+  Bell,
   Gear,
 } from "@phosphor-icons/react";
 import { whatsappApi } from "@/lib/api";
@@ -21,6 +22,7 @@ const NAV = [
   { to: "/whatsapp", icon: WhatsappLogo, label: "WhatsApp", testid: "nav-whatsapp" },
   { to: "/messages", icon: ChatText, label: "Conversas", testid: "nav-messages" },
   { to: "/payments", icon: CreditCard, label: "Pagamentos", testid: "nav-payments" },
+  { to: "/notifications", icon: Bell, label: "Notificações", testid: "nav-notifications" },
   { to: "/settings", icon: Gear, label: "Configurações", testid: "nav-settings" },
 ];
 

@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 class SendPayload(BaseModel):
     phone: str
-    message: str
+    message: str = ""
+    image_url: str | None = None
 
 
 class IncomingPayload(BaseModel):
@@ -35,12 +36,13 @@ async def qr():
 @router.post("/send")
 async def send(payload: SendPayload):
     try:
-        result = await whatsapp_client.send_message(payload.phone, payload.message)
+        result = await whatsapp_client.send_message(payload.phone, payload.message, image_url=payload.image_url)
         # Save outgoing message
         from services.bot import save_message, normalize_phone, find_or_create_customer
         phone_clean = normalize_phone(payload.phone)
         customer = await find_or_create_customer(phone_clean)
-        await save_message(phone_clean, payload.message, "out", customer["id"])
+        note = payload.message or ("[imagem] " + (payload.image_url or ""))
+        await save_message(phone_clean, note, "out", customer["id"])
         return result
     except Exception as e:
         raise HTTPException(502, str(e))

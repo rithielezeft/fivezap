@@ -1,3 +1,3 @@
-2026/07/17-12:09:37.485 f10 Reusing MANIFEST /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/MANIFEST-000001
-2026/07/17-12:09:37.488 f10 Recovering log #3
-2026/07/17-12:09:37.490 f10 Reusing old log /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/000003.log 
+2026/07/17-12:25:06.938 1640 Reusing MANIFEST /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/MANIFEST-000001
+2026/07/17-12:25:06.942 1640 Recovering log #3
+2026/07/17-12:25:06.942 1640 Reusing old log /app/whatsapp-service/.wwebjs_auth/session-whatsflow/Default/Local Storage/leveldb/000003.log 

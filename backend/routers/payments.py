@@ -123,9 +123,16 @@ async def webhook(request: Request):
             )
             await log_activity("renewal_success", f"Renovação {payment['plan_months']}m para {customer['name']}", customer["id"], "success", result)
             try:
-                await whatsapp_client.send_message(
+                from services.notifier import send_notification
+                new_expires = result.get("expires_at") or result.get("expiration") or ""
+                await send_notification(
+                    "renewal_success",
                     customer["whatsapp"],
-                    f"✅ Pagamento confirmado! Seu plano foi renovado por {payment['plan_months']} mês(es). Obrigado!"
+                    {
+                        "name": customer["name"],
+                        "plan_months": payment["plan_months"],
+                        "new_expires_at": new_expires,
+                    },
                 )
                 await save_message(customer["whatsapp"], "renewal_confirmed", "out", customer["id"])
             except Exception:

@@ -145,7 +145,7 @@ async def list_users(limit: int = 500, search: str = None) -> list:
     raise RuntimeError("Nenhum endpoint de listagem de usuários funcionou (/api/users, /api/customers, /api/clients)")
 
 
-
+async def renew_user(user_id: str, package_id: int) -> dict:
     """Renew existing user via painel API."""
     token = await login()
     base = await get_setting("painel_base_url")

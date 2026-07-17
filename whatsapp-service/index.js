@@ -119,13 +119,29 @@ app.get('/qr', (req, res) => {
 });
 
 app.post('/send', async (req, res) => {
-  const { phone, message } = req.body || {};
-  if (!phone || !message) return res.status(400).json({ error: 'phone and message required' });
+  const { phone, message, image_url } = req.body || {};
+  if (!phone) return res.status(400).json({ error: 'phone required' });
   if (!ready) return res.status(503).json({ error: 'whatsapp not ready', state });
   try {
     const digits = String(phone).replace(/\D/g, '');
     const chatId = digits.includes('@') ? digits : `${digits}@c.us`;
-    const result = await client.sendMessage(chatId, message);
+
+    let result;
+    if (image_url) {
+      const { MessageMedia } = require('whatsapp-web.js');
+      let media;
+      if (image_url.startsWith('data:')) {
+        const [meta, b64] = image_url.split(',');
+        const mime = meta.split(':')[1].split(';')[0];
+        media = new MessageMedia(mime, b64, 'image');
+      } else {
+        media = await MessageMedia.fromUrl(image_url, { unsafeMime: true });
+      }
+      result = await client.sendMessage(chatId, media, { caption: message || '' });
+    } else {
+      if (!message) return res.status(400).json({ error: 'message or image_url required' });
+      result = await client.sendMessage(chatId, message);
+    }
     res.json({ success: true, id: result.id?._serialized });
   } catch (e) {
     console.error('[WA] Send error', e);

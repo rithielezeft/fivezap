@@ -281,6 +281,92 @@ def test_payments_list(client):
     assert isinstance(r.json(), list)
 
 
+# ========== Iteration 3: renew_user regression fix ==========
+def test_painel_module_has_renew_user():
+    from services import painel
+    assert hasattr(painel, "renew_user"), "painel.renew_user missing"
+    assert callable(painel.renew_user)
+
+
+# ========== Iteration 3: Notifications ==========
+EXPECTED_EVENTS = {"expiration_3d", "expiration_1d", "expiration_0d", "renewal_success", "trial_ready"}
+
+
+def test_notifications_list(client):
+    r = client.get(f"{API}/notifications")
+    assert r.status_code == 200, r.text
+    lst = r.json()
+    assert isinstance(lst, list)
+    keys = {t["event_key"] for t in lst}
+    assert EXPECTED_EVENTS.issubset(keys), f"missing events: {EXPECTED_EVENTS - keys}"
+    for t in lst:
+        for k in ("id", "event_key", "title", "body", "image_url", "enabled", "updated_at"):
+            assert k in t, f"missing field {k} in {t}"
+
+
+def test_notification_get_single(client):
+    r = client.get(f"{API}/notifications/expiration_3d")
+    assert r.status_code == 200
+    assert r.json()["event_key"] == "expiration_3d"
+
+
+def test_notification_get_invalid_404(client):
+    r = client.get(f"{API}/notifications/invalid_key_xyz")
+    assert r.status_code == 404
+
+
+def test_notification_update_body_and_image(client):
+    original = client.get(f"{API}/notifications/expiration_3d").json()
+    _ids["notif_original"] = original
+    r = client.put(f"{API}/notifications/expiration_3d",
+                   json={"body": "Test {name}", "image_url": "https://example.com/img.jpg"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["body"] == "Test {name}"
+    assert d["image_url"] == "https://example.com/img.jpg"
+    r2 = client.get(f"{API}/notifications/expiration_3d")
+    assert r2.json()["body"] == "Test {name}"
+    assert r2.json()["image_url"] == "https://example.com/img.jpg"
+
+
+def test_notification_update_disable(client):
+    r = client.put(f"{API}/notifications/expiration_3d", json={"enabled": False})
+    assert r.status_code == 200
+    assert r.json()["enabled"] is False
+    r2 = client.put(f"{API}/notifications/expiration_3d", json={"enabled": True})
+    assert r2.json()["enabled"] is True
+
+
+def test_notification_update_invalid_404(client):
+    r = client.put(f"{API}/notifications/invalid_key_xyz", json={"body": "x"})
+    assert r.status_code == 404
+
+
+def test_notification_update_empty_400(client):
+    r = client.put(f"{API}/notifications/expiration_3d", json={})
+    assert r.status_code == 400
+    assert "No fields to update" in r.text
+
+
+# ========== Iteration 3: WhatsApp send with image_url ==========
+def test_whatsapp_send_message_only(client):
+    r = client.post(f"{API}/whatsapp/send",
+                    json={"phone": "5511900000001", "message": "hello"})
+    assert r.status_code == 502, f"expected 502 got {r.status_code}: {r.text[:200]}"
+
+
+def test_whatsapp_send_image_only(client):
+    r = client.post(f"{API}/whatsapp/send",
+                    json={"phone": "5511900000002", "image_url": "https://x/y.jpg"})
+    assert r.status_code == 502, f"expected 502 got {r.status_code}: {r.text[:200]}"
+
+
+def test_whatsapp_send_both(client):
+    r = client.post(f"{API}/whatsapp/send",
+                    json={"phone": "5511900000003", "message": "hi", "image_url": "https://x/y.jpg"})
+    assert r.status_code == 502, f"expected 502 got {r.status_code}: {r.text[:200]}"
+
+
 # ========== Cleanup ==========
 def test_zz_cleanup(client):
     for k in ("t_admin", "t_client", "t_both"):
@@ -288,3 +374,12 @@ def test_zz_cleanup(client):
             client.delete(f"{API}/templates/{_ids[k]}")
     if "c1" in _ids:
         client.delete(f"{API}/customers/{_ids['c1']}")
+    # Restore expiration_3d notification template
+    orig = _ids.get("notif_original")
+    if orig:
+        client.put(f"{API}/notifications/expiration_3d", json={
+            "title": orig["title"],
+            "body": orig["body"],
+            "image_url": orig.get("image_url") or "",
+            "enabled": orig["enabled"],
+        })
