@@ -79,23 +79,43 @@ client.on('disconnected', (reason) => {
 
 // Use ONLY `message_create` — it fires for BOTH incoming (client) and
 // outgoing (admin) messages, WITHOUT requiring the chat to be opened first.
-// The `message` event has a known behavior where it may not fire for chats
-// that haven't been "seen" from another device, which caused clients' commands
-// to be missed until the operator opened the chat manually.
 client.on('message_create', async (msg) => {
   try {
-    // Ignore status broadcasts and other non-chat messages
     if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') return;
-    // Ignore groups (only 1:1 for the bot flow)
     if (msg.from?.endsWith('@g.us') || msg.to?.endsWith('@g.us')) return;
-    // Ignore empty payloads (media without caption etc, still can process if body exists)
     const body = msg.body || '';
     if (!body.trim()) return;
 
     const fromMe = !!msg.fromMe;
-    // If we sent it, the "target" phone is msg.to (the client we sent to).
-    // If they sent it, the "source" phone is msg.from (the client who sent to us).
-    const phone = fromMe ? msg.to : msg.from;
+    // Raw jid could be <phone>@c.us or <lid>@lid (new WhatsApp Web protocol).
+    const rawJid = fromMe ? msg.to : msg.from;
+
+    // Resolve to actual phone number. For @c.us the number is the digits before @.
+    // For @lid we need to look up the contact and get its .number property.
+    let phone = null;
+    try {
+      if (rawJid?.endsWith('@lid')) {
+        const contact = await client.getContactById(rawJid);
+        // contact.number is the phone; contact.id.user is the LID (fallback)
+        phone = contact?.number || null;
+        if (!phone) {
+          console.warn('[WA] Could not resolve @lid to phone:', rawJid);
+        }
+      } else if (rawJid?.includes('@')) {
+        phone = rawJid.split('@')[0];
+      } else {
+        phone = rawJid;
+      }
+    } catch (e) {
+      console.warn('[WA] Contact lookup failed:', rawJid, e.message);
+      // Last resort: use rawJid — backend will reject but we still log it
+      phone = rawJid;
+    }
+
+    if (!phone || !/^\d{8,15}$/.test(String(phone))) {
+      console.warn('[WA] Skipping message: invalid resolved phone', { rawJid, phone });
+      return;
+    }
 
     console.log('[WA] message_create', { from_me: fromMe, phone, body: body.slice(0, 80) });
 

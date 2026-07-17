@@ -119,24 +119,50 @@ async def create_trial(
     name: Optional[str] = None,
     whatsapp: Optional[str] = None,
 ) -> dict:
-    """Create a trial user via POST /api/trial_users."""
+    """Create a trial user via POST /api/trial_users.
+
+    Painel.fun requires `username` and `password` in the payload; we auto-generate
+    both from the phone number + a random 6-char suffix.
+    """
+    import secrets
+    import string
+
     token = await login()
     base = await get_setting("painel_base_url")
     package_id = int(await get_setting("trial_package_id") or "61")
 
+    # Auto-generate credentials if not provided
+    def _rand(n=6):
+        return "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(n))
+
+    # Username = short phone tail + suffix, all lowercase, safe chars
+    phone_tail = "".join(c for c in (whatsapp or "") if c.isdigit())[-6:] or _rand(6)
+    username = f"test{phone_tail}{_rand(3)}"
+    password = _rand(8)
+
     payload: dict = {
         "package_id": package_id,
+        "username": username,
+        "password": password,
         "is_trial": True,
         "adult_channels": True,
     }
     if name:
         payload["name"] = name
+        payload["full_name"] = name
     if whatsapp:
         payload["whatsapp"] = whatsapp
+        payload["as_number"] = whatsapp
     if mac and system_type in ("iptv", "hybrid"):
         payload["mac"] = mac
+        payload["macaddr"] = mac
     if system_type:
         payload["system_type"] = system_type
+
+    logger.info(
+        "create_trial payload username=%s system=%s mac=%s",
+        username, system_type, mac,
+    )
 
     def _post_trial(tok):
         return cffi_requests.post(
@@ -159,7 +185,13 @@ async def create_trial(
     if resp.status_code >= 400:
         logger.error("Create trial failed %s: %s", resp.status_code, resp.text[:400])
         raise RuntimeError(f"Create trial failed: {resp.status_code} — {resp.text[:200]}")
-    return resp.json()
+
+    result = resp.json() if resp.text else {}
+    # Ensure username/password we generated are in the response (painel may not echo them)
+    if isinstance(result, dict):
+        result.setdefault("username", username)
+        result.setdefault("password", password)
+    return result
 
 
 async def list_users(limit: int = 10000, search: str = None) -> list:
