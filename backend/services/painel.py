@@ -3,7 +3,6 @@ import asyncio
 import logging
 from typing import Optional
 
-import httpx
 from curl_cffi import requests as cffi_requests
 from twocaptcha import TwoCaptcha
 
@@ -61,25 +60,53 @@ async def login(force: bool = False) -> str:
         "cf-turnstile-response": turnstile_token,
     }
 
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
+    headers = {
+        "Origin": "https://painel.fun",
+        "Referer": "https://painel.fun/login",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Content-Type": "application/json",
+    }
+
+    def _post_login():
+        return cffi_requests.post(
             f"{base}/api/auth/sign-in",
             json=payload,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Origin": "https://painel.fun",
-                "Referer": "https://painel.fun/login",
-                "Accept": "application/json, text/plain, */*",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
+            impersonate="chrome124",
+            timeout=120,
         )
-        if resp.status_code >= 400:
-            logger.error("Login failed %s: %s", resp.status_code, resp.text[:400])
-            raise RuntimeError(f"Painel login failed: HTTP {resp.status_code} — {resp.text[:200]}")
+
+    logger.info("POST %s/api/auth/sign-in (curl_cffi impersonate=chrome124)", base)
+    resp = await asyncio.to_thread(_post_login)
+
+    if resp.status_code >= 400:
+        # Rich diagnostic: dump response headers so we know if Cloudflare blocked us
+        srv = resp.headers.get("server", "?")
+        cf_ray = resp.headers.get("cf-ray", "?")
+        cf_mit = resp.headers.get("cf-mitigated", "?")
+        logger.error(
+            "Login failed HTTP %s | server=%s cf-ray=%s cf-mitigated=%s | body=%s",
+            resp.status_code, srv, cf_ray, cf_mit, resp.text[:500],
+        )
+        raise RuntimeError(
+            f"Painel login failed: HTTP {resp.status_code} (server={srv}, cf-ray={cf_ray}) — {resp.text[:200]}"
+        )
+
+    try:
         data = resp.json()
-        token = data.get("token") or (data.get("user") or {}).get("token") or data.get("access_token") or data.get("data", {}).get("token")
-        if not token:
-            raise RuntimeError(f"Painel login: no token in response: {list(data.keys())}")
+    except Exception as e:
+        logger.error("Login response not JSON: %s | body=%s", e, resp.text[:400])
+        raise RuntimeError(f"Painel login: response is not JSON — {resp.text[:200]}")
+
+    token = (
+        data.get("token")
+        or (data.get("user") or {}).get("token")
+        or data.get("access_token")
+        or data.get("data", {}).get("token")
+    )
+    if not token:
+        raise RuntimeError(f"Painel login: no token in response. Keys={list(data.keys())} Body={str(data)[:300]}")
 
     _token_cache["token"] = token
     _token_cache["expires_at"] = time.time() + 20 * 60  # 20 min cache
