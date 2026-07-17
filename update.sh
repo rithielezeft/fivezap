@@ -43,6 +43,8 @@ if [ ! -f "$APP_DIR/backend/server.py" ]; then
 fi
 
 APP_USER="${SUDO_USER:-$(stat -c %U "$APP_DIR")}"
+APP_HOME=$(getent passwd "$APP_USER" | cut -d: -f6)
+[ -z "$APP_HOME" ] && APP_HOME=$(dirname "$APP_DIR")
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="/tmp/whatsflow-backup-${STAMP}"
 LOG_FILE="/tmp/whatsflow-update-${STAMP}.log"
@@ -190,25 +192,52 @@ echo "▶ Instalando dependências Node do WhatsApp service..." | tee -a "$LOG_F
 cd "$APP_DIR/whatsapp-service"
 sudo -u "$APP_USER" yarn install --ignore-engines --silent 2>&1 | tee -a "$LOG_FILE"
 
-# ----- 6) Frontend (só rebuilda se mudou) -----
-if [ "$FRONTEND_CHANGED" = "1" ] || [ ! -d "$APP_DIR/frontend/build" ]; then
+# ----- 6) Frontend — rebuilda se mudou OU se o build está corrompido/incompleto -----
+NEED_REBUILD=0
+if [ "$FRONTEND_CHANGED" = "1" ]; then
+  echo "▶ frontend/ mudou — rebuild necessário" | tee -a "$LOG_FILE"
+  NEED_REBUILD=1
+elif [ ! -f "$APP_DIR/frontend/build/index.html" ]; then
+  echo "▶ frontend/build/index.html não existe — rebuild forçado" | tee -a "$LOG_FILE"
+  NEED_REBUILD=1
+elif [ ! -d "$APP_DIR/frontend/build/static" ]; then
+  echo "▶ frontend/build/static ausente — rebuild forçado" | tee -a "$LOG_FILE"
+  NEED_REBUILD=1
+fi
+
+if [ "$NEED_REBUILD" = "1" ]; then
   echo "▶ Rebuildando frontend..." | tee -a "$LOG_FILE"
   cd "$APP_DIR/frontend"
   sudo -u "$APP_USER" yarn install --silent 2>&1 | tee -a "$LOG_FILE"
   sudo -u "$APP_USER" yarn build 2>&1 | tee -a "$LOG_FILE"
-  # nginx precisa ler o build
-  chmod -R o+rX "$APP_DIR/frontend/build" 2>/dev/null || true
+  if [ ! -f "$APP_DIR/frontend/build/index.html" ]; then
+    echo "❌ Build do frontend falhou — index.html não foi criado" | tee -a "$LOG_FILE"
+    exit 1
+  fi
 else
-  echo "⏭  Frontend não mudou — pulando rebuild" | tee -a "$LOG_FILE"
+  echo "⏭  Frontend não mudou e build está íntegro — pulando rebuild" | tee -a "$LOG_FILE"
 fi
 
-# ----- 7) Restart do serviço -----
+# Garante permissões pro nginx (www-data) ler o build — SEMPRE, mesmo sem rebuild
+echo "▶ Ajustando permissões do build para o nginx..." | tee -a "$LOG_FILE"
+chmod o+x "$APP_HOME" 2>/dev/null || true
+chmod o+x "$APP_DIR" 2>/dev/null || true
+chmod o+x "$APP_DIR/frontend" 2>/dev/null || true
+chmod -R o+rX "$APP_DIR/frontend/build" 2>/dev/null || true
+
+# ----- 7) Restart do serviço + reload do nginx -----
 echo "▶ Reiniciando whatsflow-backend..." | tee -a "$LOG_FILE"
 systemctl restart whatsflow-backend
 sleep 5
 
-# ----- 8) Health check -----
-echo "▶ Verificando saúde do serviço..." | tee -a "$LOG_FILE"
+# Recarrega nginx pra pegar qualquer nova config e limpar cache interno
+if systemctl is-active --quiet nginx 2>/dev/null; then
+  echo "▶ Recarregando nginx..." | tee -a "$LOG_FILE"
+  systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
+fi
+
+# ----- 8) Health check duplo: backend + frontend servido pelo nginx -----
+echo "▶ Verificando saúde do backend..." | tee -a "$LOG_FILE"
 HEALTH_OK=0
 for i in 1 2 3 4 5; do
   if curl -sf --max-time 5 http://localhost:8001/api/health >/dev/null 2>&1; then
@@ -218,6 +247,20 @@ for i in 1 2 3 4 5; do
   echo "   tentativa $i/5..." | tee -a "$LOG_FILE"
   sleep 3
 done
+
+# Health check do site (nginx → build) — detecta 500/404 causado por build faltando
+if [ "$HEALTH_OK" = "1" ]; then
+  echo "▶ Verificando saúde do frontend (nginx)..." | tee -a "$LOG_FILE"
+  FRONT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost/ 2>/dev/null || echo "000")
+  if [ "$FRONT_STATUS" = "500" ] || [ "$FRONT_STATUS" = "502" ] || [ "$FRONT_STATUS" = "503" ]; then
+    echo "⚠️  Frontend retornou HTTP $FRONT_STATUS — possível problema no build ou permissão." | tee -a "$LOG_FILE"
+    echo "    Última linha do nginx error.log:"                                           | tee -a "$LOG_FILE"
+    tail -n 3 /var/log/nginx/error.log 2>/dev/null | tee -a "$LOG_FILE" || true
+    HEALTH_OK=0
+  else
+    echo "   Frontend OK (HTTP $FRONT_STATUS)" | tee -a "$LOG_FILE"
+  fi
+fi
 
 if [ "$HEALTH_OK" = "1" ]; then
   echo ""                                             | tee -a "$LOG_FILE"
