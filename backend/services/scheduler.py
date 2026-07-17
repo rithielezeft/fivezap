@@ -15,6 +15,7 @@ from database import DB_PATH, get_setting, set_setting
 from services import painel
 from services.notifier import send_notification
 from services.phone_extractor import extract_whatsapp
+from services.expiration import compute_expiration_info
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +62,9 @@ async def _check_and_notify():
     days = [int(d.strip()) for d in days_str.split(",") if d.strip()]
     public_base = await get_setting("public_base_url", "")
 
-    # Try to fetch users from painel.fun
+    # Try to fetch ALL users from painel.fun (paginated)
     try:
-        users = await painel.list_users(limit=1000)
+        users = await painel.list_users(limit=10000)
     except Exception as e:
         logger.warning("Skipping expiration check — painel.fun unreachable: %s", e)
         return
@@ -71,19 +72,14 @@ async def _check_and_notify():
     now = datetime.now(timezone.utc)
     logger.info("Notification check: %d users to scan, thresholds=%s", len(users), days)
 
+    sent_count = 0
     for u in users:
         try:
-            exp_raw = _pick(u, ["expires_at", "expiration", "expiry_date", "expire_date"])
-            if not exp_raw:
+            info = compute_expiration_info(u)
+            diff_days = info["days_until_expiry"]
+            exp_iso = info["expires_at_iso"]
+            if diff_days is None or not exp_iso:
                 continue
-            try:
-                exp = datetime.fromisoformat(str(exp_raw).replace("Z", "+00:00"))
-                if exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=timezone.utc)
-            except Exception:
-                continue
-
-            diff_days = (exp.date() - now.date()).days
             if diff_days not in days:
                 continue
 
@@ -100,10 +96,11 @@ async def _check_and_notify():
 
             name = _pick(u, ["name", "full_name", "customer_name"]) or "cliente"
             pay_link = f"{public_base}/pay/{user_id}"
+            exp_dt = datetime.fromisoformat(exp_iso)
             ctx = {
                 "name": name,
                 "user_id": user_id,
-                "expires_at": exp.astimezone(timezone.utc).strftime("%d/%m/%Y"),
+                "expires_at": exp_dt.astimezone(timezone.utc).strftime("%d/%m/%Y"),
                 "pay_link": pay_link,
                 "days": abs(diff_days),
             }
@@ -114,6 +111,9 @@ async def _check_and_notify():
             sent = await send_notification(event, str(phone), ctx)
             if sent:
                 await set_setting(key, "1")
+                sent_count += 1
                 logger.info("Sent %s reminder to %s (%s)", event, name, phone)
         except Exception:
             logger.exception("Failed to process user for notification")
+
+    logger.info("Notification check complete: %d messages sent", sent_count)

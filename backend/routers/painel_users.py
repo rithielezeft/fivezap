@@ -19,6 +19,7 @@ from database import DB_PATH
 from services import painel
 from services.phone_extractor import extract_whatsapp
 from services.system_detector import detect_system_type
+from services.expiration import compute_expiration_info
 
 router = APIRouter(prefix="/api/painel", tags=["painel"])
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ async def refresh_cache_task():
         _refresh_state["last_error"] = None
         try:
             logger.info("Refreshing painel.fun users cache...")
-            users = await painel.list_users(limit=2000)
+            users = await painel.list_users(limit=10000)
             await _write_cache(users)
             _refresh_state["last_refresh_at"] = datetime.now(timezone.utc).isoformat()
             logger.info("Painel cache refreshed: %d users", len(users))
@@ -107,6 +108,11 @@ async def list_users(search: Optional[str] = None, background_tasks: BackgroundT
 
         u["_system_type"] = detect_system_type(u)
 
+        exp = compute_expiration_info(u)
+        u["_expires_at"] = exp["expires_at_iso"]
+        u["_days_until_expiry"] = exp["days_until_expiry"]
+        u["_status"] = exp["status"]
+
     if search:
         s = search.lower()
         def match(u):
@@ -118,10 +124,15 @@ async def list_users(search: Optional[str] = None, background_tasks: BackgroundT
         users = [u for u in users if match(u)]
 
     with_wa = sum(1 for u in users if u.get("_has_whatsapp"))
+    by_status = {}
+    for u in users:
+        s = u.get("_status") or "unknown"
+        by_status[s] = by_status.get(s, 0) + 1
     return {
         "users": users,
         "count": len(users),
         "count_with_whatsapp": with_wa,
+        "by_status": by_status,
         "cache_updated_at": updated_at,
         "refreshing": _refresh_state["running"],
         "last_error": _refresh_state["last_error"],
@@ -206,3 +217,46 @@ async def renew(payload: RenewPayload):
 async def package_ids():
     """Return the mapping so the frontend can display."""
     return painel.PACKAGE_IDS
+
+
+@router.get("/expiring")
+async def expiring_soon():
+    """Preview which users would receive notifications now (does not send)."""
+    from services.scheduler import _event_for_days
+    from database import get_setting
+
+    days_str = await get_setting("notification_days", "3,1,0")
+    days = [int(d.strip()) for d in days_str.split(",") if d.strip()]
+    users, _ = await _read_cache()
+
+    result = []
+    for u in users:
+        d = u.get("_days_until_expiry")
+        if d is None or d not in days:
+            continue
+        result.append({
+            "user_id": u.get("id") or u.get("user_id") or u.get("username"),
+            "name": u.get("name") or u.get("full_name") or u.get("username"),
+            "whatsapp": u.get("_whatsapp"),
+            "has_whatsapp": u.get("_has_whatsapp"),
+            "system_type": u.get("_system_type"),
+            "expires_at": u.get("_expires_at"),
+            "days_until_expiry": d,
+            "template_event": _event_for_days(d),
+            "status": u.get("_status"),
+        })
+    # Sort: most urgent first (smallest days, negatives last)
+    result.sort(key=lambda x: (x["days_until_expiry"] < 0, abs(x["days_until_expiry"])))
+    return {"count": len(result), "days_thresholds": days, "users": result}
+
+
+@router.post("/notify-now")
+async def notify_now():
+    """Trigger the expiration notification loop immediately."""
+    from services.scheduler import _check_and_notify
+    try:
+        await _check_and_notify()
+        return {"success": True}
+    except Exception as e:
+        logger.exception("notify-now failed")
+        raise HTTPException(500, str(e))

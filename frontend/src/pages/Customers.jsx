@@ -74,6 +74,7 @@ export default function Customers() {
   const [renewPlan, setRenewPlan] = useState(1);
   const [trialFor, setTrialFor] = useState(null);
   const [systemFilter, setSystemFilter] = useState("all"); // all | iptv | p2p | hybrid | unknown
+  const [statusFilter, setStatusFilter] = useState("all"); // all | active | expiring_soon | expired
 
   // debounce search
   useState(() => {
@@ -99,6 +100,12 @@ export default function Customers() {
     onError: (e) => toast.error("Erro: " + e.message),
   });
 
+  const notifyMut = useMutation({
+    mutationFn: painelApi.notifyNow,
+    onSuccess: () => toast.success("Notificações enviadas aos clientes vencendo"),
+    onError: (e) => toast.error("Falhou: " + (e.response?.data?.detail || e.message)),
+  });
+
   const renewMut = useMutation({
     mutationFn: painelApi.renew,
     onSuccess: () => {
@@ -121,10 +128,15 @@ export default function Customers() {
 
   const users = data?.users || [];
   const filteredUsers = users.filter((u) => {
-    if (systemFilter === "all") return true;
-    const s = u._system_type || null;
-    if (systemFilter === "unknown") return !s;
-    return s === systemFilter;
+    if (systemFilter !== "all") {
+      const s = u._system_type || null;
+      if (systemFilter === "unknown" ? s : s !== systemFilter) return false;
+    }
+    if (statusFilter !== "all") {
+      const st = u._status || "unknown";
+      if (st !== statusFilter) return false;
+    }
+    return true;
   });
   const counts = users.reduce((acc, u) => {
     const s = u._system_type || "unknown";
@@ -135,9 +147,37 @@ export default function Customers() {
   return (
     <Layout
       title="Clientes"
-      subtitle={`${data?.count ?? 0} usuários no painel.fun`}
+      subtitle={
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span data-testid="subtitle-total">{data?.count ?? 0} usuários</span>
+          {data?.by_status?.expired > 0 && (
+            <span className="text-[#FF3B30]" data-testid="subtitle-expired">
+              • {data.by_status.expired} vencidos
+            </span>
+          )}
+          {data?.by_status?.expiring_soon > 0 && (
+            <span className="text-[#FF9F0A]" data-testid="subtitle-expiring">
+              • {data.by_status.expiring_soon} vencendo
+            </span>
+          )}
+          {data?.count_with_whatsapp != null && (
+            <span className="text-white/50" data-testid="subtitle-wa">
+              • {data.count_with_whatsapp} com WhatsApp
+            </span>
+          )}
+        </span>
+      }
       actions={
         <>
+          <Button
+            variant="outline"
+            className="border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10"
+            onClick={() => notifyMut.mutate()}
+            disabled={notifyMut.isPending}
+            data-testid="btn-notify-now"
+          >
+            {notifyMut.isPending ? "Enviando..." : "Notificar vencendo"}
+          </Button>
           <Button
             variant="outline"
             className="border-white/10 hover:bg-white/[0.05]"
@@ -166,7 +206,7 @@ export default function Customers() {
       </div>
 
       {/* System type filter chips */}
-      <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="system-filter-bar">
+      <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="system-filter-bar">
         {[
           { key: "all",     label: "Todos",   cls: "border-white/10 hover:bg-white/[0.05]" },
           { key: "iptv",    label: "IPTV",    cls: "border-[#007AFF]/30 text-[#5AC8FA] hover:bg-[#007AFF]/10" },
@@ -181,6 +221,33 @@ export default function Customers() {
               key={f.key}
               onClick={() => setSystemFilter(f.key)}
               data-testid={`filter-system-${f.key}`}
+              className={`px-3 py-1.5 rounded-full text-xs uppercase tracking-wide border transition-all ${
+                active ? "bg-white/[0.08] " + f.cls : f.cls + " opacity-70"
+              }`}
+            >
+              {f.label} <span className="ml-1 font-mono opacity-60">{n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Status filter chips */}
+      <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="status-filter-bar">
+        {[
+          { key: "all",            label: "Todos status",  cls: "border-white/10 hover:bg-white/[0.05]" },
+          { key: "expired",        label: "Vencidos",      cls: "border-[#FF3B30]/30 text-[#FF3B30] hover:bg-[#FF3B30]/10" },
+          { key: "expiring_soon",  label: "Vencendo",      cls: "border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10" },
+          { key: "active",         label: "Ativos",        cls: "border-[#34C759]/30 text-[#34C759] hover:bg-[#34C759]/10" },
+        ].map((f) => {
+          const active = statusFilter === f.key;
+          const n = f.key === "all"
+            ? users.length
+            : (data?.by_status?.[f.key] || 0);
+          return (
+            <button
+              key={f.key}
+              onClick={() => setStatusFilter(f.key)}
+              data-testid={`filter-status-${f.key}`}
               className={`px-3 py-1.5 rounded-full text-xs uppercase tracking-wide border transition-all ${
                 active ? "bg-white/[0.08] " + f.cls : f.cls + " opacity-70"
               }`}
@@ -268,7 +335,7 @@ export default function Customers() {
               const whatsapp = u._whatsapp || pickField(u, ["whatsapp", "phone", "telephone", "mobile"]) || "-";
               const waFromNotes = !!u._whatsapp && !pickField(u, ["whatsapp", "phone", "telephone", "mobile"]);
               const mac = pickField(u, ["mac", "mac_address"]);
-              const expires = pickField(u, ["expires_at", "expiration", "expiry_date", "expire_date"]);
+              const expires = u._expires_at || pickField(u, ["expires_at", "expiration", "expiry_date", "expire_date"]);
               const system = detectSystemType(u);
               const payLink = u._pay_link;
               return (
