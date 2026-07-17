@@ -46,11 +46,19 @@ echo "▶ Instalando dependências do sistema..."
 apt update
 apt install -y \
   python3 python3-pip python3-venv \
-  curl git \
+  curl git openssl \
   nginx \
-  chromium-browser \
   libnss3 libatk-bridge2.0-0 libx11-xcb1 libxcomposite1 libxrandr2 \
   libxdamage1 libxfixes3 libxi6 libgbm1 libpangocairo-1.0-0 libasound2
+
+# Chromium (Raspberry Pi OS pode ter chromium OU chromium-browser)
+if ! command -v chromium-browser >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1; then
+  apt install -y chromium || apt install -y chromium-browser || true
+fi
+
+# Detecta o caminho real do Chromium
+CHROMIUM_BIN=$(command -v chromium-browser || command -v chromium || echo "/usr/bin/chromium")
+echo "  ✓ Chromium: $CHROMIUM_BIN"
 
 # Instala Node.js 20 se não estiver disponível
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v | grep -oE '[0-9]+' | head -1)" -lt 18 ]; then
@@ -132,7 +140,7 @@ Type=simple
 User=$APP_USER
 WorkingDirectory=$APP_DIR/backend
 Environment="PATH=$APP_DIR/backend/.venv/bin:/usr/bin:/bin"
-Environment="CHROMIUM_PATH=/usr/bin/chromium-browser"
+Environment="CHROMIUM_PATH=$CHROMIUM_BIN"
 ExecStart=$APP_DIR/backend/.venv/bin/uvicorn server:app --host 0.0.0.0 --port 8001
 Restart=always
 RestartSec=5
@@ -187,8 +195,17 @@ EOF
 # Ativa o site
 ln -sf /etc/nginx/sites-available/whatsflow /etc/nginx/sites-enabled/whatsflow
 rm -f /etc/nginx/sites-enabled/default
+
+# Verifica se a porta 80 está sendo usada por outro serviço
+if ss -tlnp 2>/dev/null | grep -q ':80 '; then
+  if ! ss -tlnp 2>/dev/null | grep ':80 ' | grep -q nginx; then
+    echo "  ⚠ Porta 80 já em uso por outro serviço. Verifique com: sudo ss -tlnp | grep :80"
+    echo "     Se for Apache, pare com: sudo systemctl stop apache2 && sudo systemctl disable apache2"
+  fi
+fi
+
 nginx -t
-systemctl reload nginx || systemctl restart nginx
+systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || echo "  ⚠ Nginx falhou ao iniciar. Rode: sudo systemctl status nginx"
 
 # ------------------------------------------------------------------
 # 7) Ativa e sobe tudo
