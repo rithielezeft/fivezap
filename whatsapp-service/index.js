@@ -130,8 +130,27 @@ app.post('/send', async (req, res) => {
   if (!phone) return res.status(400).json({ error: 'phone required' });
   if (!ready) return res.status(503).json({ error: 'whatsapp not ready', state });
   try {
+    // Strip everything but digits (no +, no @c.us — getNumberId handles that)
     const digits = String(phone).replace(/\D/g, '');
-    const chatId = digits.includes('@') ? digits : `${digits}@c.us`;
+    if (!digits) return res.status(400).json({ error: 'invalid phone (no digits)' });
+
+    // Resolve to a proper WhatsApp ID (handles LID conversion internally in 1.34.7+)
+    let chatId;
+    try {
+      const numberId = await client.getNumberId(digits);
+      if (!numberId) {
+        console.warn('[WA] Number not registered on WhatsApp:', digits);
+        return res.status(404).json({
+          error: 'Este número não está no WhatsApp',
+          phone: digits,
+        });
+      }
+      chatId = numberId._serialized;
+    } catch (lidErr) {
+      // Fallback to old format if getNumberId fails outright
+      console.warn('[WA] getNumberId failed, falling back to @c.us:', lidErr.message);
+      chatId = `${digits}@c.us`;
+    }
 
     let result;
     if (image_url) {
@@ -149,7 +168,7 @@ app.post('/send', async (req, res) => {
       if (!message) return res.status(400).json({ error: 'message or image_url required' });
       result = await client.sendMessage(chatId, message);
     }
-    res.json({ success: true, id: result.id?._serialized });
+    res.json({ success: true, id: result.id?._serialized, chat_id: chatId });
   } catch (e) {
     console.error('[WA] Send error', e);
     res.status(500).json({ error: e.message });
