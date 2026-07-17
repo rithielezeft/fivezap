@@ -11,25 +11,31 @@ import Messages from "@/pages/Messages";
 import Payments from "@/pages/Payments";
 import Settings from "@/pages/Settings";
 import Notifications from "@/pages/Notifications";
+import Login from "@/pages/Login";
 import PublicTest from "@/pages/PublicTest";
 import PublicPay from "@/pages/PublicPay";
+import ProtectedRoute from "@/components/ProtectedRoute";
+
+const P = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
 
 export default function App() {
   return (
     <>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/customers" element={<Customers />} />
-          <Route path="/trials" element={<Trials />} />
-          <Route path="/templates" element={<Templates />} />
-          <Route path="/whatsapp" element={<WhatsAppPage />} />
-          <Route path="/messages" element={<Messages />} />
-          <Route path="/payments" element={<Payments />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/login" element={<Login />} />
           <Route path="/teste" element={<PublicTest />} />
           <Route path="/pay/:customerId" element={<PublicPay />} />
+
+          <Route path="/" element={<P><Dashboard /></P>} />
+          <Route path="/customers" element={<P><Customers /></P>} />
+          <Route path="/trials" element={<P><Trials /></P>} />
+          <Route path="/templates" element={<P><Templates /></P>} />
+          <Route path="/whatsapp" element={<P><WhatsAppPage /></P>} />
+          <Route path="/messages" element={<P><Messages /></P>} />
+          <Route path="/payments" element={<P><Payments /></P>} />
+          <Route path="/notifications" element={<P><Notifications /></P>} />
+          <Route path="/settings" element={<P><Settings /></P>} />
         </Routes>
       </BrowserRouter>
       <Toaster theme="dark" position="top-right" richColors closeButton />

@@ -26,14 +26,23 @@ def _pick(d, keys, default=None):
 
 
 def _event_for_days(diff_days: int) -> str | None:
-    if diff_days == 0:
-        return "expiration_0d"
-    if diff_days == 1:
-        return "expiration_1d"
+    # Before expiration
+    if diff_days == 7:
+        return "expiration_7d"
     if diff_days == 3:
         return "expiration_3d"
-    # fallback to generic 3d template if the day is configured but not standard
-    return "expiration_3d"
+    if diff_days == 1:
+        return "expiration_1d"
+    if diff_days == 0:
+        return "expiration_0d"
+    # After expiration (past due)
+    if diff_days == -1:
+        return "expired_1d"
+    if diff_days == -3:
+        return "expired_3d"
+    if diff_days == -7:
+        return "expired_7d"
+    return None
 
 
 async def check_expirations_loop():
@@ -95,10 +104,12 @@ async def _check_and_notify():
                 "user_id": user_id,
                 "expires_at": exp.astimezone(timezone.utc).strftime("%d/%m/%Y"),
                 "pay_link": pay_link,
-                "days": diff_days,
+                "days": abs(diff_days),
             }
 
             event = _event_for_days(diff_days)
+            if not event:
+                continue
             sent = await send_notification(event, str(phone), ctx)
             if sent:
                 await set_setting(key, "1")

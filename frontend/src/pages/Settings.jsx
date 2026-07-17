@@ -21,7 +21,7 @@ const FIELDS = [
   { key: "plan_price_3m", label: "Preço 3 meses (R$)", group: "pay", placeholder: "90,00" },
   { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },
   { key: "plan_price_12m", label: "Preço 12 meses (R$)", group: "pay", placeholder: "280,00" },
-  { key: "notification_days", label: "Dias antes do vencimento p/ notificar (ex: 3,1,0)", group: "notify" },
+  { key: "notification_days", label: "Dias de notificação (negativos = após venc.). Ex: 7,3,1,0,-1,-3,-7", group: "notify" },
   { key: "public_base_url", label: "URL pública (WhatsFlow)", group: "notify" },
   { key: "timezone", label: "Fuso horário", group: "notify" },
 ];

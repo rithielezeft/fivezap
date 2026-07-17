@@ -123,12 +123,24 @@ async def init_db():
                 enabled INTEGER DEFAULT 1,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS painel_users_cache (
+                id TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         await db.commit()
 
         # Seed default notification templates
         default_notifs = [
+            {
+                "event_key": "expiration_7d",
+                "title": "Vencimento em 7 dias",
+                "body": "Olá {name}! 👋\n\nSeu plano vence em *7 dias* ({expires_at}).\n\nRenove agora e garanta 7 dias extras de brinde:\n{pay_link}",
+                "image_url": "",
+            },
             {
                 "event_key": "expiration_3d",
                 "title": "Vencimento em 3 dias",
@@ -145,6 +157,24 @@ async def init_db():
                 "event_key": "expiration_0d",
                 "title": "Venceu hoje",
                 "body": "🔴 Olá {name}, seu plano *venceu hoje*.\n\nRenove agora para reativar o acesso:\n{pay_link}",
+                "image_url": "",
+            },
+            {
+                "event_key": "expired_1d",
+                "title": "Vencido há 1 dia",
+                "body": "Olá {name}, seu plano está vencido há *1 dia*. 😢\n\nQue tal renovar agora e voltar a assistir?\n{pay_link}",
+                "image_url": "",
+            },
+            {
+                "event_key": "expired_3d",
+                "title": "Vencido há 3 dias",
+                "body": "Ei {name}, sentimos sua falta! Seu plano está vencido há *3 dias*.\n\nRenove pelo link e volte já a assistir:\n{pay_link}",
+                "image_url": "",
+            },
+            {
+                "event_key": "expired_7d",
+                "title": "Vencido há 7 dias",
+                "body": "{name}, faz uma semana que seu plano venceu.\n\nQuer voltar? Renove agora com condição especial:\n{pay_link}",
                 "image_url": "",
             },
             {
@@ -175,10 +205,10 @@ async def init_db():
             "painel_password": "Rithi0518",
             "painel_base_url": "https://api.controle.fit",
             "twocaptcha_key": "c3233ff53fddf3e816b0cf78c2ccef61",
-            "turnstile_sitekey": "0x4AAAAAAABkMYinukE_i92X",
-            "turnstile_pageurl": "https://painel.fun",
+            "turnstile_sitekey": "0x4AAAAAACFhU7XJduqvbHH2",
+            "turnstile_pageurl": "https://painel.fun/login",
             "infinitepay_handle": "",
-            "notification_days": "3,1,0",
+            "notification_days": "7,3,1,0,-1,-3,-7",
             "trial_package_id": "61",
             "public_base_url": "https://whatsflow.zeferius.com",
             "timezone": "America/Sao_Paulo",

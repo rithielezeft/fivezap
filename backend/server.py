@@ -16,7 +16,8 @@ load_dotenv(ROOT_DIR / ".env")
 
 from database import init_db
 from services.scheduler import check_expirations_loop
-from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications
+from services.auth import seed_admin_password, is_public, require_admin
+from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,6 +68,7 @@ def _stop_whatsapp_service():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await seed_admin_password()
     _start_whatsapp_service()
     task = asyncio.create_task(check_expirations_loop())
     yield
@@ -84,7 +86,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Auth middleware — protects all /api/* endpoints except public ones
+@app.middleware("http")
+async def auth_middleware(request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or is_public(path):
+        return await call_next(request)
+    # Allow OPTIONS (CORS preflight)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    # Verify token
+    from starlette.responses import JSONResponse
+    try:
+        await require_admin(request)
+    except Exception as e:
+        detail = getattr(e, "detail", str(e))
+        status = getattr(e, "status_code", 401)
+        return JSONResponse({"detail": detail}, status_code=status)
+    return await call_next(request)
+
+
 # Include routers
+app.include_router(auth.router)
+app.include_router(uploads.router)
 app.include_router(customers.router)
 app.include_router(trials.router)
 app.include_router(templates.router)

@@ -1,17 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
-import { notificationsApi, whatsappApi } from "@/lib/api";
+import { notificationsApi, whatsappApi, uploadsApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Bell, Image as ImageIcon, FloppyDisk, PaperPlaneRight, X } from "@phosphor-icons/react";
+import { Bell, Image as ImageIcon, FloppyDisk, PaperPlaneRight, X, UploadSimple, Trash } from "@phosphor-icons/react";
 
 const EVENT_META = {
+  expiration_7d: {
+    icon: "📅",
+    color: "#5AC8FA",
+    description: "Enviado 7 dias antes do vencimento",
+    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+  },
   expiration_3d: {
     icon: "🕒",
     color: "#FF9F0A",
@@ -30,6 +36,24 @@ const EVENT_META = {
     description: "Enviado no dia do vencimento",
     vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}"],
   },
+  expired_1d: {
+    icon: "😢",
+    color: "#FF3B30",
+    description: "Enviado 1 dia após o vencimento",
+    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+  },
+  expired_3d: {
+    icon: "💤",
+    color: "#8E8E93",
+    description: "Enviado 3 dias após o vencimento",
+    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+  },
+  expired_7d: {
+    icon: "👋",
+    color: "#8E8E93",
+    description: "Enviado 7 dias após o vencimento (última tentativa)",
+    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+  },
   renewal_success: {
     icon: "✅",
     color: "#34C759",
@@ -45,6 +69,8 @@ const EVENT_META = {
 };
 
 function NotificationCard({ notif, onSave, testPhone, onSendTest }) {
+  const fileInputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState({
     title: notif.title,
     body: notif.body,
@@ -52,6 +78,22 @@ function NotificationCard({ notif, onSave, testPhone, onSendTest }) {
     enabled: notif.enabled,
   });
   const meta = EVENT_META[notif.event_key] || {};
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const data = await uploadsApi.upload(file);
+      setForm((f) => ({ ...f, image_url: data.url }));
+      toast.success("Imagem enviada");
+    } catch (err) {
+      toast.error("Erro ao enviar: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
     setForm({
@@ -101,16 +143,49 @@ function NotificationCard({ notif, onSave, testPhone, onSendTest }) {
           </div>
           <div>
             <Label className="text-xs flex items-center gap-2">
-              <ImageIcon size={14} /> URL da imagem (opcional)
+              <ImageIcon size={14} /> Imagem (opcional)
             </Label>
-            <Input
-              placeholder="https://exemplo.com/banner.jpg"
-              value={form.image_url}
-              onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-              data-testid={`notif-image-${notif.event_key}`}
-            />
+            <div className="mt-1.5 flex gap-2">
+              <Input
+                placeholder="https://exemplo.com/banner.jpg ou clique em Upload"
+                value={form.image_url}
+                onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                data-testid={`notif-image-${notif.event_key}`}
+                className="flex-1"
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleUpload}
+                className="hidden"
+                data-testid={`notif-file-${notif.event_key}`}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/10 shrink-0"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                data-testid={`notif-upload-${notif.event_key}`}
+              >
+                <UploadSimple size={14} className="mr-1" />
+                {uploading ? "Enviando..." : "Upload"}
+              </Button>
+              {form.image_url && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-white/10 shrink-0 text-[#FF3B30] hover:bg-[#FF3B30]/10"
+                  onClick={() => setForm({ ...form, image_url: "" })}
+                  data-testid={`notif-remove-image-${notif.event_key}`}
+                >
+                  <Trash size={14} />
+                </Button>
+              )}
+            </div>
             <p className="text-[10px] text-white/40 mt-1">
-              JPG, PNG ou GIF acessível publicamente. Fica na parte de cima da mensagem.
+              JPG, PNG, GIF ou WEBP até 5MB. Fica na parte de cima da mensagem.
             </p>
           </div>
           <div>
@@ -214,7 +289,7 @@ function NotificationCard({ notif, onSave, testPhone, onSendTest }) {
 
 export default function Notifications() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState("expiration_3d");
+  const [tab, setTab] = useState("expiration_7d");
   const [testPhone, setTestPhone] = useState("");
 
   const { data: notifs } = useQuery({ queryKey: ["notifications"], queryFn: notificationsApi.list });

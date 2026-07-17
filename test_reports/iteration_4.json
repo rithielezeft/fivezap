@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 4: 41/41 backend tests PASS. Verified admin JWT auth (login OK with 'Rithi0518@', 401 on wrong pw, 429 rate-limit after many bad attempts, /auth/me works with Bearer, change-password + restore round-trip). All admin endpoints (dashboard/stats, notifications, painel, customers, templates, settings, payments, messages, whatsapp/status, trials) correctly return 401 without token and 200 with token. Public endpoints (/api/, /api/health, /api/pay/customer/*, /api/whatsapp/incoming, /api/public/trial, /api/uploads/{filename}) work WITHOUT auth. Uploads: POST /api/uploads accepts png (returns url/path/filename/size), rejects .txt with 400, requires auth (401 without), GET /api/uploads/{fname} public. Notifications now returns 9 templates including expiration_7d + expired_1d/3d/7d. Painel /users returns cached shape (users,count,cache_updated_at,refreshing,last_error) quickly; /users/refresh returns 200 with success:false + error (Cloudflare 403 expected). Regression: all iteration 2/3 flows still pass (customers CRUD, templates trigger_source, settings R$ prices, payments prices_cents, whatsapp incoming save, package-ids, renew 502). Admin password restored to original.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "Rate-limit is in-memory per worker process. With multiple backend workers/replicas, an attacker gets 8*N attempts before hard-block. Not a blocker for MVP but consider moving to shared store (redis/sqlite) if production traffic grows."},
+      {"endpoint": "/api/painel/users/refresh", "issue": "Real painel.fun refresh fails with Cloudflare 403 in datacenter — expected. Response shape {success:false, error:'...'} is correct."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/auth.py — JWT_SECRET default fallback 'insecure-default-please-change' is safe since .env sets it, but consider raising on missing env in prod build.",
+    "routers/auth.py — brute-force map _failed is in-memory dict, per-worker; will not persist across restarts nor across replicas. Fine for single-instance Raspberry deployment but flag if scaling out.",
+    "routers/uploads.py — URL is built from request.headers x-forwarded-proto/host; if header spoofing is a concern, prefer configured PUBLIC_BASE_URL from settings.",
+    "services/auth.py is_public — /api/pay/customer/ is public which exposes prices+customer info by ID; acceptable for a shareable pay link but ensure IDs are non-guessable (UUIDs) — verified via customers router (uses uuid).",
+    "server.py auth middleware calls require_admin(request) as a plain awaitable rather than a FastAPI dependency — works because require_admin is a regular async function that takes Request. OK."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (41/41)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "Admin password: Rithi0518@ (restored after change-password test).",
+  "seed_data_creation": "TEST_ prefixed customer + template deleted in test_zz_cleanup. Uploaded PNG file left in /app/backend/uploads (single tiny 1x1 png). Notification 'expired_1d' restored after mutation. Password Rithi0518@ restored via change-password round-trip.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 41 backend tests pass in ~33s (2 xdist workers). test_zzz_auth_rate_limit runs LAST because it may hard-block the requester IP for up to 15 minutes; the module-scope 'token' fixture is created FIRST so subsequent tests have a valid bearer token even after IP is locked. The current /app/frontend/.env REACT_APP_BACKEND_URL routes through ingress; painel.fun real calls fail with Cloudflare 403 as expected. Admin password is 'Rithi0518@'."
+}

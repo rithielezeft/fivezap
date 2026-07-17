@@ -8,6 +8,41 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Auto-inject auth token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("wf_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+// Redirect to /login on 401
+api.interceptors.response.use(
+  (r) => r,
+  (error) => {
+    if (error.response?.status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/teste") && !window.location.pathname.startsWith("/pay/")) {
+      localStorage.removeItem("wf_token");
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
+
+export const authApi = {
+  login: (password) => api.post("/auth/login", { password }).then((r) => r.data),
+  me: () => api.get("/auth/me").then((r) => r.data),
+  changePassword: (data) => api.post("/auth/change-password", data).then((r) => r.data),
+};
+
+export const uploadsApi = {
+  upload: (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post("/uploads", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }).then((r) => r.data);
+  },
+};
+
 // Convenience wrappers
 export const dashboardApi = {
   stats: () => api.get("/dashboard/stats").then((r) => r.data),
@@ -70,6 +105,8 @@ export const notificationsApi = {
 
 export const painelApi = {
   listUsers: (params) => api.get("/painel/users", { params }).then((r) => r.data),
+  refresh: () => api.post("/painel/users/refresh").then((r) => r.data),
+  status: () => api.get("/painel/status").then((r) => r.data),
   renew: (data) => api.post("/painel/renew", data).then((r) => r.data),
   packageIds: () => api.get("/painel/package-ids").then((r) => r.data),
 };

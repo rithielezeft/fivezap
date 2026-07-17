@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy } from "@phosphor-icons/react";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -74,9 +74,20 @@ export default function Customers() {
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["painel-users", debounced],
-    queryFn: () => painelApi.listUsers({ search: debounced || undefined, limit: 500 }),
+    queryFn: () => painelApi.listUsers({ search: debounced || undefined }),
     retry: 1,
     refetchOnWindowFocus: false,
+    refetchInterval: (q) => (q?.state?.data?.refreshing ? 3000 : 60000),
+  });
+
+  const refreshMut = useMutation({
+    mutationFn: painelApi.refresh,
+    onSuccess: (r) => {
+      if (r.success) toast.success(`Cache atualizado: ${r.count} usuários`);
+      else toast.error("Falha ao atualizar: " + (r.error || "erro"));
+      refetch();
+    },
+    onError: (e) => toast.error("Erro: " + e.message),
   });
 
   const renewMut = useMutation({
@@ -106,16 +117,18 @@ export default function Customers() {
       title="Clientes"
       subtitle={`${data?.count ?? 0} usuários no painel.fun`}
       actions={
-        <Button
-          variant="outline"
-          className="border-white/10 hover:bg-white/[0.05]"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="btn-refresh-users"
-        >
-          <ArrowClockwise size={16} className={"mr-2 " + (isFetching ? "animate-spin" : "")} />
-          {isFetching ? "Atualizando..." : "Atualizar"}
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            className="border-white/10 hover:bg-white/[0.05]"
+            onClick={() => refreshMut.mutate()}
+            disabled={refreshMut.isPending || data?.refreshing}
+            data-testid="btn-refresh-users"
+          >
+            <ArrowClockwise size={16} className={"mr-2 " + ((refreshMut.isPending || data?.refreshing) ? "animate-spin" : "")} />
+            {refreshMut.isPending || data?.refreshing ? "Buscando no painel..." : "Atualizar do painel"}
+          </Button>
+        </>
       }
     >
       <div className="mb-4 relative">
@@ -131,6 +144,38 @@ export default function Customers() {
           data-testid="input-search-users"
         />
       </div>
+
+      {(data?.last_error || data?.refreshing) && !error && (
+        <div className="surface rounded-xl p-4 mb-4" data-testid="painel-status">
+          <div className="flex items-start gap-3">
+            {data?.refreshing ? (
+              <>
+                <div className="w-5 h-5 rounded-full border-2 border-[#007AFF] border-t-transparent animate-spin shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <div className="font-medium text-[#007AFF]">Buscando usuários no painel.fun...</div>
+                  <div className="text-white/50 text-xs mt-1">
+                    Resolvendo Cloudflare Turnstile via 2Captcha. Isso pode levar 30-60s no primeiro carregamento.
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <WarningCircle size={20} className="text-[#FF9F0A] shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <div className="font-medium text-[#FF9F0A]">Última tentativa falhou</div>
+                  <div className="text-white/60 mt-1 text-xs break-all">{data?.last_error}</div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {data?.cache_updated_at && (
+        <div className="text-xs text-white/40 mb-2">
+          Cache atualizado em: {formatDateBR(data.cache_updated_at)}
+        </div>
+      )}
 
       {error && (
         <div className="surface rounded-xl p-6 mb-4" data-testid="painel-error">
@@ -157,9 +202,9 @@ export default function Customers() {
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">WhatsApp</th>
               <th className="px-4 py-3">Sistema</th>
-              <th className="px-4 py-3">MAC</th>
               <th className="px-4 py-3">Expira</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Link de pagamento</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
@@ -178,6 +223,7 @@ export default function Customers() {
               const mac = pickField(u, ["mac", "mac_address"]);
               const expires = pickField(u, ["expires_at", "expiration", "expiry_date", "expire_date"]);
               const system = detectSystemType(u);
+              const payLink = u._pay_link;
               return (
                 <tr key={uid} className="border-t border-white/[0.05] hover:bg-white/[0.02] transition-colors" data-testid={`user-row-${uid}`}>
                   <td className="px-4 py-3 font-mono text-xs">{username}</td>
@@ -185,10 +231,34 @@ export default function Customers() {
                   <td className="px-4 py-3 font-mono text-xs text-white/70">{whatsapp}</td>
                   <td className="px-4 py-3">
                     <span className="uppercase text-xs px-2 py-1 rounded-md bg-white/[0.05]">{system}</span>
+                    {mac && <div className="font-mono text-[9px] text-white/40 mt-0.5">{mac}</div>}
                   </td>
-                  <td className="px-4 py-3 font-mono text-[10px] text-white/50">{mac || "—"}</td>
                   <td className="px-4 py-3 text-xs text-white/60">{expires ? formatDateBR(expires) : "—"}</td>
                   <td className="px-4 py-3"><StatusBadge user={u} /></td>
+                  <td className="px-4 py-3">
+                    {payLink ? (
+                      <div className="flex items-center gap-1">
+                        <a
+                          href={payLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#007AFF] hover:underline text-xs font-mono truncate max-w-[200px] flex items-center gap-1"
+                          data-testid={`pay-link-${uid}`}
+                        >
+                          <LinkIcon size={12} weight="bold" />
+                          {payLink.replace(/^https?:\/\//, "")}
+                        </a>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(payLink); toast.success("Link copiado"); }}
+                          className="text-white/40 hover:text-white p-1"
+                          title="Copiar"
+                          data-testid={`copy-link-${uid}`}
+                        >
+                          <Copy size={12} />
+                        </button>
+                      </div>
+                    ) : <span className="text-white/30 text-xs">—</span>}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
                       <Button

@@ -55,13 +55,23 @@ async def login(force: bool = False) -> str:
         "cf-turnstile-response": turnstile_token,
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(f"{base}/api/login", json=payload)
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            f"{base}/api/auth/sign-in",
+            json=payload,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/login",
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+            },
+        )
         if resp.status_code >= 400:
             logger.error("Login failed %s: %s", resp.status_code, resp.text[:400])
-            raise RuntimeError(f"Painel login failed: {resp.status_code}")
+            raise RuntimeError(f"Painel login failed: HTTP {resp.status_code} — {resp.text[:200]}")
         data = resp.json()
-        token = data.get("token") or data.get("access_token") or data.get("data", {}).get("token")
+        token = data.get("token") or (data.get("user") or {}).get("token") or data.get("access_token") or data.get("data", {}).get("token")
         if not token:
             raise RuntimeError(f"Painel login: no token in response: {list(data.keys())}")
 
@@ -116,33 +126,39 @@ async def create_trial(
 
 
 async def list_users(limit: int = 500, search: str = None) -> list:
-    """List users from painel.fun. Tries common endpoints."""
+    """List users from painel.fun. Tries common endpoints and logs details."""
     token = await login()
     base = await get_setting("painel_base_url")
     headers = {"Authorization": f"Bearer {token}"}
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        # Try /api/users first, then fallbacks
-        for path in ("/api/users", "/api/customers", "/api/clients"):
+    attempts = []
+    async with httpx.AsyncClient(timeout=90) as client:
+        # Try common endpoints. painel.fun uses /api/trial_users so users likely under similar path
+        for path in ("/api/users", "/api/customers", "/api/clients", "/api/subscribers", "/api/panel_users"):
             try:
-                params = {"limit": limit}
+                params = {"limit": limit, "per_page": limit}
                 if search:
                     params["search"] = search
                 resp = await client.get(f"{base}{path}", headers=headers, params=params)
                 if resp.status_code == 401:
-                    # Retry with fresh token
                     fresh_token = await login(force=True)
                     resp = await client.get(f"{base}{path}", headers={"Authorization": f"Bearer {fresh_token}"}, params=params)
+                attempts.append(f"{path} → {resp.status_code}")
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, list):
+                        logger.info("list_users success via %s (%d items)", path, len(data))
                         return data
                     if isinstance(data, dict):
-                        return data.get("data") or data.get("users") or data.get("items") or []
+                        items = data.get("data") or data.get("users") or data.get("items") or data.get("results")
+                        if isinstance(items, list):
+                            logger.info("list_users success via %s (%d items, nested)", path, len(items))
+                            return items
             except Exception as e:
+                attempts.append(f"{path} → EXC:{e}")
                 logger.warning("list_users %s error: %s", path, e)
                 continue
-    raise RuntimeError("Nenhum endpoint de listagem de usuários funcionou (/api/users, /api/customers, /api/clients)")
+    raise RuntimeError("Nenhum endpoint de listagem funcionou. Tentativas: " + " | ".join(attempts))
 
 
 async def renew_user(user_id: str, package_id: int) -> dict:
