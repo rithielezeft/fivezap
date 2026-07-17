@@ -5,8 +5,9 @@ starlette==0.41.2
 python-dotenv==1.0.1
 pydantic==2.9.2
 
-# HTTP
+# HTTP clients
 httpx==0.28.1
+curl_cffi==0.7.4
 
 # Database (SQLite async)
 aiosqlite==0.20.0

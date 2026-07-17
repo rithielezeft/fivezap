@@ -83,6 +83,8 @@ cd "$APP_DIR/backend"
 sudo -u "$APP_USER" python3 -m venv .venv
 sudo -u "$APP_USER" ./.venv/bin/pip install --upgrade pip wheel
 sudo -u "$APP_USER" ./.venv/bin/pip install -r requirements.txt
+# Garante que curl_cffi está instalado (necessário para bypass TLS do painel.fun)
+sudo -u "$APP_USER" ./.venv/bin/pip install curl_cffi==0.7.4
 
 # Gera .env se não existir
 if [ ! -f .env ]; then

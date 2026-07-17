@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 import httpx
+from curl_cffi import requests as cffi_requests
 from twocaptcha import TwoCaptcha
 
 from database import get_setting
@@ -24,7 +25,12 @@ async def solve_turnstile() -> str:
 
     def _solve():
         solver = TwoCaptcha(api_key)
-        result = solver.turnstile(sitekey=sitekey, url=pageurl)
+        # Pass userAgent + action for accurate Turnstile validation
+        result = solver.turnstile(
+            sitekey=sitekey,
+            url=pageurl,
+            useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        )
         return result.get("code")
 
     logger.info("Solving Turnstile via 2Captcha (sitekey=%s)", sitekey)
@@ -105,24 +111,28 @@ async def create_trial(
     if system_type:
         payload["system_type"] = system_type
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
+    def _post_trial(tok):
+        return cffi_requests.post(
             f"{base}/api/trial_users",
             json=payload,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+            },
+            impersonate="chrome124",
+            timeout=90,
         )
-        if resp.status_code == 401:
-            # Token invalid, force re-login and retry once
-            token = await login(force=True)
-            resp = await client.post(
-                f"{base}/api/trial_users",
-                json=payload,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        if resp.status_code >= 400:
-            logger.error("Create trial failed %s: %s", resp.status_code, resp.text[:400])
-            raise RuntimeError(f"Create trial failed: {resp.status_code} — {resp.text[:200]}")
-        return resp.json()
+
+    resp = await asyncio.to_thread(_post_trial, token)
+    if resp.status_code == 401:
+        token = await login(force=True)
+        resp = await asyncio.to_thread(_post_trial, token)
+    if resp.status_code >= 400:
+        logger.error("Create trial failed %s: %s", resp.status_code, resp.text[:400])
+        raise RuntimeError(f"Create trial failed: {resp.status_code} — {resp.text[:200]}")
+    return resp.json()
 
 
 async def list_users(limit: int = 500, search: str = None) -> list:
@@ -132,32 +142,46 @@ async def list_users(limit: int = 500, search: str = None) -> list:
     headers = {"Authorization": f"Bearer {token}"}
 
     attempts = []
-    async with httpx.AsyncClient(timeout=90) as client:
-        # Try common endpoints. painel.fun uses /api/trial_users so users likely under similar path
-        for path in ("/api/users", "/api/customers", "/api/clients", "/api/subscribers", "/api/panel_users"):
-            try:
-                params = {"limit": limit, "per_page": limit}
-                if search:
-                    params["search"] = search
-                resp = await client.get(f"{base}{path}", headers=headers, params=params)
-                if resp.status_code == 401:
-                    fresh_token = await login(force=True)
-                    resp = await client.get(f"{base}{path}", headers={"Authorization": f"Bearer {fresh_token}"}, params=params)
-                attempts.append(f"{path} → {resp.status_code}")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list):
-                        logger.info("list_users success via %s (%d items)", path, len(data))
-                        return data
-                    if isinstance(data, dict):
-                        items = data.get("data") or data.get("users") or data.get("items") or data.get("results")
-                        if isinstance(items, list):
-                            logger.info("list_users success via %s (%d items, nested)", path, len(items))
-                            return items
-            except Exception as e:
-                attempts.append(f"{path} → EXC:{e}")
-                logger.warning("list_users %s error: %s", path, e)
-                continue
+    # Use curl_cffi with browser TLS fingerprint for all painel.fun requests
+    def _get(path, params, tok):
+        return cffi_requests.get(
+            f"{base}{path}",
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+            },
+            params=params,
+            impersonate="chrome124",
+            timeout=90,
+        )
+
+    for path in ("/api/users", "/api/customers", "/api/clients", "/api/subscribers", "/api/panel_users"):
+        try:
+            params = {"limit": limit, "per_page": limit}
+            if search:
+                params["search"] = search
+            resp = await asyncio.to_thread(_get, path, params, token)
+            if resp.status_code == 401:
+                fresh_token = await login(force=True)
+                resp = await asyncio.to_thread(_get, path, params, fresh_token)
+            attempts.append(f"{path} → {resp.status_code}")
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    logger.info("list_users success via %s (%d items)", path, len(data))
+                    return data
+                if isinstance(data, dict):
+                    items = data.get("data") or data.get("users") or data.get("items") or data.get("results")
+                    if isinstance(items, list):
+                        logger.info("list_users success via %s (%d items, nested)", path, len(items))
+                        return items
+        except Exception as e:
+            attempts.append(f"{path} → EXC:{e}")
+            logger.warning("list_users %s error: %s", path, e)
+            continue
     raise RuntimeError("Nenhum endpoint de listagem funcionou. Tentativas: " + " | ".join(attempts))
 
 
@@ -167,23 +191,29 @@ async def renew_user(user_id: str, package_id: int) -> dict:
     base = await get_setting("painel_base_url")
 
     payload = {"package_id": package_id, "user_id": user_id}
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
+
+    def _post_renew(tok):
+        return cffi_requests.post(
             f"{base}/api/renewal",
             json=payload,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+            },
+            impersonate="chrome124",
+            timeout=90,
         )
-        if resp.status_code == 401:
-            token = await login(force=True)
-            resp = await client.post(
-                f"{base}/api/renewal",
-                json=payload,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        if resp.status_code >= 400:
-            logger.error("Renew failed %s: %s", resp.status_code, resp.text[:400])
-            raise RuntimeError(f"Renew failed: {resp.status_code}")
-        return resp.json()
+
+    resp = await asyncio.to_thread(_post_renew, token)
+    if resp.status_code == 401:
+        token = await login(force=True)
+        resp = await asyncio.to_thread(_post_renew, token)
+    if resp.status_code >= 400:
+        logger.error("Renew failed %s: %s", resp.status_code, resp.text[:400])
+        raise RuntimeError(f"Renew failed: {resp.status_code}")
+    return resp.json()
 
 
 # Package IDs mapping (from problem statement)

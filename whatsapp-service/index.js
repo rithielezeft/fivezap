@@ -15,8 +15,11 @@ let ready = false;
 let state = 'starting';
 let lastError = null;
 
+const path = require('path');
+const SESSION_DIR = process.env.WA_SESSION_DIR || path.join(__dirname, '.wwebjs_auth');
+
 const client = new Client({
-  authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: '/app/whatsapp-service/.wwebjs_auth' }),
+  authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: SESSION_DIR }),
   puppeteer: {
     headless: true,
     executablePath: process.env.CHROMIUM_PATH || '/usr/bin/google-chrome',

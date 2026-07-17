@@ -41,8 +41,10 @@ backend/whatsflow.db-shm
 backend/whatsflow.db-wal
 
 # WhatsApp session data
-whatsapp-service/.wwebjs_auth/
-whatsapp-service/.wwebjs_cache/
+whatsapp-service/.wwebjs_auth
+whatsapp-service/.wwebjs_auth/**
+whatsapp-service/.wwebjs_cache
+whatsapp-service/.wwebjs_cache/**
 
 # User uploads (each installation has its own)
 backend/uploads/*
