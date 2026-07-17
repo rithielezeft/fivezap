@@ -1,89 +1,106 @@
-from fastapi import FastAPI, APIRouter
+"""WhatsFlow — Main FastAPI application."""
+import asyncio
+import logging
+import os
+import subprocess
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
-
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+from database import init_db
+from services.scheduler import check_expirations_loop
+from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages
 
-# Create the main app without a prefix
-app = FastAPI()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("whatsflow")
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+_wa_process = None
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+def _start_whatsapp_service():
+    """Spawn the Node.js whatsapp service as a child process."""
+    global _wa_process
+    wa_dir = ROOT_DIR.parent / "whatsapp-service"
+    if not (wa_dir / "index.js").exists():
+        logger.warning("WhatsApp service dir not found: %s", wa_dir)
+        return
+    logger.info("Starting WhatsApp Node service from %s", wa_dir)
+    _wa_process = subprocess.Popen(
+        ["node", "index.js"],
+        cwd=str(wa_dir),
+        stdout=open("/var/log/whatsapp-service.out.log", "a"),
+        stderr=open("/var/log/whatsapp-service.err.log", "a"),
+        env={
+            **os.environ,
+            "PORT": "3001",
+            "BACKEND_WEBHOOK_URL": "http://localhost:8001/api/whatsapp/incoming",
+        },
+    )
+    logger.info("WhatsApp Node service PID=%s", _wa_process.pid)
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
+def _stop_whatsapp_service():
+    global _wa_process
+    if _wa_process:
+        logger.info("Stopping WhatsApp Node service PID=%s", _wa_process.pid)
+        try:
+            _wa_process.terminate()
+            _wa_process.wait(timeout=5)
+        except Exception:
+            try:
+                _wa_process.kill()
+            except Exception:
+                pass
+        _wa_process = None
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    _start_whatsapp_service()
+    task = asyncio.create_task(check_expirations_loop())
+    yield
+    task.cancel()
+    _stop_whatsapp_service()
 
-# Include the router in the main app
-app.include_router(api_router)
+
+app = FastAPI(title="WhatsFlow", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Include routers
+app.include_router(customers.router)
+app.include_router(trials.router)
+app.include_router(templates.router)
+app.include_router(whatsapp.router)
+app.include_router(settings.router)
+app.include_router(payments.router)
+app.include_router(public.router)
+app.include_router(dashboard.router)
+app.include_router(messages.router)
 
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+
+@app.get("/api/")
+async def root():
+    return {"service": "WhatsFlow", "status": "ok"}
+
+
+@app.get("/api/health")
+async def health():
+    return {"status": "healthy"}
