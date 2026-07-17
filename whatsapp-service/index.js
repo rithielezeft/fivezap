@@ -77,30 +77,35 @@ client.on('disconnected', (reason) => {
   setTimeout(() => client.initialize().catch(console.error), 5000);
 });
 
-client.on('message', async (msg) => {
+// Use ONLY `message_create` — it fires for BOTH incoming (client) and
+// outgoing (admin) messages, WITHOUT requiring the chat to be opened first.
+// The `message` event has a known behavior where it may not fire for chats
+// that haven't been "seen" from another device, which caused clients' commands
+// to be missed until the operator opened the chat manually.
+client.on('message_create', async (msg) => {
   try {
-    console.log('[WA] Incoming', msg.from, '->', msg.body?.slice(0, 80));
+    // Ignore status broadcasts and other non-chat messages
+    if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') return;
+    // Ignore groups (only 1:1 for the bot flow)
+    if (msg.from?.endsWith('@g.us') || msg.to?.endsWith('@g.us')) return;
+    // Ignore empty payloads (media without caption etc, still can process if body exists)
+    const body = msg.body || '';
+    if (!body.trim()) return;
+
+    const fromMe = !!msg.fromMe;
+    // If we sent it, the "target" phone is msg.to (the client we sent to).
+    // If they sent it, the "source" phone is msg.from (the client who sent to us).
+    const phone = fromMe ? msg.to : msg.from;
+
+    console.log('[WA] message_create', { from_me: fromMe, phone, body: body.slice(0, 80) });
+
     await axios.post(BACKEND_WEBHOOK_URL, {
-      phone: msg.from,
-      message: msg.body || '',
-      from_me: false,
+      phone,
+      message: body,
+      from_me: fromMe,
     }, { timeout: 8000 });
   } catch (e) {
     console.error('[WA] Webhook error', e.message);
-  }
-});
-
-client.on('message_create', async (msg) => {
-  // Also forward messages the user (admin) sends from their phone so we can trigger commands as admin
-  if (!msg.fromMe) return;
-  try {
-    await axios.post(BACKEND_WEBHOOK_URL, {
-      phone: msg.to,
-      message: msg.body || '',
-      from_me: true,
-    }, { timeout: 8000 });
-  } catch (e) {
-    console.error('[WA] Webhook error (outgoing)', e.message);
   }
 });
 
