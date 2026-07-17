@@ -22,23 +22,37 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 ## Implemented (2026-02)
 - Dashboard com métricas (testes hoje, ativos, vencendo, receita 7d, chart, distribuição)
 - CRUD Clientes locais (mantido) + **NOVA página Clientes puxada direto do painel.fun** com renovação e criação de teste inline
-- Trials — POST via api.controle.fit + 2Captcha Turnstile
+- Trials — POST via api.controle.fit + 2Captcha Turnstile + curl_cffi (bypass Cloudflare TLS)
 - **Templates de comandos com `trigger_source`**: cliente | admin | ambos (admin pode enviar comando ao cliente e o bot aciona o teste)
 - WhatsApp: QR code, status, envio manual (**agora com suporte a IMAGEM**), incoming webhook processado pelo bot
+- **whatsapp-web.js@1.34.7 com LID support**: preserva `@lid` end-to-end (privacidade nova do WhatsApp Web), captura `msg.notifyName` como nome real do cliente
+- **Dedup de mensagens** em 2 camadas: (a) Node por msg.id TTL 60s; (b) Backend por phone+direction+body TTL 30s — evita criar trial duplicado
 - Conversas (histórico e envio)
-- Pagamentos via InfinitePay checkout (`/links`) + webhook renova via API
+- **Pagamentos InfinitePay reescrito** conforme docs oficiais: sanitize handle, error surfacing, aceita `url`/`checkout_url`/`payment_url`, botão "Testar link R$ 1,00" em Configurações com payload+response completos
+- **Auto-criar customer local** a partir do painel.fun quando `/pay/{id}` é chamado com id que só existe no painel — evita 404 no fluxo de renovação
+- Webhook InfinitePay renova cliente no painel.fun automaticamente (chama `painel.renew_user(package_id)` conforme meses)
+- **Links de pagamento InfinitePay no template do teste**: `{pay_link}` (padrão 1m) + `{pay_link_1m}`, `{pay_link_3m}`, `{pay_link_6m}`, `{pay_link_12m}` — gerados pelo bot direto quando trial é criado. Fallback para `/pay/{id}` se InfinitePay falhar.
+- **Nome do cliente do WhatsApp** salvo automaticamente em `customers.name` (via `msg.notifyName` capturado no Node)
+- **Extrator de WhatsApp**: `as_number` (normalizado) → `reseller_notes` (regex BR)
+- **Extrator de sistema**: campo `system` int do painel (1=iptv, 2=p2p, 3=hybrid) → package_id → keywords → MAC
+- **Paginação completa** do painel.fun (`page`, `per`, `reseller`, `order_by=exp_date,asc`, meta.pages)
+- **Status/vencimento**: `exp_date` unix → dias, `enabled` 0/1 → active/expiring_soon/expired
+- **Filtros na UI Clientes**: por sistema (IPTV/P2P/Hybrid) + por status (Vencidos/Vencendo/Ativos) + botão "Notificar vencendo"
 - **Notificações editáveis** com corpo + imagem opcional (5 eventos: 3d, 1d, 0d, renewal_success, trial_ready), com prévia estilo WhatsApp e botão "Enviar teste"
 - Scheduler: itera usuários do painel.fun a cada hora e envia cada mensagem personalizada com `{name}`, `{expires_at}`, `{pay_link}` (customer_id do painel), respeitando `notification_days`
 - **Preços em R$** (35,00 formato brasileiro) — internamente convertidos para centavos
-- Configurações completas
-- Público: `/teste` (form) e `/pay/{customer_id}` (planos)
+- **Endpoint de diagnóstico do bot** (`GET /api/templates/bot-diagnostics`) — mostra templates ativos + últimas 20 mensagens + últimos 20 eventos do bot
+- **Deploy automation**: `update.sh` (git safe pull + rollback + health check), `reinstall.sh` (nuclear reset), `setup-auto-update.sh` (systemd timer daily), Docker Compose (backend + whatsapp + frontend), `DEPLOY.md` completo
 
 ## Backlog / P1
 - Autenticação admin (senha) para o painel
 - Painel: página de logs completa
 - Botão renovar manualmente do admin (para clientes sem link)
-- Testes automatizados backend
 - QR code refresh melhorado / reconnect
+- Fluxo "responder SIM no WhatsApp gera link" (P2)
+- Botão "Verificar pagamento" na tela Payments via `/payment_check`
+- Dashboard saldo 2Captcha + créditos painel.fun
+- Refactor: rotas em subpastas /app/backend/routes por domínio
 
 ## Known Notes
 - InfinitePay handle deve ser configurado em Configurações antes de gerar cobranças
