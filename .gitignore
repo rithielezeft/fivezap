@@ -1,91 +1,61 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# IDE and editors
-.idea/
-.vscode/
-
-# Dependencies
+# --- Dependencies ---
 node_modules/
-/node_modules
-/.pnp
+.pnp
 .pnp.js
 .yarn/install-state.gz
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+.env
+!.env.example
 
-# Testing
+# --- Build outputs ---
+build/
+dist/
+*.tsbuildinfo
+.cache/
+next-env.d.ts
 /coverage
 
-# Next.js
-/.next/
-/out/
-next-env.d.ts
-*.tsbuildinfo
+# --- IDE ---
+.idea/
+.vscode/
+.DS_Store
+*.pem
 
-# Production builds
-/build
-dist/
-dist
-
-# Environment files (comprehensive coverage)
-
-*token.json*
-*credentials.json*
-
-# Logs and debug files
+# --- Logs ---
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-dump.rdb
 
-# System files
-.DS_Store
-*.pem
+# --- WhatsFlow specific ---
+# Local database (never commit)
+backend/whatsflow.db
+backend/whatsflow.db-journal
+backend/whatsflow.db-shm
+backend/whatsflow.db-wal
 
-# Python
-__pycache__/
-*pyc*
-venv/
-.venv/
+# WhatsApp session data
+whatsapp-service/.wwebjs_auth/
+whatsapp-service/.wwebjs_cache/
 
-# Development tools
-chainlit.md
-.chainlit
-.ipynb_checkpoints/
-.ac
+# User uploads (each installation has its own)
+backend/uploads/*
+!backend/uploads/.gitkeep
 
-# Deployment
-.vercel
-
-# Data and databases
-agenthub/agents/youtube/db
-
-# Archive files and large assets
-**/*.zip
-**/*.tar.gz
-**/*.tar
-**/*.tgz
-*.pack
-*.deb
-*.dylib
-
-# Build caches
-.cache/
-
+# Runtime artifacts
+test_reports/
 memory/test_credentials.md
+.emergent/
+design_guidelines.json
 
-# Mobile development
-android-sdk/frontend/node_modules/.cache/default-development/0.pack
-frontend/node_modules/.cache/default-development/0.pack
-frontend/node_modules/.cache/default-development/6.pack
-frontend/node_modules/.cache/default-development/9.pack
-.env
-.env.*
-*.env
+# --- Sensitive ---
 credentials.json
+*token.json*
 *.key
-.credentials
+frontend/node_modules/.cache/default-development/9.pack
