@@ -53,6 +53,7 @@ test_reports/
 memory/test_credentials.md
 .emergent/
 design_guidelines.json
+backend/logs/
 
 # --- Sensitive ---
 credentials.json

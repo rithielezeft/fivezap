@@ -36,12 +36,28 @@ def _start_whatsapp_service():
     if not (wa_dir / "index.js").exists():
         logger.warning("WhatsApp service dir not found: %s", wa_dir)
         return
-    logger.info("Starting WhatsApp Node service from %s", wa_dir)
+
+    # Write logs to a user-writable directory (works even without root)
+    log_dir = Path(os.environ.get("WA_LOG_DIR") or (ROOT_DIR / "logs"))
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        log_dir = Path("/tmp")
+
+    logger.info("Starting WhatsApp Node service from %s (logs at %s)", wa_dir, log_dir)
+    try:
+        stdout_f = open(log_dir / "whatsapp-service.out.log", "a")
+        stderr_f = open(log_dir / "whatsapp-service.err.log", "a")
+    except Exception:
+        # Fallback: inherit parent's stdout/stderr (goes to systemd journal)
+        stdout_f = None
+        stderr_f = None
+
     _wa_process = subprocess.Popen(
         ["node", "index.js"],
         cwd=str(wa_dir),
-        stdout=open("/var/log/whatsapp-service.out.log", "a"),
-        stderr=open("/var/log/whatsapp-service.err.log", "a"),
+        stdout=stdout_f,
+        stderr=stderr_f,
         env={
             **os.environ,
             "PORT": "3001",

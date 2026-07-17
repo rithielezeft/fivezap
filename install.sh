@@ -292,7 +292,7 @@ echo "    4. Personalize os templates em Notificações"
 echo
 echo "  📝 Logs em tempo real:"
 echo "    sudo journalctl -u whatsflow-backend -f"
-echo "    tail -f /var/log/whatsapp-service.out.log"
+echo "    tail -f $APP_DIR/backend/logs/whatsapp-service.out.log"
 echo
 echo "  🔁 Restart:  sudo systemctl restart whatsflow-backend nginx"
 echo "════════════════════════════════════════════════"
