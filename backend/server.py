@@ -89,9 +89,24 @@ async def lifespan(app: FastAPI):
     _start_whatsapp_service()
     task_exp = asyncio.create_task(check_expirations_loop())
     task_rem = asyncio.create_task(reminder_loop())
+    # Launch the InfinitePay reconciliation poller. FastAPI ignores
+    # @app.on_event("startup") when a `lifespan=` handler is set, so we
+    # must start it here — otherwise pending payments never get polled.
+    try:
+        from services.payment_poller import start_poller, stop_poller
+        start_poller()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Failed to start payment poller (non-fatal)")
+        stop_poller = None  # type: ignore
     yield
     task_exp.cancel()
     task_rem.cancel()
+    if stop_poller:
+        try:
+            stop_poller()
+        except Exception:
+            pass
     _stop_whatsapp_service()
 
 
@@ -151,3 +166,28 @@ async def root():
 @app.get("/api/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.on_event("startup")
+async def _startup_launch_pollers():
+    """Launch background pollers on FastAPI startup.
+
+    - payment_poller: actively reconciles pending payments with InfinitePay
+      every 20s. Guarantees renewals happen even when the webhook is slow,
+      dropped or blocked.
+    """
+    try:
+        from services.payment_poller import start_poller
+        start_poller()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Failed to start payment poller (non-fatal)")
+
+
+@app.on_event("shutdown")
+async def _shutdown_stop_pollers():
+    try:
+        from services.payment_poller import stop_poller
+        stop_poller()
+    except Exception:
+        pass

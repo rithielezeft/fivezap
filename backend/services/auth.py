@@ -80,6 +80,10 @@ def is_public(path: str, method: str = "GET") -> bool:
     # (POST only — GET /api/payments must stay admin to protect payment history)
     if path == "/api/payments" and method.upper() == "POST":
         return True
+    # Public status check: /pay/{id}?ok=1 page calls this after returning
+    # from InfinitePay to speed up the "Renovação confirmada" flow.
+    if path.startswith("/api/payments/check-status/") and method.upper() == "POST":
+        return True
     if path == "/api/whatsapp/incoming":
         return True
     if path.startswith("/api/uploads/"):

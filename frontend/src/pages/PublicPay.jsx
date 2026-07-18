@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { paymentsApi, formatMoney, formatDateBR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,45 @@ const PLANS = [
 
 export default function PublicPay() {
   const { customerId } = useParams();
+  const [searchParams] = useSearchParams();
+  const returnedFromPay = searchParams.get("ok") === "1";
+
   const [selected, setSelected] = useState(3);
   const [paymentUrl, setPaymentUrl] = useState(null);
+  const [confirmingPayment, setConfirmingPayment] = useState(returnedFromPay);
+  const [renewalStatus, setRenewalStatus] = useState(null); // 'renewed' | 'still_pending' | 'error'
+
+  // When customer returns from InfinitePay with ?ok=1, actively poll our
+  // backend which in turn asks InfinitePay whether the payment cleared.
+  // This bypasses any webhook delay/failure — cliente vê "Renovação confirmada"
+  // em segundos.
+  useEffect(() => {
+    if (!returnedFromPay) return;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 10; // ~30s of polling
+
+    async function poll() {
+      while (!cancelled && attempts < MAX_ATTEMPTS) {
+        attempts++;
+        try {
+          const r = await paymentsApi.checkStatus(customerId);
+          if (r?.status === "renewed" || r?.status === "already_processed") {
+            setRenewalStatus("renewed");
+            setConfirmingPayment(false);
+            return;
+          }
+        } catch (_) { /* ignore, keep polling */ }
+        await new Promise((res) => setTimeout(res, 3000));
+      }
+      if (!cancelled) {
+        setRenewalStatus("still_pending");
+        setConfirmingPayment(false);
+      }
+    }
+    poll();
+    return () => { cancelled = true; };
+  }, [returnedFromPay, customerId]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["pay-customer", customerId],
@@ -62,6 +99,54 @@ export default function PublicPay() {
       <div className="absolute top-32 left-1/3 ambient-glow" style={{ background: "#007AFF", width: 500, height: 500 }} />
 
       <div className="relative max-w-2xl mx-auto pt-16 px-6 pb-16">
+        {/* Banner de confirmação quando cliente volta do InfinitePay */}
+        {returnedFromPay && (
+          <div
+            data-testid="pay-return-banner"
+            className={
+              "mb-8 rounded-xl p-5 border " +
+              (renewalStatus === "renewed"
+                ? "border-green-500/50 bg-green-500/10"
+                : "border-[#007AFF]/50 bg-[#007AFF]/10")
+            }
+          >
+            {confirmingPayment && (
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
+                <div>
+                  <div className="font-medium">Confirmando seu pagamento…</div>
+                  <div className="text-xs text-white/60 mt-1">
+                    Verificando com o InfinitePay. Isto leva alguns segundos.
+                  </div>
+                </div>
+              </div>
+            )}
+            {!confirmingPayment && renewalStatus === "renewed" && (
+              <div className="flex items-center gap-3">
+                <CheckCircle size={24} weight="fill" className="text-green-400" />
+                <div>
+                  <div className="font-semibold text-green-300">Renovação confirmada!</div>
+                  <div className="text-xs text-white/60 mt-1">
+                    Seu plano já foi ativado. Uma confirmação também foi enviada no seu WhatsApp. 🎉
+                  </div>
+                </div>
+              </div>
+            )}
+            {!confirmingPayment && renewalStatus === "still_pending" && (
+              <div className="flex items-start gap-3">
+                <WarningCircle size={24} weight="fill" className="text-[#FF9F0A]" />
+                <div>
+                  <div className="font-semibold text-[#FF9F0A]">Pagamento em processamento</div>
+                  <div className="text-xs text-white/60 mt-1">
+                    Ainda não recebemos a confirmação do InfinitePay. Assim que chegar,
+                    você receberá a mensagem no WhatsApp automaticamente — não precisa pagar de novo.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-xs uppercase tracking-widest text-white/60 mb-4">
             <Lock size={12} weight="fill" />

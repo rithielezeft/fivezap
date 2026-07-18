@@ -463,6 +463,55 @@ async def reprocess_payment(payment_id: str, request: Request):
     )
 
 
+@router.post("/check-status/{customer_id}")
+async def check_status_by_customer(customer_id: str):
+    """PUBLIC: called by the /pay/{id}?ok=1 page after the customer returns
+    from InfinitePay. Actively queries InfinitePay for every pending payment
+    of this customer and, if any is paid, triggers the renewal flow
+    immediately (don't wait for webhook or poller).
+
+    This is what makes the "Renovação confirmada" arrive within seconds of
+    the customer returning to our page after paying — critical for a good UX.
+    """
+    from services import infinitepay
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT id, order_nsu FROM payments "
+            "WHERE customer_id = ? AND status = 'pending' AND created_at >= ? "
+            "ORDER BY created_at DESC LIMIT 5",
+            (str(customer_id), cutoff),
+        )
+        pendings = [dict(r) for r in await cur.fetchall()]
+
+    if not pendings:
+        return {"ok": True, "status": "no_pending", "checked": 0}
+
+    for pmt in pendings:
+        try:
+            check = await infinitepay.check_payment(pmt["order_nsu"])
+            if check.get("paid") or check.get("success"):
+                proc = await _process_payment_confirmation(
+                    pmt["order_nsu"], paid=True, source="pay_page_return", raw=check,
+                )
+                return {"ok": True, "status": proc.get("status"), "payment_id": pmt["id"],
+                        "checked": len(pendings)}
+        except Exception as e:
+            logger.exception("check_status_by_customer error for %s: %s", pmt["order_nsu"], e)
+
+    return {"ok": True, "status": "still_pending", "checked": len(pendings)}
+
+
+@router.post("/poll-now")
+async def trigger_poll_now(request: Request):
+    """Admin: force one immediate sweep of pending payments (dev/debug convenience)."""
+    from services.payment_poller import check_pending_once
+    return await check_pending_once()
+
+
 @router.get("/customer/{customer_id}")
 async def get_customer_payment_info(customer_id: str):
     """Public: fetch payment info for /pay/{customer_id} page.
