@@ -124,7 +124,7 @@ def test_resync_called_for_p2p():
     resync_mock = AsyncMock(return_value={"ok": True})
 
     def fake_post(url, json=None, headers=None, **kwargs):
-        return FakeResp(200, {"id": 777, "username": json["username"]})
+        return FakeResp(200, {"id": 777, "username": (json or {}).get("username")})
 
     async def go():
         with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
@@ -146,11 +146,16 @@ def test_resync_called_for_hybrid():
     def fake_post(url, json=None, headers=None, **kwargs):
         return FakeResp(200, {"id": 888})
 
+    def fake_get(url, params=None, **kwargs):
+        # DreamTV MAC validator
+        return FakeResp(200, {"valid": True})
+
     async def go():
         with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
              patch.object(painel, "get_setting", side_effect=_fake_get_setting), \
              patch.object(painel, "resync_user", new=resync_mock), \
-             patch("services.painel.cffi_requests.post", side_effect=fake_post):
+             patch("services.painel.cffi_requests.post", side_effect=fake_post), \
+             patch("services.painel.cffi_requests.get", side_effect=fake_get):
             await painel.create_trial(
                 system_type="hybrid", name="Ana", whatsapp="551190000012",
                 mac="AA:BB:CC:DD:EE:FF",
@@ -167,11 +172,15 @@ def test_resync_NOT_called_for_iptv():
     def fake_post(url, json=None, headers=None, **kwargs):
         return FakeResp(200, {"id": 999})
 
+    def fake_get(url, params=None, **kwargs):
+        return FakeResp(200, {"valid": True})
+
     async def go():
         with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
              patch.object(painel, "get_setting", side_effect=_fake_get_setting), \
              patch.object(painel, "resync_user", new=resync_mock), \
-             patch("services.painel.cffi_requests.post", side_effect=fake_post):
+             patch("services.painel.cffi_requests.post", side_effect=fake_post), \
+             patch("services.painel.cffi_requests.get", side_effect=fake_get):
             await painel.create_trial(
                 system_type="iptv", name="Ana", whatsapp="551190000012",
                 mac="AA:BB:CC:DD:EE:FF",
@@ -186,7 +195,7 @@ def test_resync_failure_is_non_fatal():
     resync_mock = AsyncMock(side_effect=RuntimeError("resync boom"))
 
     def fake_post(url, json=None, headers=None, **kwargs):
-        return FakeResp(200, {"id": 555, "username": json["username"]})
+        return FakeResp(200, {"id": 555, "username": (json or {}).get("username")})
 
     async def go():
         with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \

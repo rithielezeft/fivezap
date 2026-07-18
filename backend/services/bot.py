@@ -1,6 +1,7 @@
 """Bot logic: process incoming WhatsApp messages, match templates, run actions."""
 import json
 import logging
+import re
 import aiosqlite
 from datetime import datetime, timezone
 from typing import Optional
@@ -13,6 +14,55 @@ logger = logging.getLogger(__name__)
 
 # In-memory dedup cache: key -> timestamp
 _recent_messages: dict = {}
+
+# Pending MAC state: phone -> {template_id, attempts, started_at, name}
+_pending_mac: dict = {}
+_MAX_MAC_ATTEMPTS = 3
+_MAC_STATE_TTL = 15 * 60  # 15 minutes
+
+# MAC regex — TWO patterns to avoid confusing with phone numbers:
+# 1) Separated form: AA:BB:CC:DD:EE:FF or AA-BB-CC-DD-EE-FF  (definitive)
+# 2) Plain 12-char hex ONLY if it contains at least one letter a-f (so phone
+#    numbers like 5511987654321 are rejected)
+_MAC_SEP_RE = re.compile(
+    r"([0-9A-Fa-f]{2})[:\-]([0-9A-Fa-f]{2})[:\-]([0-9A-Fa-f]{2})[:\-]"
+    r"([0-9A-Fa-f]{2})[:\-]([0-9A-Fa-f]{2})[:\-]([0-9A-Fa-f]{2})"
+)
+_MAC_PLAIN_RE = re.compile(r"(?<![0-9A-Fa-f])([0-9A-Fa-f]{12})(?![0-9A-Fa-f])")
+
+
+def _parse_mac(text: str) -> Optional[str]:
+    """Extract and normalize MAC from arbitrary text.
+
+    Accepts formats:
+      - AA:BB:CC:DD:EE:FF  (always)
+      - AA-BB-CC-DD-EE-FF  (always)
+      - AABBCCDDEEFF       (only if contains a hex letter — to avoid matching
+                            phone numbers like 5511987654321)
+    Returns normalized uppercase AA:BB:CC:DD:EE:FF or None.
+    """
+    if not text:
+        return None
+    m = _MAC_SEP_RE.search(text)
+    if m:
+        return ":".join(g.upper() for g in m.groups())
+    m = _MAC_PLAIN_RE.search(text)
+    if m:
+        hexstr = m.group(1)
+        if any(c.lower() in "abcdef" for c in hexstr):
+            return ":".join(hexstr[i:i + 2].upper() for i in range(0, 12, 2))
+    return None
+
+
+_MAC_FORMAT_HELP = (
+    "❌ Não consegui identificar seu MAC.\n\n"
+    "📱 Como enviar corretamente:\n"
+    "• 6 pares hexadecimais separados por dois-pontos\n"
+    "• Exemplo: `AA:BB:CC:DD:EE:FF`\n"
+    "• Também aceito: `AA-BB-CC-DD-EE-FF` ou `AABBCCDDEEFF`\n\n"
+    "💡 Onde encontrar o MAC no seu MAG/Formuler:\n"
+    "Menu → Configurações → Info do sistema → Endereço MAC"
+)
 
 
 async def log_activity(activity_type: str, message: str, customer_id: str = None, status: str = "info", metadata: dict = None):
@@ -122,6 +172,61 @@ async def process_incoming_message(
     if not text:
         return
 
+    # ---------- Pending MAC follow-up ----------
+    # If we're waiting for a MAC from this phone (previous trigger asked for it),
+    # try to parse it here BEFORE running the template match. Client-side only
+    # (admin messages don't trigger MAC state).
+    if not from_me and phone_clean in _pending_mac:
+        state = _pending_mac[phone_clean]
+        if now_ts - state["started_at"] > _MAC_STATE_TTL:
+            _pending_mac.pop(phone_clean, None)
+            logger.info("MAC state expired for %s", phone_clean)
+        else:
+            mac_candidate = _parse_mac(text)
+            if mac_candidate:
+                logger.info("MAC received from %s (attempt %s): %s", phone_clean, state["attempts"] + 1, mac_candidate)
+                # Load the template and fire the trial with this MAC
+                async with aiosqlite.connect(DB_PATH) as db:
+                    db.row_factory = aiosqlite.Row
+                    cur = await db.execute(
+                        "SELECT * FROM command_templates WHERE id = ? AND enabled = 1",
+                        (state["template_id"],),
+                    )
+                    row = await cur.fetchone()
+                if not row:
+                    _pending_mac.pop(phone_clean, None)
+                    logger.warning("Pending MAC template %s no longer exists", state["template_id"])
+                    return
+                tpl = dict(row)
+                _pending_mac.pop(phone_clean, None)
+                await _run_trial_creation(customer, tpl, mac_candidate, phone_clean)
+                return
+            # Not a MAC — count as a failed attempt
+            state["attempts"] += 1
+            remaining = _MAX_MAC_ATTEMPTS - state["attempts"]
+            if state["attempts"] >= _MAX_MAC_ATTEMPTS:
+                _pending_mac.pop(phone_clean, None)
+                await whatsapp_client.send_message(
+                    phone_clean,
+                    "🙈 Não consegui identificar o MAC após 3 tentativas.\n\n"
+                    "Envie novamente o comando junto com o MAC no formato correto (`AA:BB:CC:DD:EE:FF`) "
+                    "ou fale com um atendente pelo botão de suporte. 💛"
+                )
+                await save_message(phone_clean, "MAC_ATTEMPTS_EXHAUSTED", "out", customer["id"])
+                await log_activity(
+                    "bot_mac_exhausted",
+                    f"Cliente {phone_clean} esgotou 3 tentativas de MAC",
+                    customer["id"], "warning",
+                )
+                return
+            await whatsapp_client.send_message(
+                phone_clean,
+                f"{_MAC_FORMAT_HELP}\n\n"
+                f"Você ainda tem *{remaining}* {'tentativa' if remaining == 1 else 'tentativas'}."
+            )
+            await save_message(phone_clean, "MAC_INVALID", "out", customer["id"])
+            return
+
     # Match template
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -175,19 +280,34 @@ async def process_incoming_message(
     remainder = text[len(matched["trigger_command"]):].strip()
     mac = None
     if matched["requires_mac"]:
-        import re
-        m = re.search(r"([0-9A-Fa-f]{2}[:\-]?){5}[0-9A-Fa-f]{2}", remainder)
-        if m:
-            mac = m.group(0).upper()
-        else:
-            logger.info("Requires MAC but none in message — asking client")
+        mac = _parse_mac(remainder)
+        if not mac:
+            logger.info("Requires MAC but none in message — asking client (attempts=0)")
+            _pending_mac[phone_clean] = {
+                "template_id": matched["id"],
+                "attempts": 0,
+                "started_at": now_ts,
+                "customer_id": customer["id"],
+            }
             await whatsapp_client.send_message(
                 phone_clean,
-                f"⚠️ Para criar teste {matched['system_type'].upper()} preciso do seu MAC.\nEnvie: {matched['trigger_command']} AA:BB:CC:DD:EE:FF"
+                f"📺 Para criar seu teste {matched['system_type'].upper()} preciso do endereço MAC do seu aparelho.\n\n"
+                f"📱 Formato: `AA:BB:CC:DD:EE:FF`\n"
+                f"💡 Onde encontrar: Menu → Configurações → Info do sistema → Endereço MAC\n\n"
+                f"Você tem {_MAX_MAC_ATTEMPTS} tentativas para enviar o MAC correto."
             )
             await save_message(phone_clean, "AWAITING_MAC", "out", customer["id"])
             return
 
+    await _run_trial_creation(customer, matched, mac, phone_clean)
+
+
+async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str], phone_clean: str):
+    """Actually invoke painel.create_trial, persist result, send response to client.
+
+    Extracted from process_incoming_message so the MAC-retry flow can call it
+    once a valid MAC arrives on a subsequent message.
+    """
     await log_activity("bot_trigger", f"Comando '{matched['trigger_command']}' de {phone_clean}", customer["id"], "info")
     logger.info(
         "Creating trial via painel.fun: system=%s mac=%s customer=%s",
@@ -247,11 +367,15 @@ async def process_incoming_message(
                     if amount_cents <= 0:
                         continue
                     from services import infinitepay
+                    # Use the painel trial id (not the local UUID) as the order
+                    # reference — that way the InfinitePay webhook can renew the
+                    # exact user that took the test.
+                    order_ref = trial_user_id or painel_user or trial_id[:12]
                     result_link = await infinitepay.create_payment_link(
-                        order_nsu=f"trial-{trial_id[:8]}-{months}m",
+                        order_nsu=f"trial-{order_ref}-{months}m",
                         amount_cents=amount_cents,
                         description=f"Assinatura {matched['system_type'].upper()} — {months} {'mês' if months == 1 else 'meses'}",
-                        redirect_url=f"{public_base}/pay/{trial_user_id or painel_user}?ok=1" if public_base else None,
+                        redirect_url=f"{public_base}/pay/{trial_user_id or painel_user or customer['id']}?ok=1" if public_base else None,
                         webhook_url=f"{public_base}/api/payments/webhook" if public_base else None,
                         customer_name=customer.get("name"),
                         customer_phone=phone_clean if not phone_clean.endswith("@lid") else None,
@@ -263,7 +387,8 @@ async def process_incoming_message(
                     logger.warning("Failed to generate InfinitePay link for %dm: %s", months, pay_err)
 
         # Fallback: static /pay/{id} page (renders our own checkout UI) if
-        # InfinitePay is not configured or all attempts failed.
+        # InfinitePay is not configured or all attempts failed. Uses the painel
+        # trial id so /pay/{id} can auto-hydrate the local customer.
         if not checkout_link and public_base and (trial_user_id or painel_user):
             checkout_link = f"{public_base}/pay/{trial_user_id or painel_user}"
 

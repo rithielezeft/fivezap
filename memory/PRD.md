@@ -20,8 +20,12 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
-- **[FIX 2026-02-P0]** `create_trial` agora envia `system` como inteiro no payload: 1=IPTV, 2=P2P, 3=Hybrid (bug: P2P estava sendo criado como IPTV no painel externo)
-- **[FIX 2026-02-P0]** `resync_user` usa endpoints exatos do painel.fun: `/api/users/{id}/resync_p2p` e `/api/users/{id}/resync_hybrid` (substituiu loop de URLs adivinhadas)
+- **[FIX 2026-02-P0]** `create_trial` P2P/Hybrid: após POST /api/trial_users, chama `POST /api/users/{id}/change_system` com `{system_id: 2}` (P2P) ou `{system_id: 3}` (Hybrid) — painel.fun sempre cria como IPTV por padrão
+- **[FIX 2026-02-P0]** DreamTV com MAC (IPTV+MAC e Hybrid): valida MAC via `GET https://api.dreamtv.life/api/validate_mac?mac=xx` e ativa via `POST /api/users/{id}/dreamtv/playlist` com `{macaddr}` no payload
+- **[FIX 2026-02-P0]** Bot MAC retry: cliente tem **3 tentativas** para enviar MAC no formato correto (AA:BB:CC:DD:EE:FF, aceita também `-` e sem separador). Cada tentativa inválida explica o formato e mostra tentativas restantes. Após 3 falhas o bot desiste graciosamente e limpa o estado.
+- **[FIX 2026-02-P0]** Pay link vinculado ao painel trial id: `order_nsu=trial-{painel_id}-{months}m` e `redirect_url=/pay/{painel_id}` — webhook InfinitePay agora encontra o cliente correto do trial
+- **[FIX 2026-02-P0]** `create_trial` agora envia `system` como inteiro no payload: 1=IPTV, 2=P2P, 3=Hybrid
+- **[FIX 2026-02-P0]** `resync_user` usa endpoints exatos do painel.fun: `/api/users/{id}/resync_p2p` e `/api/users/{id}/resync_hybrid`
 
 - Dashboard com métricas (testes hoje, ativos, vencendo, receita 7d, chart, distribuição)
 - CRUD Clientes locais (mantido) + **NOVA página Clientes puxada direto do painel.fun** com renovação e criação de teste inline

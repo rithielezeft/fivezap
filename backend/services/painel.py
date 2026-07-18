@@ -238,14 +238,44 @@ async def create_trial(
         result.setdefault("username", username)
         result.setdefault("password", password)
 
+    trial_id = result.get("id") or result.get("user_id")
+
+    # ---- STEP 2: change_system for P2P (2) and Hybrid (3) ----
+    # painel.fun creates every trial as IPTV (system=1) by default. To convert
+    # to P2P or Hybrid we must call `change_system` right after creation.
+    if trial_id and system_type in ("p2p", "hybrid"):
+        target_int = system_int_map[system_type]
+        try:
+            await change_system(str(trial_id), target_int)
+            result["system"] = target_int
+            logger.info("change_system OK: user=%s → system_id=%s", trial_id, target_int)
+        except Exception as e:
+            logger.error("change_system FAILED for %s → %s: %s", trial_id, target_int, e)
+            raise RuntimeError(f"Trial criado mas falha ao mudar sistema para {system_type.upper()}: {e}")
+
+    # ---- STEP 3: DreamTV playlist for IPTV/Hybrid trials with MAC ----
+    # IPTV (com MAC) e Hybrid usam DreamTV. É preciso validar o MAC em
+    # dreamtv.life e depois criar a playlist no painel.
+    if trial_id and mac and system_type in ("iptv", "hybrid"):
+        try:
+            valid = await validate_mac_dreamtv(mac)
+            if not valid:
+                raise RuntimeError(f"MAC {mac} inválido no DreamTV. Use um MAC de MAG (00:1A:79:...) ou Formuler.")
+            await create_dreamtv_playlist(str(trial_id), mac)
+            logger.info("dreamtv/playlist OK: user=%s mac=%s", trial_id, mac)
+        except Exception as e:
+            logger.error("DreamTV playlist FAILED for %s (mac=%s): %s", trial_id, mac, e)
+            raise RuntimeError(f"Trial criado mas falha ao ativar DreamTV: {e}")
+
+    # ---- STEP 4: Resync (P2P/Hybrid only) ----
     # For P2P and Hybrid systems, painel.fun requires a resync after trial creation
     # so the newly-created bouquet/playlist becomes active on the streaming server.
     # Without this, the client sees "invalid credentials" or empty channel list.
     if system_type in ("p2p", "hybrid"):
         try:
-            trial_id = result.get("id") or result.get("user_id") or username
-            await resync_user(str(trial_id), system_type=system_type)
-            logger.info("Resync OK for %s user id=%s", system_type, trial_id)
+            rid = trial_id or username
+            await resync_user(str(rid), system_type=system_type)
+            logger.info("Resync OK for %s user id=%s", system_type, rid)
         except Exception as e:
             logger.warning("Resync failed for %s (non-fatal): %s", username, e)
 
@@ -349,6 +379,138 @@ async def list_users(limit: int = 10000, search: str = None) -> list:
     except Exception as e:
         logger.exception("list_users failed")
         raise RuntimeError(f"Falha ao listar usuários: {e}")
+
+
+async def change_system(user_id: str, system_id: int) -> dict:
+    """Convert a freshly-created painel.fun trial to a target system.
+
+    painel.fun creates every trial as IPTV (system=1) by default. To convert
+    to P2P or Hybrid we must call this endpoint immediately after creation.
+
+    Args:
+        user_id: painel.fun trial user id (integer as string)
+        system_id: 1=IPTV, 2=P2P, 3=Hybrid
+    """
+    token = await login()
+    base = await get_setting("painel_base_url")
+
+    def _post(tok):
+        return cffi_requests.post(
+            f"{base}/api/users/{user_id}/change_system",
+            json={"system_id": system_id},
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+            },
+            impersonate="chrome124",
+            timeout=60,
+        )
+
+    resp = await asyncio.to_thread(_post, token)
+    if resp.status_code == 401:
+        token = await login(force=True)
+        resp = await asyncio.to_thread(_post, token)
+
+    if resp.status_code >= 400:
+        raise RuntimeError(f"change_system HTTP {resp.status_code}: {resp.text[:200]}")
+
+    try:
+        return resp.json()
+    except Exception:
+        return {"status": resp.status_code, "text": resp.text[:200]}
+
+
+async def validate_mac_dreamtv(mac: str) -> bool:
+    """Validate a MAC address against DreamTV.
+
+    Endpoint: GET https://api.dreamtv.life/api/validate_mac?mac=XX:XX:XX:XX:XX:XX
+    Returns True if the MAC is accepted, False otherwise.
+    Uses curl_cffi to bypass Cloudflare fingerprinting if needed.
+    """
+    if not mac:
+        return False
+
+    def _get():
+        return cffi_requests.get(
+            "https://api.dreamtv.life/api/validate_mac",
+            params={"mac": mac},
+            impersonate="chrome124",
+            timeout=30,
+        )
+
+    try:
+        resp = await asyncio.to_thread(_get)
+    except Exception as e:
+        logger.warning("validate_mac_dreamtv exception: %s", e)
+        return False
+
+    if resp.status_code >= 400:
+        logger.warning("validate_mac_dreamtv HTTP %s: %s", resp.status_code, resp.text[:200])
+        return False
+
+    try:
+        data = resp.json()
+    except Exception:
+        # Some validators return plain text 'ok'/'true'
+        return "ok" in resp.text.lower() or "true" in resp.text.lower() or "valid" in resp.text.lower()
+
+    # Heuristic: accept common truthy shapes
+    if isinstance(data, dict):
+        # If any "valid"/"success"/"ok" key is explicitly set, respect it
+        for key in ("valid", "success", "ok"):
+            if key in data:
+                return bool(data[key])
+        if "status" in data:
+            return data["status"] in ("ok", "success", "valid", 200, True)
+        # Some panels return {"error": null} on success
+        if "error" in data:
+            return not data["error"]
+        # If dict but no truthy key found, treat 200 response as valid
+        return resp.status_code == 200
+    if isinstance(data, bool):
+        return data
+    return resp.status_code == 200
+
+
+async def create_dreamtv_playlist(user_id: str, mac: str) -> dict:
+    """Create/associate a DreamTV playlist for a trial user with the given MAC.
+
+    Endpoint: POST /api/users/{id}/dreamtv/playlist  with {"macaddr": mac}
+    Called after MAC validation via api.dreamtv.life.
+    """
+    token = await login()
+    base = await get_setting("painel_base_url")
+
+    def _post(tok):
+        return cffi_requests.post(
+            f"{base}/api/users/{user_id}/dreamtv/playlist",
+            json={"macaddr": mac, "mac": mac},
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+            },
+            impersonate="chrome124",
+            timeout=60,
+        )
+
+    resp = await asyncio.to_thread(_post, token)
+    if resp.status_code == 401:
+        token = await login(force=True)
+        resp = await asyncio.to_thread(_post, token)
+
+    if resp.status_code >= 400:
+        raise RuntimeError(f"dreamtv/playlist HTTP {resp.status_code}: {resp.text[:200]}")
+
+    try:
+        return resp.json()
+    except Exception:
+        return {"status": resp.status_code, "text": resp.text[:200]}
 
 
 async def resync_user(user_id: str, system_type: Optional[str] = None) -> dict:

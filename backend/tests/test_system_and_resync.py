@@ -43,15 +43,21 @@ def _capture_payload_for(system_type: str, mac=None):
     captured = {}
 
     def fake_post(url, json=None, headers=None, **kwargs):
-        captured["url"] = url
-        captured["payload"] = json
-        return FakeResp(200, {"id": 10, "username": json.get("username")})
+        # Only capture the initial /api/trial_users payload (not change_system/dreamtv)
+        if "trial_users" in url and "payload" not in captured:
+            captured["url"] = url
+            captured["payload"] = json
+        return FakeResp(200, {"id": 10, "username": (json or {}).get("username")})
+
+    def fake_get(url, params=None, **kwargs):
+        return FakeResp(200, {"valid": True})
 
     async def go():
         with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
              patch.object(painel, "get_setting", side_effect=_fake_get_setting), \
              patch.object(painel, "resync_user", new=AsyncMock(return_value={"ok": True})), \
-             patch("services.painel.cffi_requests.post", side_effect=fake_post):
+             patch("services.painel.cffi_requests.post", side_effect=fake_post), \
+             patch("services.painel.cffi_requests.get", side_effect=fake_get):
             await painel.create_trial(
                 system_type=system_type, name="Guilherme",
                 whatsapp="5511987654344", mac=mac,
