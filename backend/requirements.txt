@@ -19,3 +19,6 @@ python-multipart==0.0.20
 
 # Captcha solver
 2captcha-python==1.5.1
+dnspython==2.8.0
+motor==3.3.1
+pymongo==4.6.3

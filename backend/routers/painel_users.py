@@ -113,6 +113,37 @@ async def refresh_cache_task():
             if users:
                 added = await upsert_users_in_cache(users)
                 logger.info("Painel cache refreshed: %d users (added %d new)", len(users), added)
+
+                # Mirror ALL users to MongoDB Atlas so /pay/{painel_id} works
+                # globally for EVERY existing customer — not just newly-created
+                # trials. This is what makes the payment page reachable from
+                # any browser worldwide, even for legacy customers.
+                try:
+                    from services import mongo_store
+                    synced = 0
+                    for u in users:
+                        pid = u.get("id") or u.get("user_id")
+                        if pid is None:
+                            continue
+                        doc = {
+                            "_id": str(pid),
+                            "id": pid if isinstance(pid, int) else (int(pid) if str(pid).isdigit() else pid),
+                            "painel_username": u.get("username") or u.get("login"),
+                            "painel_password": u.get("password"),
+                            "full_name": u.get("full_name") or u.get("name"),
+                            "whatsapp": u.get("_whatsapp") or extract_whatsapp(u) or u.get("whatsapp") or u.get("as_number"),
+                            "system_type": detect_system_type(u),
+                            "is_trial": bool(u.get("is_trial")),
+                            "mac": u.get("macaddr") or u.get("mac"),
+                            "exp_date_iso": (compute_expiration_info(u) or {}).get("expires_at_iso"),
+                            "enabled": bool(u.get("enabled", 1)),
+                        }
+                        result = await mongo_store.upsert_customer(doc)
+                        if result:
+                            synced += 1
+                    logger.info("MongoDB Atlas synced: %d of %d users", synced, len(users))
+                except Exception:
+                    logger.exception("Failed to sync painel users to MongoDB (non-fatal)")
             else:
                 logger.warning("Painel returned empty user list — keeping existing cache intact")
             _refresh_state["last_refresh_at"] = datetime.now(timezone.utc).isoformat()

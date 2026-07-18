@@ -110,7 +110,7 @@ app.add_middleware(
 @app.middleware("http")
 async def auth_middleware(request, call_next):
     path = request.url.path
-    if not path.startswith("/api/") or is_public(path):
+    if not path.startswith("/api/") or is_public(path, request.method):
         return await call_next(request)
     # Allow OPTIONS (CORS preflight)
     if request.method == "OPTIONS":

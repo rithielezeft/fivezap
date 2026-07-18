@@ -63,14 +63,22 @@ PUBLIC_PATH_PREFIXES = (
 )
 
 # Endpoints that require Authorization Bearer (all admin endpoints)
-def is_public(path: str) -> bool:
+def is_public(path: str, method: str = "GET") -> bool:
     if path == "/api/" or path == "/api/health":
         return True
     if path.startswith("/api/auth/"):
         return True
     if path.startswith("/api/public/"):
         return True
-    if path.startswith("/api/pay/customer/"):
+    # Public pay lookup — customers open /pay/{painel_id} from any browser.
+    # This is the endpoint the /pay/{id} React page queries to render.
+    if path.startswith("/api/payments/customer/"):
+        return True
+    if path.startswith("/api/pay/customer/"):  # legacy alias
+        return True
+    # Public payment creation from /pay/{id} page — customer clicks "Pagar"
+    # (POST only — GET /api/payments must stay admin to protect payment history)
+    if path == "/api/payments" and method.upper() == "POST":
         return True
     if path == "/api/whatsapp/incoming":
         return True

@@ -253,58 +253,77 @@ async def get_customer_payment_info(customer_id: str):
     """
     customer = None
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        # 1. Lookup by painel trial_user_id (JOIN with customers for the name/whatsapp).
-        #    This is the PRIMARY path — every {pay_link} we send uses the painel id.
-        cur = await db.execute(
-            """
-            SELECT
-                t.trial_user_id AS painel_id,
-                t.system_type AS trial_system_type,
-                t.expires_at AS trial_expires_at,
-                c.id AS local_id,
-                c.name AS name,
-                c.whatsapp AS whatsapp,
-                c.system_type AS customer_system_type,
-                c.expires_at AS customer_expires_at
-            FROM trials t
-            LEFT JOIN customers c ON c.id = t.customer_id
-            WHERE t.trial_user_id = ?
-            ORDER BY t.created_at DESC
-            LIMIT 1
-            """,
-            (str(customer_id),),
-        )
-        row = await cur.fetchone()
-        if row:
+    # 0. FIRST: MongoDB Atlas (shared source of truth across all environments).
+    #    This makes /pay/{painel_id} work anywhere in the world, regardless of
+    #    which Raspberry Pi / preview / prod host is serving the request.
+    try:
+        from services import mongo_store
+        mongo_doc = await mongo_store.find_customer_by_painel_id(str(customer_id))
+        if mongo_doc:
             customer = {
-                "id": str(row["painel_id"] or row["local_id"] or customer_id),
-                "name": row["name"] or "Cliente",
-                "system_type": row["trial_system_type"] or row["customer_system_type"] or "iptv",
-                "expires_at": row["trial_expires_at"] or row["customer_expires_at"],
+                "id": str(mongo_doc.get("_id") or mongo_doc.get("id") or customer_id),
+                "name": (mongo_doc.get("full_name") or mongo_doc.get("name")
+                         or mongo_doc.get("username") or mongo_doc.get("painel_username")
+                         or "Cliente"),
+                "system_type": mongo_doc.get("system_type") or "iptv",
+                "expires_at": (mongo_doc.get("exp_date_iso") or mongo_doc.get("expires_at")),
             }
+    except Exception as e:
+        logger.warning("mongo lookup failed for %s: %s", customer_id, e)
 
-        # 2. Lookup by local customer UUID
-        if not customer:
+    if customer is None:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+
+            # 1. Lookup by painel trial_user_id (JOIN with customers for the name/whatsapp).
+            #    This is the PRIMARY LOCAL path — every {pay_link} we send uses the painel id.
             cur = await db.execute(
-                "SELECT id, name, system_type, expires_at FROM customers WHERE id = ?",
+                """
+                SELECT
+                    t.trial_user_id AS painel_id,
+                    t.system_type AS trial_system_type,
+                    t.expires_at AS trial_expires_at,
+                    c.id AS local_id,
+                    c.name AS name,
+                    c.whatsapp AS whatsapp,
+                    c.system_type AS customer_system_type,
+                    c.expires_at AS customer_expires_at
+                FROM trials t
+                LEFT JOIN customers c ON c.id = t.customer_id
+                WHERE t.trial_user_id = ?
+                ORDER BY t.created_at DESC
+                LIMIT 1
+                """,
                 (str(customer_id),),
             )
             row = await cur.fetchone()
             if row:
-                customer = dict(row)
+                customer = {
+                    "id": str(row["painel_id"] or row["local_id"] or customer_id),
+                    "name": row["name"] or "Cliente",
+                    "system_type": row["trial_system_type"] or row["customer_system_type"] or "iptv",
+                    "expires_at": row["trial_expires_at"] or row["customer_expires_at"],
+                }
 
-        # 3. Lookup by painel_username
-        if not customer:
-            cur = await db.execute(
-                "SELECT id, name, system_type, expires_at FROM customers WHERE painel_username = ?",
-                (str(customer_id),),
-            )
-            row = await cur.fetchone()
-            if row:
-                customer = dict(row)
+            # 2. Lookup by local customer UUID
+            if not customer:
+                cur = await db.execute(
+                    "SELECT id, name, system_type, expires_at FROM customers WHERE id = ?",
+                    (str(customer_id),),
+                )
+                row = await cur.fetchone()
+                if row:
+                    customer = dict(row)
+
+            # 3. Lookup by painel_username
+            if not customer:
+                cur = await db.execute(
+                    "SELECT id, name, system_type, expires_at FROM customers WHERE painel_username = ?",
+                    (str(customer_id),),
+                )
+                row = await cur.fetchone()
+                if row:
+                    customer = dict(row)
 
     # 4. Last resort: painel cache
     if not customer:

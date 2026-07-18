@@ -180,6 +180,40 @@ def test_refresh_task_merges_new_users_with_existing(monkeypatch):
         "Freshly-injected trial (999) must survive the refresh even if painel doesn't return it yet"
 
 
+def test_refresh_task_mirrors_all_users_to_mongo(monkeypatch):
+    """When the customer-page refresh runs, EVERY painel user (not just new
+    trials) must be pushed to MongoDB Atlas so their /pay/{id} works globally."""
+    from routers import painel_users
+    from services import painel, mongo_store
+    db_path = _fresh_db()
+    monkeypatch.setattr(painel_users, "DB_PATH", db_path)
+
+    mongo_upserts = []
+
+    async def fake_upsert(doc):
+        mongo_upserts.append(doc)
+        return str(doc.get("_id", ""))
+
+    monkeypatch.setattr(mongo_store, "upsert_customer", fake_upsert)
+
+    painel_users_data = [
+        {"id": 111, "username": "u1", "full_name": "One", "exp_date": 1900000000, "enabled": 1, "as_number": "5511111"},
+        {"id": 222, "username": "u2", "full_name": "Two", "exp_date": 1900000000, "enabled": 1, "as_number": "5511222"},
+        {"id": 333, "username": "u3", "full_name": "Three", "exp_date": 1900000000, "enabled": 1, "as_number": "5511333"},
+    ]
+
+    async def go():
+        with patch.object(painel, "list_users", new=AsyncMock(return_value=painel_users_data)):
+            await painel_users.refresh_cache_task()
+
+    _run(go())
+
+    # All 3 users pushed to Mongo
+    ids = {u["_id"] for u in mongo_upserts}
+    assert ids == {"111", "222", "333"}, \
+        "refresh_cache_task must sync EVERY painel user to Mongo, not just some"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

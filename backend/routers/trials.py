@@ -81,6 +81,24 @@ async def create_trial(payload: TrialCreate):
     except Exception:
         logger.exception("Failed to inject trial into painel users cache")
 
+    # Persist to MongoDB Atlas — shared source of truth across all envs.
+    try:
+        from services import mongo_store
+        await mongo_store.upsert_customer({
+            "_id": trial_user_id,
+            "id": int(trial_user_id) if trial_user_id.isdigit() else trial_user_id,
+            "painel_username": painel_user,
+            "painel_password": painel_pass,
+            "full_name": payload.name or "",
+            "whatsapp": payload.whatsapp or "",
+            "system_type": payload.system_type,
+            "is_trial": True,
+            "mac": payload.mac,
+            "exp_date_iso": expires,
+        })
+    except Exception:
+        logger.exception("Failed to persist trial to MongoDB Atlas")
+
     # Fire trial_ready + schedule 1h/3h reminders (only if we have a phone)
     phone = payload.whatsapp
     if not phone and payload.customer_id:

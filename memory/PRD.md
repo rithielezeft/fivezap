@@ -20,6 +20,10 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FIX 2026-02-P0 CRITICAL]** **Bug real do "Link inválido"**: o middleware auth bloqueava `/api/payments/customer/{id}` porque estava listado como `/api/pay/customer/` (path errado). Adicionado prefixo correto + `POST /api/payments` público (só para checkout) enquanto `GET /api/payments` continua admin-only.
+- **[FEATURE 2026-02]** **MongoDB Atlas** como fonte da verdade global. `/api/payments/customer/{painel_id}` busca no Mongo PRIMEIRO — funciona em qualquer navegador, qualquer lugar do mundo, sem cookies, sem cache local. Todo trial criado (bot, form, admin) é upserted no Mongo automaticamente. Refresh da página de clientes espelha **TODOS** os usuários do painel para o Mongo — clientes legados (não só novos) têm seus links funcionando.
+- Novo módulo `services/mongo_store.py`: `find_customer_by_painel_id`, `upsert_customer`, `ping`.
+- `refresh_cache_task` agora sincroniza cada usuário do painel para o Mongo automaticamente.
 - **[FIX 2026-02-P0]** `create_trial` P2P/Hybrid: após POST /api/trial_users, chama `POST /api/users/{id}/change_system` com `{system_id: 2}` (P2P) ou `{system_id: 3}` (Hybrid) — painel.fun sempre cria como IPTV por padrão
 - **[FIX 2026-02-P0]** `/api/payments/customer/{id}` agora busca **primeiro na tabela local `trials`** por `trial_user_id` (o painel id que usamos em todos os `{pay_link}`). Depois cai para `customers.id`, `customers.painel_username`, e por último no cache do painel. Resultado: página `/pay/{id}` funciona **em qualquer navegador do mundo, mesmo com cache do painel vazio** — o SQLite da Raspberry Pi é a fonte da verdade.
 - **[FEATURE 2026-02]** `upsert_users_in_cache` — cache do painel usa MERGE em vez de replace. Erros transientes do painel.fun (403, timeout, empty response) nunca apagam usuários já conhecidos, então links de pagamento de outros clientes continuam funcionando.

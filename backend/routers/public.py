@@ -86,6 +86,25 @@ async def public_request_trial(payload: PublicTrialRequest):
     except Exception:
         logger.exception("Failed to inject trial into painel users cache")
 
+    # Persist to MongoDB Atlas — shared source of truth.
+    try:
+        from services import mongo_store
+        trial_user_id_str = str(result.get("id") or result.get("user_id") or "")
+        await mongo_store.upsert_customer({
+            "_id": trial_user_id_str,
+            "id": int(trial_user_id_str) if trial_user_id_str.isdigit() else trial_user_id_str,
+            "painel_username": painel_user,
+            "painel_password": painel_pass,
+            "full_name": payload.name or "",
+            "whatsapp": phone_digits or "",
+            "system_type": payload.system_type,
+            "is_trial": True,
+            "mac": payload.mac,
+            "exp_date_iso": expires,
+        })
+    except Exception:
+        logger.exception("Failed to persist trial to MongoDB Atlas")
+
     # Fire trial_ready + schedule 1h/3h reminders
     try:
         from services.trial_flow import post_trial_flow

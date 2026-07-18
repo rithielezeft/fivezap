@@ -451,6 +451,26 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
         except Exception:
             logger.exception("Failed to inject trial into painel users cache")
 
+        # Also persist to MongoDB Atlas so /pay/{painel_id} works globally
+        # across all environments (Raspberry Pi, preview, prod).
+        try:
+            from services import mongo_store
+            await mongo_store.upsert_customer({
+                "_id": trial_user_id,
+                "id": int(trial_user_id) if trial_user_id.isdigit() else trial_user_id,
+                "painel_username": painel_user,
+                "painel_password": painel_pass,
+                "full_name": customer.get("name") or "",
+                "whatsapp": phone_clean,
+                "system_type": matched["system_type"],
+                "is_trial": True,
+                "mac": mac,
+                "exp_date_iso": expires,
+            })
+            logger.info("Persisted trial %s to MongoDB Atlas", trial_user_id)
+        except Exception:
+            logger.exception("Failed to persist trial to MongoDB Atlas (non-fatal)")
+
     except Exception as e:
         logger.exception("Failed to create trial: %s", e)
         # Show detailed error to help debugging — the client will see the actual reason
