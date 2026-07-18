@@ -89,6 +89,11 @@ export const paymentsApi = {
   testLink: () => api.post("/payments/test-link", null, { timeout: 45000 }).then((r) => r.data),
   checkStatus: (customerId, body = {}) =>
     api.post(`/payments/check-status/${customerId}`, body).then((r) => r.data),
+  reprocess: (paymentId) =>
+    api.post(`/payments/reprocess/${paymentId}`, {}).then((r) => r.data),
+  resendNotification: (paymentId) =>
+    api.post(`/payments/resend-notification/${paymentId}`, {}).then((r) => r.data),
+  diagnostics: () => api.get("/payments/diagnostics").then((r) => r.data),
 };
 
 export const settingsApi = {

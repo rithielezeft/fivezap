@@ -666,6 +666,126 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         return {"ok": False, "status": "renewal_failed", "payment_id": payment["id"], "error": str(e)}
 
 
+@router.post("/resend-notification/{payment_id}")
+async def resend_notification(payment_id: str):
+    """Admin: re-send the "renewal confirmed" message to the client for a
+    payment that was already renewed. Returns a DETAILED diagnostic so the
+    admin knows exactly why the original notification didn't arrive.
+
+    Never re-triggers the panel renewal — this is purely a message resend.
+    Useful when the client claims they didn't receive the confirmation.
+    """
+    from services.notifier import send_notification
+    from services import mongo_store
+    from routers.painel_users import _read_cache
+    from services.phone_extractor import extract_whatsapp
+
+    diag = {"payment_id": payment_id, "steps": []}
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT p.*, c.name as customer_name, c.whatsapp as customer_whatsapp,"
+            " c.system_type as customer_system_type"
+            " FROM payments p LEFT JOIN customers c ON c.id = p.customer_id"
+            " WHERE p.id = ?",
+            (payment_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"Payment {payment_id} not found")
+        pmt = dict(row)
+
+    diag["customer_id"] = pmt["customer_id"]
+    diag["customer_name"] = pmt["customer_name"]
+    diag["payment_status"] = pmt["status"]
+    diag["order_nsu"] = pmt["order_nsu"]
+
+    if pmt["status"] != "paid":
+        diag["result"] = "not_sent"
+        diag["reason"] = f"payment status is '{pmt['status']}' (need 'paid')"
+        return diag
+
+    # Resolve phone with the same cascade _process_payment_confirmation uses.
+    phone = (pmt.get("customer_whatsapp") or "").strip()
+    diag["steps"].append({"source": "sqlite_customers", "phone": phone or None})
+
+    if not phone:
+        try:
+            mdoc = await mongo_store.find_customer_by_painel_id(str(pmt["customer_id"]))
+            phone = (mdoc.get("whatsapp") if mdoc else "" or "").strip()
+            diag["steps"].append({"source": "mongo", "phone": phone or None})
+        except Exception as e:
+            diag["steps"].append({"source": "mongo", "error": str(e)})
+
+    if not phone:
+        try:
+            users, _ = await _read_cache()
+            for u in users:
+                uid = str(u.get("id") or u.get("user_id") or u.get("username") or "")
+                if uid == str(pmt["customer_id"]):
+                    phone = (extract_whatsapp(u) or "").strip()
+                    break
+            diag["steps"].append({"source": "painel_cache", "phone": phone or None})
+        except Exception as e:
+            diag["steps"].append({"source": "painel_cache", "error": str(e)})
+
+    if not phone:
+        diag["result"] = "not_sent"
+        diag["reason"] = "no whatsapp resolved from any source (SQLite/Mongo/painel cache)"
+        return diag
+
+    diag["resolved_phone"] = phone
+
+    # Persist so future notifications are instant
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE customers SET whatsapp = ?, updated_at = ? WHERE id = ?",
+                         (phone, now_iso(), pmt["customer_id"]))
+        await db.commit()
+
+    # WA service status
+    wa_status = await whatsapp_client.get_status()
+    diag["wa_service"] = {"ready": wa_status.get("ready"), "state": wa_status.get("state")}
+    if not wa_status.get("ready"):
+        diag["result"] = "not_sent"
+        diag["reason"] = f"whatsapp service not ready (state={wa_status.get('state')})"
+        return diag
+
+    # Try the template first; if disabled/missing, send hardcoded fallback.
+    ok = await send_notification(
+        "renewal_success", phone,
+        {
+            "name": pmt["customer_name"] or "",
+            "plan_months": pmt["plan_months"],
+            "new_expires_at": "",
+            "system_type": pmt["customer_system_type"] or "",
+        },
+    )
+    if ok:
+        await save_message(phone, "renewal_confirmed_manual", "out", pmt["customer_id"])
+        diag["result"] = "sent"
+        diag["method"] = "template"
+        return diag
+
+    # Fallback hardcoded
+    try:
+        await whatsapp_client.send_message(
+            phone,
+            f"✅ Pagamento confirmado, {pmt['customer_name'] or 'cliente'}!\n\n"
+            f"Seu plano foi renovado por {pmt['plan_months']} mês(es). 🎉\n\n"
+            "Obrigado pela preferência!"
+        )
+        await save_message(phone, "renewal_confirmed_manual_fallback", "out", pmt["customer_id"])
+        diag["result"] = "sent"
+        diag["method"] = "hardcoded_fallback"
+        diag["note"] = "template 'renewal_success' is disabled or empty"
+        return diag
+    except Exception as e:
+        diag["result"] = "not_sent"
+        diag["reason"] = f"whatsapp send failed: {e}"
+        return diag
+
+
 @router.post("/reprocess/{payment_id}")
 async def reprocess_payment(payment_id: str, request: Request):
     """Admin: manually re-trigger renewal for a payment whose webhook didn't arrive
