@@ -72,3 +72,75 @@ async def update_notification(event_key: str, payload: NotifUpdate):
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM notification_templates WHERE event_key = ?", (event_key,))
         return _row(await cur.fetchone())
+
+
+
+# ---------------------------------------------------------------------------
+# Delivery-tracking endpoints (per-message send status + manual retry)
+# ---------------------------------------------------------------------------
+
+@router.get("/deliveries")
+async def list_deliveries(limit: int = 50, customer_id: Optional[str] = None,
+                          status: Optional[str] = None):
+    """List recent notification deliveries (most-recent first).
+
+    Query params:
+      - limit: max rows (default 50, cap 200)
+      - customer_id: filter by client
+      - status: filter by 'pending' | 'sent' | 'failed_permanent'
+    """
+    limit = max(1, min(int(limit), 200))
+    where: List[str] = []
+    params: list = []
+    if customer_id:
+        where.append("customer_id = ?")
+        params.append(customer_id)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    params.append(limit)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            f"SELECT * FROM notification_deliveries {where_sql} "
+            f"ORDER BY created_at DESC LIMIT ?",
+            params,
+        )
+        rows = [dict(r) for r in await cur.fetchall()]
+
+        cur = await db.execute(
+            "SELECT status, COUNT(*) as c FROM notification_deliveries GROUP BY status"
+        )
+        counts = {r["status"]: r["c"] for r in await cur.fetchall()}
+    return {"deliveries": rows, "counts_by_status": counts}
+
+
+@router.post("/deliveries/{delivery_id}/retry")
+async def retry_delivery(delivery_id: str):
+    """Force an immediate retry of a delivery, even if `next_retry_at` is
+    still in the future. Useful when the admin fixes something (WA
+    reconnection, template edit) and wants to re-fire without waiting."""
+    from services.delivery_queue import _attempt
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM notification_deliveries WHERE id = ?", (delivery_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"Delivery {delivery_id} not found")
+
+    ok = await _attempt(delivery_id)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT status, attempts, last_error, sent_at, next_retry_at "
+            "FROM notification_deliveries WHERE id = ?",
+            (delivery_id,),
+        )
+        updated = dict(await cur.fetchone())
+    return {"ok": ok, "delivery": updated}

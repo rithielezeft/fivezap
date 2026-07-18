@@ -142,6 +142,25 @@ async def init_db():
             );
 
             CREATE INDEX IF NOT EXISTS idx_reminders_pending ON scheduled_reminders(sent, send_at);
+
+            CREATE TABLE IF NOT EXISTS notification_deliveries (
+                id TEXT PRIMARY KEY,
+                event_key TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                body TEXT NOT NULL,
+                image_url TEXT,
+                customer_id TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 5,
+                next_retry_at TEXT,
+                last_error TEXT,
+                sent_at TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_deliveries_status ON notification_deliveries(status, next_retry_at);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_customer ON notification_deliveries(customer_id, created_at);
             """
         )
         await db.commit()

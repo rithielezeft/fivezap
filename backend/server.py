@@ -116,10 +116,20 @@ async def lifespan(app: FastAPI):
 
     task_painel_refresh = asyncio.create_task(_painel_refresh_loop())
 
+    # Delivery-queue retry loop: retries failed WhatsApp notifications every
+    # 10s so no client stays without confirmation.
+    from services.delivery_queue import retry_loop as _delivery_retry_loop, stop_retry_loop as _stop_delivery
+    task_delivery_retry = asyncio.create_task(_delivery_retry_loop())
+
     yield
     task_exp.cancel()
     task_rem.cancel()
     task_painel_refresh.cancel()
+    task_delivery_retry.cancel()
+    try:
+        _stop_delivery()
+    except Exception:
+        pass
     if stop_poller:
         try:
             stop_poller()

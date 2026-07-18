@@ -587,6 +587,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                         "new_expires_at": new_expires,
                         "system_type": customer.get("system_type") or "",
                     },
+                    customer_id=customer["id"],
                 )
                 if client_notified:
                     await save_message(phone, "renewal_confirmed", "out", customer["id"])
@@ -594,20 +595,24 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 else:
                     # Template `renewal_success` is missing/disabled → send a minimal
                     # hardcoded confirmation so the client never stays in the dark.
+                    # Uses the delivery queue too (auto-retry every 10s).
                     logger.warning(
                         "renewal_success template disabled/missing — sending hardcoded fallback to %s",
                         phone,
                     )
                     try:
+                        from services.notifier import send_hardcoded
                         expires_txt = f" até {new_expires}" if new_expires else ""
-                        await whatsapp_client.send_message(
+                        fallback_msg_sent = await send_hardcoded(
                             phone,
                             f"✅ Pagamento confirmado, {customer['name']}!\n\n"
                             f"Seu plano foi renovado por {payment['plan_months']} mês(es){expires_txt}. 🎉\n\n"
-                            "Obrigado pela preferência!"
+                            "Obrigado pela preferência!",
+                            event_key="renewal_success_fallback",
+                            customer_id=customer["id"],
                         )
-                        await save_message(phone, "renewal_confirmed_fallback", "out", customer["id"])
-                        fallback_msg_sent = True
+                        if fallback_msg_sent:
+                            await save_message(phone, "renewal_confirmed_fallback", "out", customer["id"])
                     except Exception:
                         logger.exception("Fallback renewal message failed for %s", phone)
             else:
