@@ -8,9 +8,26 @@ These tests hit the live REACT_APP_BACKEND_URL (public URL), so they
 double as a production smoke check.
 """
 import os
+import re
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+
+def _base_url():
+    """Read REACT_APP_BACKEND_URL from env or /app/frontend/.env fallback."""
+    url = os.environ.get("REACT_APP_BACKEND_URL", "").strip().rstrip("/")
+    if url:
+        return url
+    env_path = "/app/frontend/.env"
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                m = re.match(r'^\s*REACT_APP_BACKEND_URL\s*=\s*"?([^"\n]+)"?', line)
+                if m:
+                    return m.group(1).strip().rstrip("/")
+    return "http://localhost:8001"
+
+
+BASE_URL = _base_url()
 
 
 def test_health_poller_is_public_and_running():

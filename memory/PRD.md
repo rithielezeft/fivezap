@@ -20,6 +20,14 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FIX 2026-02-P0 CRITICAL]** Payment poller estava sendo silenciosamente ignorado pelo FastAPI porque `@app.on_event('startup')` não funciona quando o app usa `lifespan=`. Testing agent (iteration_14) moveu `start_poller`/`stop_poller` para dentro do `lifespan()` async context. Sem esse fix, o polling ativo NUNCA rodava em produção — pagamentos ficariam `pending` para sempre se o webhook falhasse.
+- **[FEATURE 2026-02]** Novo endpoint `GET /api/health/poller` público — expõe `{running, task_name, task_done}` do payment poller. Monitoring pode alertar se cair para `running:false`.
+- **[FEATURE 2026-02]** 8 smoke/regression tests (`test_health_poller_smoke.py`) com AST guard que falha se alguém reintroduzir `@app.on_event`, e log scraper que falha se "Payment poller started" não aparecer no log após restart. Impede recorrência silenciosa.
+- **[FEATURE 2026-02]** `services/payment_poller.py`: background asyncio task que a cada 20s chama `infinitepay.check_payment(order_nsu)` para cada pagamento `pending` (últimas 48h) e dispara renewal se `paid=true`. Idempotente com webhook.
+- **[FEATURE 2026-02]** `POST /api/payments/check-status/{customer_id}` público — chamado pela página `/pay/{id}?ok=1` quando cliente volta do InfinitePay. Bypass do webhook para confirmação instantânea (~3s).
+- **[FEATURE 2026-02]** `POST /api/payments/poll-now` admin — trigger manual de sweep para debug.
+- **[FEATURE 2026-02]** Frontend `PublicPay.jsx`: quando URL tem `?ok=1`, mostra banner com estado (Confirmando… → Renovado ✅ ou Ainda processando ⏳) e faz polling automático até 10x (30s).
+
 - **[FEATURE 2026-02]** InfinitePay pré-preenche apenas `customer.name = painel_username` (ex. "oscarnew") — amarra o pagamento ao usuário exato do painel. `customer.phone_number` fica em branco (opcional para o cliente preencher no checkout). Fallback para `full_name` caso o painel_username esteja vazio.
 
 - **[FEATURE 2026-02]** InfinitePay checkout pré-preenchido: `POST /api/payments` agora passa `customer_name` (do Mongo/local) e `customer_phone` (whatsapp digits-only, sem `@c.us`/`@lid`) para o InfinitePay. Cliente não precisa digitar nome/telefone no checkout, InfinitePay associa pagamento ao painel_id.
