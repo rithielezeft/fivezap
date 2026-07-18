@@ -21,6 +21,7 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 - **[FIX 2026-02-P0]** `create_trial` P2P/Hybrid: após POST /api/trial_users, chama `POST /api/users/{id}/change_system` com `{system_id: 2}` (P2P) ou `{system_id: 3}` (Hybrid) — painel.fun sempre cria como IPTV por padrão
+- **[FEATURE 2026-02]** Refresh automático do cache de usuários do painel após cada trial criado: bot (WhatsApp), form público `/teste` e criação manual em `/api/trials` disparam `refresh_cache_task()` em background (fire-and-forget) → página `/customers` sempre exibe o teste recém-criado.
 - **[FIX 2026-02-P0]** Payload de criação de trial atualizado para o formato real do painel.fun: envia `type` (1/2/3), `isHybrid: true/false`, `max_connections: 1`. Para Hybrid: `username: ""`, `password: ""` (painel gera server-side) + `macaddr` no payload inicial.
 - **[FIX 2026-02-P0]** DreamTV validate+playlist é chamado APENAS para IPTV+MAC. Hybrid não passa por DreamTV — o `macaddr` já é enviado no `POST /api/trial_users` e o `change_system=3` completa o fluxo.
 - **[FIX 2026-02-P0]** Bot MAC retry: cliente tem **3 tentativas** para enviar MAC no formato correto (AA:BB:CC:DD:EE:FF, aceita também `-` e sem separador). Cada tentativa inválida explica o formato e mostra tentativas restantes. Após 3 falhas o bot desiste graciosamente e limpa o estado.

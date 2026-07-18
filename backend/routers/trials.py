@@ -60,6 +60,14 @@ async def create_trial(payload: TrialCreate):
 
     await log_activity("trial_created", f"Teste {payload.system_type} criado manualmente", payload.customer_id, "success", result)
 
+    # Refresh the painel users cache so the /customers page shows the new trial
+    try:
+        import asyncio as _asyncio
+        from routers.painel_users import refresh_cache_task
+        _asyncio.create_task(refresh_cache_task())
+    except Exception:
+        logger.exception("Failed to schedule painel users cache refresh")
+
     # Fire trial_ready + schedule 1h/3h reminders (only if we have a phone)
     phone = payload.whatsapp
     if not phone and payload.customer_id:

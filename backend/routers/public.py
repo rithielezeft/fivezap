@@ -65,6 +65,14 @@ async def public_request_trial(payload: PublicTrialRequest):
 
     await log_activity("public_trial_created", f"Teste solicitado por {payload.name}", customer_id, "success")
 
+    # Refresh the painel users cache so the /customers page shows the new trial
+    try:
+        import asyncio as _asyncio
+        from routers.painel_users import refresh_cache_task
+        _asyncio.create_task(refresh_cache_task())
+    except Exception:
+        logger.exception("Failed to schedule painel users cache refresh")
+
     # Fire trial_ready + schedule 1h/3h reminders
     try:
         from services.trial_flow import post_trial_flow

@@ -426,6 +426,16 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
         except Exception:
             logger.exception("Failed to schedule trial reminders")
 
+        # Fire-and-forget: refresh the painel users cache so the /customers
+        # page in the admin panel shows the newly-created trial immediately.
+        try:
+            import asyncio as _asyncio
+            from routers.painel_users import refresh_cache_task
+            _asyncio.create_task(refresh_cache_task())
+            logger.info("Scheduled painel users cache refresh after trial creation")
+        except Exception:
+            logger.exception("Failed to schedule painel users cache refresh")
+
     except Exception as e:
         logger.exception("Failed to create trial: %s", e)
         # Show detailed error to help debugging — the client will see the actual reason
