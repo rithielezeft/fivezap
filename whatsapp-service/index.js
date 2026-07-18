@@ -16,11 +16,77 @@ let state = 'starting';
 let lastError = null;
 
 const path = require('path');
+const fs = require('fs');
 const os = require('os');
 // Session dir OUTSIDE git repo — avoids EACCES and git pull conflicts.
 // Default: ~/.whatsflow/wwebjs_auth. Override via WA_SESSION_DIR env.
 const SESSION_DIR = process.env.WA_SESSION_DIR || path.join(os.homedir(), '.whatsflow', 'wwebjs_auth');
 console.log('[WA] Session dir:', SESSION_DIR);
+
+// ---- Clean up stale Chrome/Puppeteer lock files ----
+// When systemd kills the service without a graceful shutdown, Chrome leaves
+// behind a `SingletonLock` (and friends) inside the userDataDir. The next
+// launch then dies with:
+//   "The browser is already running for .../session-whatsflow.
+//    Use a different `userDataDir` or stop the running browser first."
+// We proactively remove these lock files at startup so restarts always work.
+function clearChromeStaleLocks(root) {
+  if (!fs.existsSync(root)) return;
+  const LOCK_NAMES = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'lockfile'];
+  function walk(dir, depth) {
+    if (depth > 5) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      try {
+        if (e.isSymbolicLink() && LOCK_NAMES.includes(e.name)) {
+          fs.unlinkSync(full);
+          console.log('[WA] Removed stale Chrome lock:', full);
+        } else if (e.isFile() && LOCK_NAMES.includes(e.name)) {
+          fs.unlinkSync(full);
+          console.log('[WA] Removed stale Chrome lock:', full);
+        } else if (e.isDirectory()) {
+          walk(full, depth + 1);
+        }
+      } catch (err) {
+        console.warn('[WA] Could not remove', full, err.message);
+      }
+    }
+  }
+  walk(root, 0);
+}
+
+clearChromeStaleLocks(SESSION_DIR);
+
+// Also kill any orphan chrome/chromium processes bound to our session dir.
+// This handles the case where a previous puppeteer instance crashed but its
+// Chrome subprocess is still alive holding the profile.
+try {
+  const { execSync } = require('child_process');
+  const pgrepOut = execSync(
+    `pgrep -a -f "${SESSION_DIR}" 2>/dev/null || true`,
+    { encoding: 'utf8' }
+  );
+  const pids = pgrepOut
+    .split('\n')
+    .filter(Boolean)
+    .filter((line) => /(chrome|chromium|node)/i.test(line))
+    .filter((line) => !line.includes(String(process.pid)))
+    .map((line) => parseInt(line.split(' ')[0], 10))
+    .filter((pid) => !isNaN(pid) && pid !== process.pid);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+      console.log('[WA] Killed orphan Chrome/Chromium PID:', pid);
+    } catch (e) {
+      console.warn('[WA] Failed to kill PID', pid, e.message);
+    }
+  }
+} catch (e) {
+  console.warn('[WA] Orphan process cleanup failed (non-fatal):', e.message);
+}
 
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: SESSION_DIR }),
@@ -257,7 +323,20 @@ app.listen(PORT, () => {
   console.log(`[WA] Service listening on :${PORT}`);
 });
 
-process.on('SIGTERM', async () => {
-  try { await client.destroy(); } catch {}
-  process.exit(0);
-});
+async function gracefulShutdown(signal) {
+  console.log(`[WA] Received ${signal}, shutting down gracefully...`);
+  try {
+    await client.destroy();
+    console.log('[WA] Client destroyed');
+  } catch (e) {
+    console.warn('[WA] client.destroy() error:', e.message);
+  }
+  // Give Chrome a moment to release the lock, then remove any leftover.
+  setTimeout(() => {
+    try { clearChromeStaleLocks(SESSION_DIR); } catch {}
+    process.exit(0);
+  }, 800);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
