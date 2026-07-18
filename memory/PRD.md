@@ -20,6 +20,10 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FIX 2026-02-P0 CRITICAL]** Cliente pagava InfinitePay mas confirmação nunca chegava. Causa: nenhum webhook real do InfinitePay chegava + `/payment_check` retornava `success:false` mesmo depois de pago. Solução: **token HMAC assinado por pagamento** (`secrets.token_urlsafe(24)`, 192 bits) embutido em `redirect_url` como `?t=<token>`. Cliente volta com token → frontend envia → backend valida via `secrets.compare_digest` → renova. `POST /api/payments/check-status/{id}` continua público mas só aceita com token correto.
+- **[FIX 2026-02-P0]** `payment_check` estrito: só aceita quando InfinitePay retorna EXPLICITAMENTE `paid:true` (bug: `success:true` sozinho era interpretado como pago).
+- **[FEATURE 2026-02]** Webhook agora loga headers completos (user-agent, referer, origin, x-forwarded-for) e aceita mais variações de campo/status (`event: payment.approved`, `status: captured`, etc).
+
 - **[FIX 2026-02-P0 CRITICAL]** Payment poller estava sendo silenciosamente ignorado pelo FastAPI porque `@app.on_event('startup')` não funciona quando o app usa `lifespan=`. Testing agent (iteration_14) moveu `start_poller`/`stop_poller` para dentro do `lifespan()` async context. Sem esse fix, o polling ativo NUNCA rodava em produção — pagamentos ficariam `pending` para sempre se o webhook falhasse.
 - **[FEATURE 2026-02]** Novo endpoint `GET /api/health/poller` público — expõe `{running, task_name, task_done}` do payment poller. Monitoring pode alertar se cair para `running:false`.
 - **[FEATURE 2026-02]** 8 smoke/regression tests (`test_health_poller_smoke.py`) com AST guard que falha se alguém reintroduzir `@app.on_event`, e log scraper que falha se "Payment poller started" não aparecer no log após restart. Impede recorrência silenciosa.
