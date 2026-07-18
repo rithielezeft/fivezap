@@ -494,6 +494,48 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 new_expires = _dt.fromtimestamp(int(new_expires), tz=_tz.utc).strftime("%d/%m/%Y")
             except Exception:
                 new_expires = str(new_expires)
+        # If painel returned ISO string like "2027-01-01" or "2027-01-01T00:00:00Z",
+        # convert to Brazilian dd/mm/aaaa for the WhatsApp message.
+        elif isinstance(new_expires, str) and new_expires:
+            try:
+                from datetime import datetime as _dt
+                s = new_expires.replace("Z", "+00:00")
+                # Accept both "2027-01-01" and full ISO
+                fmt = "%Y-%m-%dT%H:%M:%S%z" if "T" in s else "%Y-%m-%d"
+                dt = _dt.strptime(s, fmt) if "T" in s else _dt.strptime(s, fmt)
+                new_expires = dt.strftime("%d/%m/%Y")
+            except Exception:
+                # Keep the original string — better than empty
+                pass
+
+        # Last-resort fallback: painel gave us nothing usable → compute locally
+        # from the customer's current expires_at + plan_months. Client message
+        # must NEVER show "ativo até " with an empty date.
+        if not new_expires:
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                base_expires = None
+                cur_exp = (customer.get("expires_at") or "").strip()
+                if cur_exp:
+                    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y"):
+                        try:
+                            base_expires = _dt.strptime(cur_exp.replace("Z", "+00:00"), fmt)
+                            break
+                        except Exception:
+                            continue
+                if base_expires is None or base_expires < _dt.now(_tz.utc).replace(tzinfo=None):
+                    # Expired or unknown → count from today
+                    base_expires = _dt.now(_tz.utc).replace(tzinfo=None)
+                # Add plan_months (each = 30 days for a simple, predictable result)
+                from datetime import timedelta as _td
+                projected = base_expires + _td(days=30 * int(payment["plan_months"]))
+                new_expires = projected.strftime("%d/%m/%Y")
+                logger.info(
+                    "painel didn't return expires_at — projected locally: %s (base=%s + %sm)",
+                    new_expires, base_expires.date(), payment["plan_months"],
+                )
+            except Exception:
+                logger.exception("Local expiration projection failed — leaving empty")
 
         # Notify client via WhatsApp — this is what the customer sees ("Renovação confirmada")
         try:
@@ -751,13 +793,35 @@ async def resend_notification(payment_id: str):
         diag["reason"] = f"whatsapp service not ready (state={wa_status.get('state')})"
         return diag
 
+    # Best-effort: fetch the CURRENT expires_at from the painel cache so the
+    # message shows the real "active until" date (not blank).
+    new_expires_at = ""
+    try:
+        from routers.painel_users import _read_cache
+        from services.expiration import compute_expiration_info
+        from datetime import datetime as _dt
+        users, _ = await _read_cache()
+        for u in users:
+            uid = str(u.get("id") or u.get("user_id") or u.get("username") or "")
+            if uid == str(pmt["customer_id"]):
+                info = compute_expiration_info(u)
+                iso = info.get("expires_at_iso")
+                if iso:
+                    try:
+                        new_expires_at = _dt.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d/%m/%Y")
+                    except Exception:
+                        new_expires_at = iso
+                break
+    except Exception:
+        pass
+
     # Try the template first; if disabled/missing, send hardcoded fallback.
     ok = await send_notification(
         "renewal_success", phone,
         {
             "name": pmt["customer_name"] or "",
             "plan_months": pmt["plan_months"],
-            "new_expires_at": "",
+            "new_expires_at": new_expires_at,
             "system_type": pmt["customer_system_type"] or "",
         },
     )
