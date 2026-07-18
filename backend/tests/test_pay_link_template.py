@@ -157,8 +157,8 @@ class TestPayLinkAllPlansSucceed:
         assert "3m: https://checkout.infinitepay.io/mystore/3m-link" in msg, msg
         assert "6m: https://checkout.infinitepay.io/mystore/6m-link" in msg, msg
         assert "12m: https://checkout.infinitepay.io/mystore/12m-link" in msg, msg
-        # {pay_link} default = 1m
-        assert "default: https://checkout.infinitepay.io/mystore/1m-link" in msg, msg
+        # {pay_link} is ALWAYS the short local /pay/{painel_id} URL — never the long InfinitePay URL
+        assert "default: https://whatsflow.example.com/pay/999" in msg, msg
 
         # Confirm 4 calls with correct amounts (cents)
         assert len(calls) == 4
@@ -266,6 +266,42 @@ class TestInfinitepayImportable:
 
 
 # ---------------------------------------------------------------------------
+# Test 4: {pay_link} MUST always be the short local /pay/{painel_id} URL
+#         — never an InfinitePay URL — even when 1m succeeds.
+# ---------------------------------------------------------------------------
+class TestPayLinkAlwaysLocalUrl:
+    def test_pay_link_is_always_local_short_url(self, monkeypatch):
+        from services import bot, painel, whatsapp_client, infinitepay
+
+        bot._recent_messages.clear()
+
+        template_row = _make_template_row("Seu link: {pay_link}")
+        _install_common_mocks(monkeypatch, bot, template_row)
+
+        async def fake_create_trial(**kw):
+            return {"id": 227453827, "username": "u", "password": "p", "expires_at": "x"}
+        monkeypatch.setattr(painel, "create_trial", fake_create_trial)
+
+        # InfinitePay 1m works — but {pay_link} MUST still be the local URL
+        async def fake_create_payment_link(order_nsu, amount_cents, description, **kw):
+            return {"url": "https://checkout.infinitepay.io/very/long/url",
+                    "raw": {}, "handle": "h", "http_status": 200}
+        monkeypatch.setattr(infinitepay, "create_payment_link", fake_create_payment_link)
+
+        sent = []
+        async def fake_send_message(phone, msg):
+            sent.append((phone, msg))
+        monkeypatch.setattr(whatsapp_client, "send_message", fake_send_message)
+
+        asyncio.run(bot.process_incoming_message("5511555@c.us", "p2p ok", from_me=False))
+
+        _, msg = sent[0]
+        assert msg == "Seu link: https://whatsflow.example.com/pay/227453827", msg
+        # Explicit negative: NO long InfinitePay URL in the {pay_link} substitution
+        assert "checkout.infinitepay.io" not in msg.split("{pay_link}")[0]
+
+
+# ---------------------------------------------------------------------------
 # Test 5: Partial success — 1m and 3m succeed, 6m/12m fail → mixed
 # ---------------------------------------------------------------------------
 class TestPayLinkPartialSuccess:
@@ -297,7 +333,10 @@ class TestPayLinkPartialSuccess:
         asyncio.run(bot.process_incoming_message("5511444@c.us", "p2p ok", from_me=False))
 
         _, msg = sent[0]
-        assert "d=https://ok/1m" in msg, msg
+        # {pay_link} is ALWAYS the short local /pay/{painel_id} URL, regardless
+        # of whether InfinitePay 1m succeeded.
+        assert "d=https://whatsflow.example.com/pay/77" in msg, msg
+        # Per-plan links stay as the InfinitePay direct checkout when available
         assert "1=https://ok/1m" in msg, msg
         assert "3=https://ok/3m" in msg, msg
         # 6m and 12m failed → empty per bot.py pay_links_by_plan.get(6, "")

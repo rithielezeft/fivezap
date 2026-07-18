@@ -352,13 +352,17 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
         from database import get_setting as _get_setting
 
         public_base = await _get_setting("public_base_url", "")
-        checkout_link = ""
         pay_links_by_plan: dict = {}
 
-        # Try to generate InfinitePay direct links for each plan.
-        # We create ONE link (monthly / 1m) as the default {pay_link}, and
-        # optionally {pay_link_3m}, {pay_link_6m}, {pay_link_12m} for admins
-        # who want to offer multiple options in the same message.
+        # {pay_link} is ALWAYS the short local URL /pay/{painel_id}. The /pay
+        # page hosts all plan options — cleaner to share on WhatsApp than a
+        # 300-char InfinitePay URL.
+        payment_ref_id = trial_user_id or painel_user or customer["id"]
+        checkout_link = f"{public_base}/pay/{payment_ref_id}" if public_base else ""
+
+        # Per-plan InfinitePay direct links ({pay_link_1m}, _3m, _6m, _12m)
+        # remain long InfinitePay URLs so the admin can send a one-click
+        # checkout for a specific plan.
         if trial_user_id or painel_user:
             for months in (1, 3, 6, 12):
                 try:
@@ -367,30 +371,22 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                     if amount_cents <= 0:
                         continue
                     from services import infinitepay
-                    # Use the painel trial id (not the local UUID) as the order
-                    # reference — that way the InfinitePay webhook can renew the
-                    # exact user that took the test.
+                    # Use the painel trial id as order reference — the
+                    # InfinitePay webhook can renew the exact user that
+                    # took the test.
                     order_ref = trial_user_id or painel_user or trial_id[:12]
                     result_link = await infinitepay.create_payment_link(
                         order_nsu=f"trial-{order_ref}-{months}m",
                         amount_cents=amount_cents,
                         description=f"Assinatura {matched['system_type'].upper()} — {months} {'mês' if months == 1 else 'meses'}",
-                        redirect_url=f"{public_base}/pay/{trial_user_id or painel_user or customer['id']}?ok=1" if public_base else None,
+                        redirect_url=f"{public_base}/pay/{payment_ref_id}?ok=1" if public_base else None,
                         webhook_url=f"{public_base}/api/payments/webhook" if public_base else None,
                         customer_name=customer.get("name"),
                         customer_phone=phone_clean if not phone_clean.endswith("@lid") else None,
                     )
                     pay_links_by_plan[months] = result_link["url"]
-                    if months == 1:
-                        checkout_link = result_link["url"]
                 except Exception as pay_err:
                     logger.warning("Failed to generate InfinitePay link for %dm: %s", months, pay_err)
-
-        # Fallback: static /pay/{id} page (renders our own checkout UI) if
-        # InfinitePay is not configured or all attempts failed. Uses the painel
-        # trial id so /pay/{id} can auto-hydrate the local customer.
-        if not checkout_link and public_base and (trial_user_id or painel_user):
-            checkout_link = f"{public_base}/pay/{trial_user_id or painel_user}"
 
         response = (template
                     .replace("{system_type}", matched["system_type"].upper())
