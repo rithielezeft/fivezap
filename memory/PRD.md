@@ -100,3 +100,6 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - InfinitePay handle deve ser configurado em Configurações antes de gerar cobranças
 - painel.fun API endpoints (login, trial_users, renewal) foram implementados de acordo com o enunciado; se retornarem 4xx, os erros são logados
 - Para Raspberry: rodar `whatsapp-service` como serviço systemd separado, apontando `BACKEND_WEBHOOK_URL` para o backend local
+
+## Changelog Recente
+- **2026-02**: Mensagem de MAC diferenciada por dispositivo — DreamTV (IPTV) instrui o cliente a olhar no *canto da tela do app DreamTV*; Hybrid/MAG/Formuler mantém "Menu → Configurações → Info do sistema". Helpers `_mac_where_to_find()` e `_mac_format_help()` em `services/bot.py`, com 6 novos testes em `tests/test_mac_instructions.py`. Suite: 235/235 verdes.

@@ -54,15 +54,34 @@ def _parse_mac(text: str) -> Optional[str]:
     return None
 
 
-_MAC_FORMAT_HELP = (
-    "❌ Não consegui identificar seu MAC.\n\n"
-    "📱 Como enviar corretamente:\n"
-    "• 6 pares hexadecimais separados por dois-pontos\n"
-    "• Exemplo: `AA:BB:CC:DD:EE:FF`\n"
-    "• Também aceito: `AA-BB-CC-DD-EE-FF` ou `AABBCCDDEEFF`\n\n"
-    "💡 Onde encontrar o MAC no seu MAG/Formuler:\n"
-    "Menu → Configurações → Info do sistema → Endereço MAC"
-)
+def _mac_where_to_find(system_type: Optional[str]) -> str:
+    """Return device-specific instructions on where to locate the MAC address.
+
+    DreamTV (IPTV flow): MAC shown in the CORNER of the DreamTV app screen.
+    Hybrid (MAG/Formuler boxes): MAC in the Settings menu.
+    """
+    if (system_type or "").lower() == "iptv":
+        return (
+            "💡 Onde encontrar o MAC no DreamTV:\n"
+            "Abra o app *DreamTV* no seu dispositivo — o endereço MAC aparece "
+            "no *canto da tela* assim que o app carrega."
+        )
+    # Hybrid / MAG / Formuler
+    return (
+        "💡 Onde encontrar o MAC no seu MAG/Formuler:\n"
+        "Menu → Configurações → Info do sistema → Endereço MAC"
+    )
+
+
+def _mac_format_help(system_type: Optional[str]) -> str:
+    return (
+        "❌ Não consegui identificar seu MAC.\n\n"
+        "📱 Como enviar corretamente:\n"
+        "• 6 pares hexadecimais separados por dois-pontos\n"
+        "• Exemplo: `AA:BB:CC:DD:EE:FF`\n"
+        "• Também aceito: `AA-BB-CC-DD-EE-FF` ou `AABBCCDDEEFF`\n\n"
+        f"{_mac_where_to_find(system_type)}"
+    )
 
 
 def _infer_system_type(trigger: str, name: str, current: str) -> str:
@@ -244,7 +263,7 @@ async def process_incoming_message(
                 return
             await whatsapp_client.send_message(
                 phone_clean,
-                f"{_MAC_FORMAT_HELP}\n\n"
+                f"{_mac_format_help(state.get('system_type'))}\n\n"
                 f"Você ainda tem *{remaining}* {'tentativa' if remaining == 1 else 'tentativas'}."
             )
             await save_message(phone_clean, "MAC_INVALID", "out", customer["id"])
@@ -306,17 +325,26 @@ async def process_incoming_message(
         mac = _parse_mac(remainder)
         if not mac:
             logger.info("Requires MAC but none in message — asking client (attempts=0)")
+            # Use inferred system_type so DreamTV gets the "corner-of-screen" hint
+            # while Hybrid/MAG boxes get the settings-menu hint.
+            inferred_sys = _infer_system_type(
+                matched.get("trigger_command", ""),
+                matched.get("name", ""),
+                matched.get("system_type") or "",
+            )
             _pending_mac[phone_clean] = {
                 "template_id": matched["id"],
                 "attempts": 0,
                 "started_at": now_ts,
                 "customer_id": customer["id"],
+                "system_type": inferred_sys,
             }
+            label = "DreamTV" if inferred_sys == "iptv" else inferred_sys.upper()
             await whatsapp_client.send_message(
                 phone_clean,
-                f"📺 Para criar seu teste {(matched.get('system_type') or 'iptv').upper()} preciso do endereço MAC do seu aparelho.\n\n"
+                f"📺 Para criar seu teste {label} preciso do endereço MAC do seu aparelho.\n\n"
                 f"📱 Formato: `AA:BB:CC:DD:EE:FF`\n"
-                f"💡 Onde encontrar: Menu → Configurações → Info do sistema → Endereço MAC\n\n"
+                f"{_mac_where_to_find(inferred_sys)}\n\n"
                 f"Você tem {_MAX_MAC_ATTEMPTS} tentativas para enviar o MAC correto."
             )
             await save_message(phone_clean, "AWAITING_MAC", "out", customer["id"])
