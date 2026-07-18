@@ -20,6 +20,9 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FIX 2026-02-P0]** `renew_user` soft-failure detection: painel.fun às vezes retorna HTTP 200 com `{"message": "You do not have access..."}` em vez de 4xx. Agora detectamos isso e lançamos `RuntimeError` para o webhook não marcar payment como `renewed` falsamente e não enviar "Renovação confirmada" errada. (bug crítico identificado pelo testing agent iteration_12)
+- **[FIX 2026-02-P0]** WhatsApp service (`whatsapp-service/index.js`): `clearChromeStaleLocks()` remove SingletonLock/SingletonCookie/SingletonSocket/lockfile do userDataDir do Chrome no startup, resolvendo o erro "The browser is already running for /root/.whatsflow/wwebjs_auth/session-whatsflow". Também mata processos Chrome órfãos que estivessem segurando o profile. Graceful shutdown via SIGTERM/SIGINT.
+
 - **[FIX 2026-02-P0]** Renovação via InfinitePay corrigida: endpoint agora é `POST /api/users/{painel_id}/renew` com body `{package_id: X}` (antes chamava `/api/renewal` errado).
 - **[FEATURE 2026-02]** `order_nsu` no formato `renew-{painel_id}-{months}m` — webhook extrai o painel_id direto do NSU, não depende mais só de lookup local.
 - **[FEATURE 2026-02]** Novo endpoint `POST /api/payments/reprocess/{payment_id}` — admin pode forçar renovação manualmente quando o webhook do InfinitePay não chegar. Idempotente.

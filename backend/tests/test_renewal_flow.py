@@ -46,6 +46,45 @@ def test_renew_user_hits_correct_endpoint_and_body():
     assert result["expires_at"] == "2026-12-01"
 
 
+def test_renew_user_raises_on_soft_failure_200_body_error():
+    """painel.fun sometimes returns HTTP 200 with {'message': 'You do not have access...'}.
+    renew_user MUST raise RuntimeError so the webhook doesn't falsely mark the
+    payment as renewed and send a wrong 'Renovação confirmada' message.
+    """
+    def fake_post(url, json=None, headers=None, **kwargs):
+        return FakeResp(200, {"message": "You do not have access to renew this user"})
+
+    async def go():
+        from services import painel
+        with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
+             patch.object(painel, "get_setting",
+                          side_effect=lambda k: {"painel_base_url": "https://api.controle.fit"}.get(k, "")), \
+             patch("services.painel.cffi_requests.post", side_effect=fake_post):
+            return await painel.renew_user("999999", 17)
+
+    import pytest
+    with pytest.raises(RuntimeError, match=r"(?i)Renew rejected|not have access"):
+        _run(go())
+
+
+def test_renew_user_accepts_200_with_message_but_valid_expires():
+    """If painel returns both a message AND real renewal data (expires_at),
+    it's not a failure — accept it."""
+    def fake_post(url, json=None, headers=None, **kwargs):
+        return FakeResp(200, {"expires_at": "2026-12-01", "message": "renewed successfully"})
+
+    async def go():
+        from services import painel
+        with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
+             patch.object(painel, "get_setting",
+                          side_effect=lambda k: {"painel_base_url": "https://api.controle.fit"}.get(k, "")), \
+             patch("services.painel.cffi_requests.post", side_effect=fake_post):
+            return await painel.renew_user("228059624", 17)
+
+    result = _run(go())
+    assert result["expires_at"] == "2026-12-01"
+
+
 # ---------------- Package ID mapping ----------------
 
 def test_package_ids_match_business_rules():

@@ -655,9 +655,37 @@ async def renew_user(user_id: str, package_id: int) -> dict:
         logger.error("Renew failed %s: %s", resp.status_code, resp.text[:400])
         raise RuntimeError(f"Renew failed: HTTP {resp.status_code} — {resp.text[:200]}")
     try:
-        return resp.json()
+        data = resp.json()
     except Exception:
         return {"status": resp.status_code, "text": resp.text[:200]}
+
+    # SOFT-FAILURE DETECTION: painel.fun sometimes returns HTTP 200 with an
+    # error body like {"message": "You do not have access to renew this user"}
+    # instead of a proper 4xx. If we don't catch this here, the payment gets
+    # marked "renewed" and the client receives "Renovação confirmada" even
+    # though the panel never actually renewed the subscription.
+    if isinstance(data, dict):
+        error_msg = None
+        # Common error field names in painel.fun / Node.js APIs
+        for key in ("message", "error", "detail"):
+            v = data.get(key)
+            if v and isinstance(v, str):
+                # Treat as error only if there's no positive success indicator
+                if data.get("expires_at") or data.get("exp_date") or data.get("expiration"):
+                    break  # has renewal data — the message is probably informational
+                lowered = v.lower()
+                if any(bad in lowered for bad in (
+                    "not have access", "no permission", "denied",
+                    "not found", "does not exist", "invalid",
+                    "error", "erro", "falha", "failed",
+                )):
+                    error_msg = v
+                    break
+        if error_msg:
+            logger.error("Renew soft-failed for user %s: %s", user_id, error_msg)
+            raise RuntimeError(f"Renew rejected by painel: {error_msg}")
+
+    return data
 
 
 # Package IDs mapping (from problem statement)
