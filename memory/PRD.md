@@ -20,6 +20,8 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FIX 2026-02-P0]** Bug: templates de produção com `system_type='iptv'` mas trigger/nome dizendo "Hybrid" ou "Dream TV" — Hybrid criava DreamTV e vice-versa. Solução: nova função defensiva `_infer_system_type(trigger, name, current)` no `bot.py` deriva o system_type correto do nome+trigger (prioridade: hybrid > p2p > iptv). `_run_trial_creation` usa o valor inferido em TODAS as chamadas downstream (painel.create_trial, INSERT trials, UPDATE customers, response template, InfinitePay, Mongo Atlas). Warning loggado pra admin corrigir o template.
+
 - **[FIX 2026-02-P0 CRITICAL]** Cliente pagava InfinitePay mas confirmação nunca chegava. Causa: nenhum webhook real do InfinitePay chegava + `/payment_check` retornava `success:false` mesmo depois de pago. Solução: **token HMAC assinado por pagamento** (`secrets.token_urlsafe(24)`, 192 bits) embutido em `redirect_url` como `?t=<token>`. Cliente volta com token → frontend envia → backend valida via `secrets.compare_digest` → renova. `POST /api/payments/check-status/{id}` continua público mas só aceita com token correto.
 - **[FIX 2026-02-P0]** `payment_check` estrito: só aceita quando InfinitePay retorna EXPLICITAMENTE `paid:true` (bug: `success:true` sozinho era interpretado como pago).
 - **[FEATURE 2026-02]** Webhook agora loga headers completos (user-agent, referer, origin, x-forwarded-for) e aceita mais variações de campo/status (`event: payment.approved`, `status: captured`, etc).
