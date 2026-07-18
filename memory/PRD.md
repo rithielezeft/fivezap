@@ -20,6 +20,8 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FEATURE 2026-02]** InfinitePay pré-preenche apenas `customer.name = painel_username` (ex. "oscarnew") — amarra o pagamento ao usuário exato do painel. `customer.phone_number` fica em branco (opcional para o cliente preencher no checkout). Fallback para `full_name` caso o painel_username esteja vazio.
+
 - **[FEATURE 2026-02]** InfinitePay checkout pré-preenchido: `POST /api/payments` agora passa `customer_name` (do Mongo/local) e `customer_phone` (whatsapp digits-only, sem `@c.us`/`@lid`) para o InfinitePay. Cliente não precisa digitar nome/telefone no checkout, InfinitePay associa pagamento ao painel_id.
 - **[FIX 2026-02-P0]** Soft-failure detection avançado em `renew_user`: painel.fun envia respostas Rails-style com erro aninhado em `{"original": {"message": "..."}}`. Agora inspecionamos tanto top-level quanto `original` — evita marcar payment como renewed falsamente e mandar "Renovação confirmada" quando painel na verdade rejeitou.
 

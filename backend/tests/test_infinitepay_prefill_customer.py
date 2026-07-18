@@ -15,10 +15,10 @@ def _run(coro):
 
 
 def test_create_payment_passes_customer_name_and_phone_to_infinitepay(monkeypatch, tmp_path):
-    """The checkout link created by /api/payments must be pre-filled with the
-    customer's name and phone (from Mongo/local). This is required for the
-    InfinitePay webhook to correlate the payment with the right user_id and
-    for the customer to skip the contact form on checkout."""
+    """The checkout link created by /api/payments must pre-fill the
+    customer's PAINEL USERNAME as customer_name (so it binds the payment to
+    that specific user_id in InfinitePay). Phone must be OMITTED (None) so
+    the customer fills it themselves at checkout (opcional)."""
     from routers import payments as payments_mod
     from services import infinitepay, mongo_store
     import database
@@ -74,19 +74,22 @@ def test_create_payment_passes_customer_name_and_phone_to_infinitepay(monkeypatc
     result = _run(go())
     assert result["amount_cents"] == 9950
     assert result["order_nsu"] == "renew-228116806-3m"
-    # THE key assertions: InfinitePay got name + phone pre-filled
-    assert captured.get("customer_name") == "Oscar da Silva", \
-        f"customer_name missing in InfinitePay payload: {captured}"
-    assert captured.get("customer_phone") == "5511987654321", \
-        f"customer_phone missing (or not sanitized) in InfinitePay payload: {captured}"
+    # THE key assertions:
+    # (a) customer_name = painel_username (not full_name) — binds the InfinitePay
+    #     receipt to the specific user_id being renewed
+    assert captured.get("customer_name") == "oscarnew", \
+        f"Expected painel_username 'oscarnew' as customer_name, got: {captured.get('customer_name')!r}"
+    # (b) customer_phone is None/absent — customer fills it themselves
+    assert captured.get("customer_phone") in (None, ""), \
+        f"customer_phone should NOT be pre-filled (optional), got: {captured.get('customer_phone')!r}"
     # And still has webhook_url + redirect_url set
     assert captured.get("webhook_url") == "https://whatsflow.example.com/api/payments/webhook"
     assert captured.get("redirect_url") == "https://whatsflow.example.com/pay/228116806?ok=1"
 
 
-def test_create_payment_strips_whatsapp_suffixes(monkeypatch, tmp_path):
-    """WhatsApp numbers stored as '5511987654321@c.us' or '@lid' must be
-    stripped to digits-only before going to InfinitePay."""
+def test_create_payment_falls_back_to_name_when_no_username(monkeypatch, tmp_path):
+    """If the customer somehow doesn't have painel_username, fall back to
+    full_name to keep the checkout identifiable."""
     from routers import payments as payments_mod
     from services import infinitepay, mongo_store
     import database, os, importlib
@@ -109,7 +112,7 @@ def test_create_payment_strips_whatsapp_suffixes(monkeypatch, tmp_path):
             "full_name": "Ana Lu",
             "whatsapp": "5511987654321@c.us",
             "system_type": "p2p",
-            "painel_username": "analu",
+            "painel_username": "",  # missing!
         }
 
     async def fake_get_setting(key, default=None):
@@ -129,5 +132,7 @@ def test_create_payment_strips_whatsapp_suffixes(monkeypatch, tmp_path):
             await payments_mod.create_payment(PaymentCreate(customer_id="123", plan_months=1))
 
     _run(go())
-    assert captured.get("customer_phone") == "5511987654321"
-    assert "@" not in (captured.get("customer_phone") or "")
+    # Fall back to full_name when username missing
+    assert captured.get("customer_name") == "Ana Lu"
+    # Phone still not pre-filled
+    assert captured.get("customer_phone") in (None, "")

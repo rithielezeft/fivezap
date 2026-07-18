@@ -166,10 +166,15 @@ async def create_payment(payload: PaymentCreate):
     payment_id = new_id()
 
     try:
-        # Sanitize phone: keep only digits, drop @lid/@c.us suffixes
-        raw_phone = customer.get("whatsapp") or ""
-        digits = "".join(ch for ch in str(raw_phone) if ch.isdigit())
-        cust_phone = digits if digits else None
+        # Bind the InfinitePay payment to the customer's PAINEL USERNAME (not
+        # full name) — this way, the checkout shows "oscarnew" (or whatever
+        # username was created in the panel) and it stays traceable back to
+        # the exact user_id being renewed. Phone is left empty so the
+        # customer fills it themselves at checkout (opcional).
+        painel_username = (customer.get("painel_username")
+                           or customer.get("username")
+                           or customer.get("name")
+                           or "")
 
         link_data = await infinitepay.create_payment_link(
             order_nsu=order_nsu,
@@ -177,8 +182,8 @@ async def create_payment(payload: PaymentCreate):
             description=f"Renovação {customer['system_type'].upper()} — {payload.plan_months} mês(es)",
             redirect_url=f"{public_base}/pay/{payload.customer_id}?ok=1",
             webhook_url=f"{public_base}/api/payments/webhook",
-            customer_name=customer.get("name") or None,
-            customer_phone=cust_phone,
+            customer_name=painel_username or None,
+            customer_phone=None,
         )
     except Exception as e:
         raise HTTPException(502, f"InfinitePay error: {e}")
