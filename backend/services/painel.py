@@ -666,20 +666,31 @@ async def renew_user(user_id: str, package_id: int) -> dict:
     # though the panel never actually renewed the subscription.
     if isinstance(data, dict):
         error_msg = None
-        # Common error field names in painel.fun / Node.js APIs
-        for key in ("message", "error", "detail"):
-            v = data.get(key)
-            if v and isinstance(v, str):
-                # Treat as error only if there's no positive success indicator
-                if data.get("expires_at") or data.get("exp_date") or data.get("expiration"):
-                    break  # has renewal data — the message is probably informational
-                lowered = v.lower()
-                if any(bad in lowered for bad in (
-                    "not have access", "no permission", "denied",
-                    "not found", "does not exist", "invalid",
-                    "error", "erro", "falha", "failed",
-                )):
-                    error_msg = v
+        # Painel.fun sometimes wraps the real body in `original` (Rails-style).
+        # Also inspect that nested payload if present.
+        candidates = [data]
+        nested = data.get("original")
+        if isinstance(nested, dict):
+            candidates.append(nested)
+        # Positive success indicator anywhere?
+        has_success = any(
+            (c.get("expires_at") or c.get("exp_date") or c.get("expiration"))
+            for c in candidates
+        )
+        if not has_success:
+            for c in candidates:
+                for key in ("message", "error", "detail"):
+                    v = c.get(key)
+                    if v and isinstance(v, str):
+                        lowered = v.lower()
+                        if any(bad in lowered for bad in (
+                            "not have access", "no permission", "denied",
+                            "not found", "does not exist", "invalid",
+                            "error", "erro", "falha", "failed",
+                        )):
+                            error_msg = v
+                            break
+                if error_msg:
                     break
         if error_msg:
             logger.error("Renew soft-failed for user %s: %s", user_id, error_msg)

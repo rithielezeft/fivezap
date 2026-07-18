@@ -166,12 +166,19 @@ async def create_payment(payload: PaymentCreate):
     payment_id = new_id()
 
     try:
+        # Sanitize phone: keep only digits, drop @lid/@c.us suffixes
+        raw_phone = customer.get("whatsapp") or ""
+        digits = "".join(ch for ch in str(raw_phone) if ch.isdigit())
+        cust_phone = digits if digits else None
+
         link_data = await infinitepay.create_payment_link(
             order_nsu=order_nsu,
             amount_cents=amount,
             description=f"Renovação {customer['system_type'].upper()} — {payload.plan_months} mês(es)",
             redirect_url=f"{public_base}/pay/{payload.customer_id}?ok=1",
             webhook_url=f"{public_base}/api/payments/webhook",
+            customer_name=customer.get("name") or None,
+            customer_phone=cust_phone,
         )
     except Exception as e:
         raise HTTPException(502, f"InfinitePay error: {e}")
