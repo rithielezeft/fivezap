@@ -95,6 +95,7 @@ async def init_db():
                 status TEXT DEFAULT 'pending',
                 infinitepay_url TEXT,
                 order_nsu TEXT,
+                confirmation_token TEXT,
                 paid_at TEXT,
                 created_at TEXT NOT NULL
             );
@@ -249,6 +250,11 @@ async def init_db():
         # Migration: add trigger_source column if missing
         try:
             await db.execute("ALTER TABLE command_templates ADD COLUMN trigger_source TEXT DEFAULT 'both'")
+        except Exception:
+            pass
+        # Migration: add confirmation_token to payments (used by /pay/{id}?ok=1&t=<token>)
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN confirmation_token TEXT")
         except Exception:
             pass
         # Cleanup: remove old *_cents price keys (kept if you rely on them)

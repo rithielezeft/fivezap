@@ -17,11 +17,12 @@ export default function PublicPay() {
   const { customerId } = useParams();
   const [searchParams] = useSearchParams();
   const returnedFromPay = searchParams.get("ok") === "1";
+  const confirmationToken = searchParams.get("t") || "";
 
   const [selected, setSelected] = useState(3);
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(returnedFromPay);
-  const [renewalStatus, setRenewalStatus] = useState(null); // 'renewed' | 'still_pending' | 'error'
+  const [renewalStatus, setRenewalStatus] = useState(null);
 
   // When customer returns from InfinitePay with ?ok=1, actively poll our
   // backend which in turn asks InfinitePay whether the payment cleared.
@@ -37,10 +38,11 @@ export default function PublicPay() {
       while (!cancelled && attempts < MAX_ATTEMPTS) {
         attempts++;
         try {
-          // Send trust_redirect=true so the backend can accept the payment
-          // as confirmed even when InfinitePay's /payment_check has cache lag —
-          // safe because the backend also verifies the Referer/Origin.
-          const r = await paymentsApi.checkStatus(customerId, { trust_redirect: true });
+          // Send the per-payment `token` embedded in the InfinitePay redirect
+          // URL. Backend uses this HMAC-strength token (24 bytes urlsafe) to
+          // authenticate that the browser actually returned from a real
+          // InfinitePay checkout we created — no forgeable Referer needed.
+          const r = await paymentsApi.checkStatus(customerId, { token: confirmationToken });
           if (r?.status === "renewed" || r?.status === "already_processed") {
             setRenewalStatus("renewed");
             setConfirmingPayment(false);
@@ -56,7 +58,7 @@ export default function PublicPay() {
     }
     poll();
     return () => { cancelled = true; };
-  }, [returnedFromPay, customerId]);
+  }, [returnedFromPay, customerId, confirmationToken]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["pay-customer", customerId],

@@ -82,9 +82,11 @@ def test_create_payment_passes_customer_name_and_phone_to_infinitepay(monkeypatc
     # (b) customer_phone is None/absent — customer fills it themselves
     assert captured.get("customer_phone") in (None, ""), \
         f"customer_phone should NOT be pre-filled (optional), got: {captured.get('customer_phone')!r}"
-    # And still has webhook_url + redirect_url set
+    # And still has webhook_url + redirect_url set (redirect includes signed token)
     assert captured.get("webhook_url") == "https://whatsflow.example.com/api/payments/webhook"
-    assert captured.get("redirect_url") == "https://whatsflow.example.com/pay/228116806?ok=1"
+    assert captured.get("redirect_url", "").startswith(
+        "https://whatsflow.example.com/pay/228116806?ok=1&t="
+    ), f"Expected signed redirect URL, got: {captured.get('redirect_url')}"
 
 
 def test_create_payment_falls_back_to_name_when_no_username(monkeypatch, tmp_path):

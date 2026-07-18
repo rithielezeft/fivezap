@@ -159,11 +159,14 @@ async def create_payment(payload: PaymentCreate):
     package_id = painel.get_package_id(customer["system_type"], payload.plan_months)
 
     public_base = await get_setting("public_base_url")
-    # order_nsu MUST include the painel id so the webhook can call
-    # /api/users/{painel_id}/renew even without querying local DB.
-    # Format: `renew-{painel_id}-{months}m` (matches _extract_painel_id_from_nsu)
     order_nsu = f"renew-{payload.customer_id}-{payload.plan_months}m"
     payment_id = new_id()
+    # Per-payment secret used by /pay/{id}?ok=1&t=<token> to prove that the
+    # browser actually returned from the InfinitePay checkout that we
+    # ourselves created. Prevents attackers from POSTing to
+    # /check-status/{customer_id} with a forged Referer.
+    import secrets
+    confirmation_token = secrets.token_urlsafe(24)
 
     try:
         # Bind the InfinitePay payment to the customer's PAINEL USERNAME (not
@@ -180,7 +183,7 @@ async def create_payment(payload: PaymentCreate):
             order_nsu=order_nsu,
             amount_cents=amount,
             description=f"Renovação {customer['system_type'].upper()} — {payload.plan_months} mês(es)",
-            redirect_url=f"{public_base}/pay/{payload.customer_id}?ok=1",
+            redirect_url=f"{public_base}/pay/{payload.customer_id}?ok=1&t={confirmation_token}",
             webhook_url=f"{public_base}/api/payments/webhook",
             customer_name=painel_username or None,
             customer_phone=None,
@@ -190,9 +193,9 @@ async def create_payment(payload: PaymentCreate):
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
+            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
             (payment_id, payload.customer_id, payload.plan_months, amount, package_id,
-             link_data.get("url"), order_nsu, now_iso()),
+             link_data.get("url"), order_nsu, confirmation_token, now_iso()),
         )
         await db.commit()
 
@@ -471,46 +474,37 @@ async def reprocess_payment(payment_id: str, request: Request):
 
 @router.post("/check-status/{customer_id}")
 async def check_status_by_customer(customer_id: str, request: Request):
-    """PUBLIC: called by the /pay/{id}?ok=1 page after the customer returns
+    """PUBLIC: called by /pay/{id}?ok=1&t=<token> after customer returns
     from InfinitePay. Multi-strategy confirmation:
 
-    Strategy 1: query InfinitePay via `check_payment` (order_nsu based) —
-                the "official" way, but sometimes returns `success:false`
-                even after real payment (InfinitePay caching/lag).
-    Strategy 2: REDIRECT TRUST — if the request came from checkout.infinitepay.io
-                (Referer / Origin) AND `?ok=1` was set AND the payment is
-                recent (<24h), we accept the redirect as payment confirmation.
-                InfinitePay only redirects to `redirect_url?ok=1` after a
-                successful capture, so this is safe as long as we validate
-                the referrer/origin.
+    Strategy 1 (payment_check): query InfinitePay via `check_payment`.
+                Only accepts if `paid is True` (strict).
+    Strategy 2 (signed redirect trust): if body has a `token` matching
+                the payment's `confirmation_token` (generated when the
+                InfinitePay link was created and embedded in redirect_url
+                as ?t=), we accept the redirect as payment confirmation.
+                InfinitePay only redirects after successful capture, so
+                the presence of our secret token in the URL is strong
+                proof — attacker cannot forge because they don't know the
+                per-payment secret.
 
     Either strategy → renewal fires. Idempotent (won't re-renew).
     """
     from services import infinitepay
     from datetime import datetime, timezone, timedelta
 
-    # Body: optional {"trust_redirect": true} for cases where the JS
-    # explicitly signals it's coming from the InfinitePay redirect.
     body = {}
     try: body = await request.json()
     except Exception: pass
-    client_says_ok = bool(body.get("trust_redirect") or body.get("ok"))
-
-    # Referer / Origin check for redirect trust
-    referer = (request.headers.get("referer") or "").lower()
-    origin = (request.headers.get("origin") or "").lower()
-    from_infinitepay = (
-        "checkout.infinitepay.io" in referer or "checkout.infinitepay.io" in origin
-        or "infinitepay" in referer or "infinitepay" in origin
-    )
+    provided_token = str(body.get("token") or body.get("t") or "").strip()
 
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT id, order_nsu, infinitepay_url, created_at FROM payments "
-            "WHERE customer_id = ? AND status = 'pending' AND created_at >= ? "
+            "SELECT id, order_nsu, infinitepay_url, confirmation_token, created_at "
+            "FROM payments WHERE customer_id = ? AND status = 'pending' AND created_at >= ? "
             "ORDER BY created_at DESC LIMIT 5",
             (str(customer_id), cutoff),
         )
@@ -519,12 +513,10 @@ async def check_status_by_customer(customer_id: str, request: Request):
     if not pendings:
         return {"ok": True, "status": "no_pending", "checked": 0}
 
+    # Strategy 1: InfinitePay official /payment_check (strict)
     for pmt in pendings:
-        # Strategy 1: InfinitePay official /payment_check
         try:
             check = await infinitepay.check_payment(pmt["order_nsu"])
-            # Only accept when InfinitePay explicitly says paid=true.
-            # `success:true` alone means "found the link", not paid.
             if check.get("paid") is True:
                 proc = await _process_payment_confirmation(
                     pmt["order_nsu"], paid=True, source="pay_page_return", raw=check,
@@ -534,21 +526,24 @@ async def check_status_by_customer(customer_id: str, request: Request):
         except Exception as e:
             logger.exception("payment_check failed for %s: %s", pmt["order_nsu"], e)
 
-    # Strategy 2: Redirect trust — accept when browser was redirected by
-    # InfinitePay AND client confirms `?ok=1` on the URL. This bridges the
-    # gap when /payment_check has cache lag but the payment WAS successful
-    # (proven by InfinitePay redirecting back).
-    if client_says_ok and from_infinitepay and pendings:
-        # Trust the most recent pending payment
-        pmt = pendings[0]
-        logger.info("Redirect-trust confirmation for %s (referer=%s, origin=%s)",
-                    pmt["order_nsu"], referer, origin)
-        proc = await _process_payment_confirmation(
-            pmt["order_nsu"], paid=True, source="redirect_trust",
-            raw={"referer": referer, "origin": origin, "client_says_ok": True},
-        )
-        return {"ok": True, "status": proc.get("status"), "payment_id": pmt["id"],
-                "strategy": "redirect_trust", "checked": len(pendings)}
+    # Strategy 2: SIGNED redirect trust — only accepts payments whose stored
+    # confirmation_token matches the token provided by the client. Since the
+    # token was embedded in the InfinitePay redirect_url and only InfinitePay
+    # sends the browser back after successful capture, presenting a matching
+    # token proves the redirect really came from a successful checkout.
+    import secrets as _secrets
+    if provided_token:
+        for pmt in pendings:
+            stored = (pmt.get("confirmation_token") or "")
+            if stored and _secrets.compare_digest(stored, provided_token):
+                logger.info("Signed redirect trust confirmed for %s (token match)",
+                            pmt["order_nsu"])
+                proc = await _process_payment_confirmation(
+                    pmt["order_nsu"], paid=True, source="signed_redirect",
+                    raw={"token_matched": True},
+                )
+                return {"ok": True, "status": proc.get("status"), "payment_id": pmt["id"],
+                        "strategy": "signed_redirect", "checked": len(pendings)}
 
     return {"ok": True, "status": "still_pending", "checked": len(pendings),
             "hint": "InfinitePay ainda não confirmou. Se você pagou, a confirmação chega em alguns minutos."}

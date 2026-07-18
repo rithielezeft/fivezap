@@ -213,9 +213,10 @@ def test_check_status_still_pending_when_infinitepay_says_not_paid(monkeypatch, 
 
 
 def test_check_status_redirect_trust_flow(monkeypatch, tmp_path):
-    """When /payment_check says NOT paid but the browser is returning from
-    InfinitePay (Referer set) AND JS sent trust_redirect=true, we accept
-    the redirect as proof of successful payment and renew immediately."""
+    """When /payment_check says NOT paid but the client presents the correct
+    per-payment `confirmation_token` (embedded by the backend in the
+    InfinitePay redirect_url as ?t=), we accept it as proof of successful
+    payment and renew immediately."""
     database = _fresh_env(tmp_path)
     import aiosqlite
     from services import infinitepay
@@ -224,7 +225,7 @@ def test_check_status_redirect_trust_flow(monkeypatch, tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
 
     async def fake_check_payment(order_nsu):
-        return {"paid": False, "success": False}  # InfinitePay cache lag
+        return {"paid": False, "success": False}
 
     processed = {}
 
@@ -238,30 +239,28 @@ def test_check_status_redirect_trust_flow(monkeypatch, tmp_path):
         async with aiosqlite.connect(database.DB_PATH) as db:
             await db.execute(
                 "INSERT INTO payments (id, customer_id, plan_months, amount_cents,"
-                " package_id, status, order_nsu, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " package_id, status, order_nsu, confirmation_token, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ("pay-rt", "228116806", 1, 3500, 17, "pending",
-                 "renew-228116806-1m", now_iso),
+                 "renew-228116806-1m", "secret-token-abcxyz-123", now_iso),
             )
             await db.commit()
         with patch.object(infinitepay, "check_payment", new=fake_check_payment), \
              patch.object(payments_mod, "_process_payment_confirmation", new=fake_process):
             return await payments_mod.check_status_by_customer(
                 "228116806",
-                _FakeRequest(referer="https://checkout.infinitepay.io/abc",
-                             json_body={"trust_redirect": True}),
+                _FakeRequest(json_body={"token": "secret-token-abcxyz-123"}),
             )
 
     result = _run(go())
     assert result["status"] == "renewed"
-    assert result["strategy"] == "redirect_trust"
-    assert processed["source"] == "redirect_trust"
+    assert result["strategy"] == "signed_redirect"
+    assert processed["source"] == "signed_redirect"
 
 
 def test_check_status_rejects_trust_without_infinitepay_referer(monkeypatch, tmp_path):
-    """Security: even with trust_redirect=true, if Referer/Origin is NOT
-    from InfinitePay, we do NOT accept the redirect (prevents forged
-    check-status calls from marking payments as paid)."""
+    """Security: token mismatch — even if attacker POSTs with `token=fake`
+    from any origin, we do NOT confirm (compare_digest fails)."""
     database = _fresh_env(tmp_path)
     import aiosqlite
     from services import infinitepay
@@ -277,19 +276,51 @@ def test_check_status_rejects_trust_without_infinitepay_referer(monkeypatch, tmp
         async with aiosqlite.connect(database.DB_PATH) as db:
             await db.execute(
                 "INSERT INTO payments (id, customer_id, plan_months, amount_cents,"
-                " package_id, status, order_nsu, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " package_id, status, order_nsu, confirmation_token, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ("pay-forged", "228116806", 1, 3500, 17, "pending",
-                 "renew-228116806-1m", now_iso),
+                 "renew-228116806-1m", "real-secret-token", now_iso),
             )
             await db.commit()
         with patch.object(infinitepay, "check_payment", new=fake_check_payment):
             return await payments_mod.check_status_by_customer(
                 "228116806",
                 _FakeRequest(referer="https://malicious.example.com/",
-                             json_body={"trust_redirect": True}),
+                             json_body={"token": "wrong-token-attacker-guess"}),
             )
 
     result = _run(go())
     assert result["status"] == "still_pending", \
-        f"Trust redirect must not fire without InfinitePay referer, got: {result}"
+        f"Wrong token must not confirm payment, got: {result}"
+
+
+def test_check_status_rejects_when_no_token_provided(monkeypatch, tmp_path):
+    """Client MUST provide the token — no token means still_pending."""
+    database = _fresh_env(tmp_path)
+    import aiosqlite
+    from services import infinitepay
+    from routers import payments as payments_mod
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    async def fake_check_payment(order_nsu):
+        return {"paid": False}
+
+    async def go():
+        await database.init_db()
+        async with aiosqlite.connect(database.DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO payments (id, customer_id, plan_months, amount_cents,"
+                " package_id, status, order_nsu, confirmation_token, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("pay-empty", "228116806", 1, 3500, 17, "pending",
+                 "renew-228116806-1m", "real-secret", now_iso),
+            )
+            await db.commit()
+        with patch.object(infinitepay, "check_payment", new=fake_check_payment):
+            return await payments_mod.check_status_by_customer(
+                "228116806", _FakeRequest(json_body={}),  # no token key at all
+            )
+
+    result = _run(go())
+    assert result["status"] == "still_pending"
