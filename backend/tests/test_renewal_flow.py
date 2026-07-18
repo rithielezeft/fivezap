@@ -93,6 +93,47 @@ def test_extract_painel_id_ignores_legacy_ord_format():
         "Legacy 'ord-XXX' must not accidentally be treated as a painel_id"
 
 
+# ---------------- Mongo persistence for payments ----------------
+
+def test_mongo_store_upsert_payment_writes_correct_doc(monkeypatch):
+    """upsert_payment must set _id to the local payment UUID and persist all
+    fields — so admins can browse payment status from any environment."""
+    from services import mongo_store
+
+    captured = {}
+
+    class _FakeColl:
+        async def update_one(self, filt, update, upsert=False):
+            captured["filter"] = filt
+            captured["update"] = update
+            captured["upsert"] = upsert
+
+    class _FakeDb:
+        payments = _FakeColl()
+
+    monkeypatch.setattr(mongo_store, "_get_db", lambda: _FakeDb())
+
+    async def go():
+        return await mongo_store.upsert_payment({
+            "_id": "pay-uuid-abc",
+            "customer_id": "228059624",
+            "plan_months": 3,
+            "package_id": 42,
+            "status": "pending",
+            "amount_cents": 9000,
+            "order_nsu": "renew-228059624-3m",
+        })
+
+    result = _run(go())
+    assert result == "pay-uuid-abc"
+    assert captured["filter"] == {"_id": "pay-uuid-abc"}
+    assert captured["upsert"] is True
+    doc = captured["update"]["$set"]
+    assert doc["customer_id"] == "228059624"
+    assert doc["package_id"] == 42
+    assert doc["order_nsu"] == "renew-228059624-3m"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

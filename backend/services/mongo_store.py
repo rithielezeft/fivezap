@@ -122,6 +122,41 @@ async def upsert_customer(customer: dict) -> Optional[str]:
         return None
 
 
+async def upsert_payment(payment: dict) -> Optional[str]:
+    """Save/update a payment record in Mongo Atlas (`payments` collection).
+
+    `_id` = local payment UUID (so we can idempotently update the same record
+    when status changes from pending → paid → renewed).
+    """
+    try:
+        db = _get_db()
+    except Exception as e:
+        logger.warning("mongo_store: db init failed: %s", e)
+        return None
+
+    pid = payment.get("_id") or payment.get("id") or payment.get("payment_id")
+    if not pid:
+        logger.warning("mongo_store.upsert_payment: no id in payment doc")
+        return None
+    pid_str = str(pid)
+
+    doc = {**payment}
+    doc["_id"] = pid_str
+    doc.setdefault("last_synced_at", datetime.now(timezone.utc).isoformat())
+    to_set = {k: v for k, v in doc.items() if k != "_id"}
+
+    try:
+        await db.payments.update_one(
+            {"_id": pid_str},
+            {"$set": to_set},
+            upsert=True,
+        )
+        return pid_str
+    except Exception as e:
+        logger.exception("mongo_store.upsert_payment failed for %s: %s", pid_str, e)
+        return None
+
+
 async def ping() -> bool:
     """Health check — returns True if Atlas is reachable."""
     try:

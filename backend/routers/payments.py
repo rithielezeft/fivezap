@@ -184,6 +184,26 @@ async def create_payment(payload: PaymentCreate):
         )
         await db.commit()
 
+    # Mirror to MongoDB Atlas so admins can inspect the payment from any env
+    try:
+        from services import mongo_store
+        await mongo_store.upsert_payment({
+            "_id": payment_id,
+            "customer_id": payload.customer_id,
+            "customer_name": customer["name"],
+            "customer_whatsapp": customer.get("whatsapp") or "",
+            "plan_months": payload.plan_months,
+            "amount_cents": amount,
+            "package_id": package_id,
+            "system_type": customer["system_type"],
+            "status": "pending",
+            "infinitepay_url": link_data.get("url"),
+            "order_nsu": order_nsu,
+            "created_at": now_iso(),
+        })
+    except Exception:
+        logger.exception("Failed to mirror payment to MongoDB (non-fatal)")
+
     await log_activity("payment_created", f"Cobrança criada para {customer['name']}", payload.customer_id, "info", link_data)
 
     return {
@@ -266,7 +286,23 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM customers WHERE id = ?", (payment["customer_id"],))
         customer_row = await cur.fetchone()
-        customer = dict(customer_row) if customer_row else {"id": payment["customer_id"], "name": "?", "whatsapp": ""}
+        customer = dict(customer_row) if customer_row else {"id": payment["customer_id"], "name": "?", "whatsapp": "", "system_type": ""}
+
+    # If customer info is missing (e.g. legacy customer only in Mongo), fill from Mongo
+    if not customer.get("whatsapp") or not customer.get("name") or customer.get("name") == "?":
+        try:
+            from services import mongo_store
+            mongo_doc = await mongo_store.find_customer_by_painel_id(str(payment["customer_id"]))
+            if mongo_doc:
+                if not customer.get("name") or customer.get("name") == "?":
+                    customer["name"] = (mongo_doc.get("full_name") or mongo_doc.get("name")
+                                        or mongo_doc.get("username") or "Cliente")
+                if not customer.get("whatsapp"):
+                    customer["whatsapp"] = mongo_doc.get("whatsapp") or ""
+                if not customer.get("system_type"):
+                    customer["system_type"] = mongo_doc.get("system_type") or ""
+        except Exception:
+            logger.exception("Mongo lookup for customer fallback failed")
 
     # PAINEL ID = the numeric id painel.fun uses in /api/users/{id}/renew.
     # We prefer the id embedded in order_nsu (`trial-{painel_id}-{months}m`),
@@ -301,22 +337,69 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             customer["id"], "success", result,
         )
 
-        # Notify client via WhatsApp
+        # Compute new expiration string (best-effort — supports several shapes)
+        new_expires = (
+            result.get("expires_at") or result.get("expiration")
+            or result.get("exp_date_iso") or result.get("exp_date") or ""
+        )
+        # If painel returned Unix timestamp, convert for display
+        if isinstance(new_expires, (int, float)):
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                new_expires = _dt.fromtimestamp(int(new_expires), tz=_tz.utc).strftime("%d/%m/%Y")
+            except Exception:
+                new_expires = str(new_expires)
+
+        # Notify client via WhatsApp — this is what the customer sees ("Renovação confirmada")
         try:
             from services.notifier import send_notification
-            new_expires = result.get("expires_at") or result.get("expiration") or result.get("exp_date") or ""
-            await send_notification(
-                "renewal_success",
-                customer.get("whatsapp") or "",
-                {
-                    "name": customer["name"],
-                    "plan_months": payment["plan_months"],
-                    "new_expires_at": new_expires,
-                },
-            )
-            await save_message(customer.get("whatsapp") or "", "renewal_confirmed", "out", customer["id"])
+            phone = customer.get("whatsapp") or ""
+            if phone:
+                notified = await send_notification(
+                    "renewal_success", phone,
+                    {
+                        "name": customer["name"],
+                        "plan_months": payment["plan_months"],
+                        "new_expires_at": new_expires,
+                        "system_type": customer.get("system_type") or "",
+                    },
+                )
+                if notified:
+                    await save_message(phone, "renewal_confirmed", "out", customer["id"])
+                    logger.info("Renewal confirmation sent to %s", phone)
+                else:
+                    logger.warning("Renewal template disabled/missing — no message sent to %s", phone)
+            else:
+                logger.warning("No whatsapp on customer %s — skipping renewal notification", customer["id"])
         except Exception:
             logger.exception("Post-renewal notification failed (non-fatal)")
+
+        # Mirror payment update to MongoDB Atlas
+        try:
+            from services import mongo_store
+            await mongo_store.upsert_payment({
+                "_id": payment["id"],
+                "status": "renewed",
+                "paid_at": now_iso(),
+                "renewed_at": now_iso(),
+                "painel_id": painel_id,
+                "new_expires_at": new_expires,
+                "package_id": payment["package_id"],
+                "plan_months": payment["plan_months"],
+                "customer_id": customer["id"],
+                "customer_name": customer["name"],
+                "source": source,
+                "raw_renewal_response": result if isinstance(result, dict) else {},
+            })
+            # Also update the customer's expiration in Mongo
+            if painel_id and new_expires:
+                await mongo_store.upsert_customer({
+                    "_id": painel_id,
+                    "exp_date_iso": new_expires,
+                    "last_renewed_at": now_iso(),
+                })
+        except Exception:
+            logger.exception("Failed to mirror renewal to MongoDB (non-fatal)")
 
         return {"ok": True, "status": "renewed", "payment_id": payment["id"], "painel_id": painel_id, "result": result}
     except Exception as e:
@@ -326,6 +409,18 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             f"{customer['name']}: {e}",
             customer["id"], "error",
         )
+        # Mirror the failure to Mongo too
+        try:
+            from services import mongo_store
+            await mongo_store.upsert_payment({
+                "_id": payment["id"],
+                "status": "paid_renewal_failed",
+                "paid_at": now_iso(),
+                "renewal_error": str(e),
+                "painel_id": painel_id,
+            })
+        except Exception:
+            pass
         return {"ok": False, "status": "renewal_failed", "payment_id": payment["id"], "error": str(e)}
 
 
