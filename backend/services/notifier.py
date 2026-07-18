@@ -2,7 +2,7 @@
 import aiosqlite
 import logging
 
-from database import DB_PATH
+from database import DB_PATH, get_setting
 from services import whatsapp_client
 
 logger = logging.getLogger(__name__)
@@ -40,4 +40,23 @@ async def send_notification(event_key: str, phone: str, ctx: dict) -> bool:
         return True
     except Exception as e:
         logger.warning("send_notification %s -> %s failed: %s", event_key, phone, e)
+        return False
+
+
+async def send_admin_alert(message: str) -> bool:
+    """Send a plain-text alert to the admin/owner WhatsApp.
+
+    Reads `admin_whatsapp` from settings. Returns False (silently) when the
+    setting is empty — this makes the caller side simple: fire-and-forget.
+    """
+    phone = (await get_setting("admin_whatsapp") or "").strip()
+    if not phone:
+        logger.info("admin_whatsapp not configured — skipping admin alert")
+        return False
+    try:
+        await whatsapp_client.send_message(phone, message)
+        logger.info("Admin alert sent to %s", phone)
+        return True
+    except Exception as e:
+        logger.warning("send_admin_alert -> %s failed: %s", phone, e)
         return False

@@ -341,12 +341,27 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             if trow and trow["trial_user_id"]:
                 painel_id = str(trow["trial_user_id"])
 
-    if not painel_id:
+    if not painel_id or not str(painel_id).isdigit():
         await log_activity(
             "renewal_pending",
             f"Pagamento confirmado ({source}) mas painel_id não encontrado — renovar manualmente para {customer['name']}",
             customer["id"], "warning", raw or {},
         )
+        # Alert admin — a payment came in but we need manual action.
+        try:
+            from services.notifier import send_admin_alert
+            amount_brl = f"R$ {payment['amount_cents']/100:.2f}".replace(".", ",")
+            await send_admin_alert(
+                "⚠️ *Pagamento recebido — renovar manualmente*\n\n"
+                f"👤 Cliente: {customer['name']}\n"
+                f"📱 WhatsApp: {customer.get('whatsapp') or '-'}\n"
+                f"📦 {payment['plan_months']} mês(es) | {amount_brl}\n"
+                f"🛰️ Origem: {source}\n\n"
+                "Não consegui identificar o `painel_id` para renovar automaticamente. "
+                "Renove esse cliente pelo painel.fun."
+            )
+        except Exception:
+            logger.exception("Admin alert (paid_no_painel_id) failed")
         return {"ok": True, "status": "paid_no_painel_id", "payment_id": payment["id"]}
 
     # Trigger painel renewal
@@ -373,10 +388,11 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
 
         # Notify client via WhatsApp — this is what the customer sees ("Renovação confirmada")
         try:
-            from services.notifier import send_notification
+            from services.notifier import send_notification, send_admin_alert
             phone = customer.get("whatsapp") or ""
+            client_notified = False
             if phone:
-                notified = await send_notification(
+                client_notified = await send_notification(
                     "renewal_success", phone,
                     {
                         "name": customer["name"],
@@ -385,13 +401,32 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                         "system_type": customer.get("system_type") or "",
                     },
                 )
-                if notified:
+                if client_notified:
                     await save_message(phone, "renewal_confirmed", "out", customer["id"])
                     logger.info("Renewal confirmation sent to %s", phone)
                 else:
                     logger.warning("Renewal template disabled/missing — no message sent to %s", phone)
             else:
                 logger.warning("No whatsapp on customer %s — skipping renewal notification", customer["id"])
+
+            # Also alert the admin/owner so they know a payment just came in.
+            # Fire-and-forget: no-op when `admin_whatsapp` setting is empty.
+            try:
+                amount_brl = f"R$ {payment['amount_cents']/100:.2f}".replace(".", ",")
+                admin_msg = (
+                    "💰 *Pagamento confirmado*\n\n"
+                    f"👤 Cliente: {customer['name']}\n"
+                    f"📱 WhatsApp: {phone or '-'}\n"
+                    f"📦 Plano: {payment['plan_months']} mês(es)  |  {amount_brl}\n"
+                    f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
+                    f"🔗 Painel ID: {painel_id}\n"
+                    f"📆 Novo vencimento: {new_expires or '-'}\n"
+                    f"🛰️ Origem: {source}\n"
+                    f"✉️ Cliente notificado: {'sim' if client_notified else 'NÃO'}"
+                )
+                await send_admin_alert(admin_msg)
+            except Exception:
+                logger.exception("Admin alert failed (non-fatal)")
         except Exception:
             logger.exception("Post-renewal notification failed (non-fatal)")
 
@@ -430,6 +465,22 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             f"{customer['name']}: {e}",
             customer["id"], "error",
         )
+        # Alert admin — the customer paid but painel.fun refused/errored on renewal.
+        try:
+            from services.notifier import send_admin_alert
+            amount_brl = f"R$ {payment['amount_cents']/100:.2f}".replace(".", ",")
+            await send_admin_alert(
+                "❌ *Renovação FALHOU no painel.fun*\n\n"
+                f"👤 Cliente: {customer['name']}\n"
+                f"📱 WhatsApp: {customer.get('whatsapp') or '-'}\n"
+                f"📦 {payment['plan_months']} mês(es) | {amount_brl}\n"
+                f"🔗 Painel ID: {painel_id}\n"
+                f"🛰️ Origem: {source}\n\n"
+                f"Erro: {str(e)[:200]}\n\n"
+                "O pagamento foi recebido — renove esse cliente manualmente no painel."
+            )
+        except Exception:
+            logger.exception("Admin alert (renewal_failed) failed")
         # Mirror the failure to Mongo too
         try:
             from services import mongo_store

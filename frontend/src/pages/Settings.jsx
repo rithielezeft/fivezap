@@ -24,6 +24,7 @@ const FIELDS = [
   { key: "notification_days", label: "Dias de notificação (negativos = após venc.). Ex: 7,3,1,0,-1,-3,-7", group: "notify" },
   { key: "public_base_url", label: "URL pública (WhatsFlow)", group: "notify" },
   { key: "timezone", label: "Fuso horário", group: "notify" },
+  { key: "admin_whatsapp", label: "Admin — Seu WhatsApp (recebe alertas de pagamento)", group: "notify", placeholder: "5511999998888" },
 ];
 
 const GROUPS = {

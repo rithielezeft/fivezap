@@ -241,6 +241,7 @@ async def init_db():
             "plan_price_3m": "90,00",
             "plan_price_6m": "160,00",
             "plan_price_12m": "280,00",
+            "admin_whatsapp": "",
         }
         for key, value in defaults.items():
             await db.execute(
