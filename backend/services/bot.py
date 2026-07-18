@@ -450,7 +450,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                         amount_cents=amount_cents,
                         description=f"Assinatura {system_type.upper()} — {months} {'mês' if months == 1 else 'meses'}",
                         redirect_url=f"{public_base}/pay/{payment_ref_id}?ok=1" if public_base else None,
-                        webhook_url=f"{public_base}/api/payments/webhook" if public_base else None,
+                        webhook_url=await infinitepay.build_webhook_url(public_base) if public_base else None,
                         customer_name=customer.get("name"),
                         customer_phone=phone_clean if not phone_clean.endswith("@lid") else None,
                     )

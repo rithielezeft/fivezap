@@ -36,7 +36,7 @@ async def test_infinitepay_link():
             amount_cents=100,  # R$ 1,00
             description="Teste de integração — WhatsFlow",
             redirect_url=f"{public_base}/pay/test?ok=1",
-            webhook_url=f"{public_base}/api/payments/webhook",
+            webhook_url=await infinitepay.build_webhook_url(public_base),
         )
         return {
             "success": True,
@@ -184,7 +184,7 @@ async def create_payment(payload: PaymentCreate):
             amount_cents=amount,
             description=f"Renovação {customer['system_type'].upper()} — {payload.plan_months} mês(es)",
             redirect_url=f"{public_base}/pay/{payload.customer_id}?ok=1&t={confirmation_token}",
-            webhook_url=f"{public_base}/api/payments/webhook",
+            webhook_url=await infinitepay.build_webhook_url(public_base),
             customer_name=painel_username or None,
             customer_phone=None,
         )
@@ -243,8 +243,22 @@ def _extract_painel_id_from_nsu(nsu: str) -> str:
 async def webhook(request: Request):
     """Called by InfinitePay when a payment succeeds.
 
-    Also accepts variations — we log every incoming request in full so we
-    can debug when InfinitePay changes their format or fires from a new IP.
+    Real InfinitePay Checkout webhook payload (from docs @ infinitepay.io/checkout):
+        {
+          "invoice_slug": "...", "amount": 3500, "paid_amount": 3535,
+          "installments": 1, "capture_method": "credit_card",
+          "transaction_nsu": "UUID...", "order_nsu": "renew-228116806-1m",
+          "receipt_url": "...", "items": [...]
+        }
+    IMPORTANT: this payload has NO `paid`/`status`/`event` field. The mere
+    fact that InfinitePay fired the webhook IS the confirmation — they only
+    call it after successful capture. We treat presence of `transaction_nsu`
+    (and non-zero `paid_amount` when provided) as proof of paid=true.
+
+    Optional origin check: if `infinitepay_webhook_secret` is set in settings,
+    we require the same value on the URL as `?s=<secret>` (embedded in the
+    webhook_url when the link was created). This blocks forged calls to
+    /api/payments/webhook from random attackers.
     """
     body = await request.json()
     logger.info("InfinitePay webhook received: %s", body)
@@ -254,12 +268,43 @@ async def webhook(request: Request):
                              "x-real-ip", "content-type", "x-webhook-signature")}
     logger.info("InfinitePay webhook headers: %s", hdrs)
 
-    # Try multiple field name variations
+    # Optional shared-secret origin check via ?s=<secret> query param
+    expected_secret = (await get_setting("infinitepay_webhook_secret", "")).strip()
+    if expected_secret:
+        provided = str(request.query_params.get("s") or "").strip()
+        import secrets as _secrets
+        if not provided or not _secrets.compare_digest(expected_secret, provided):
+            logger.warning("InfinitePay webhook rejected: bad/missing ?s= secret")
+            return {"ok": False, "error": "bad_secret"}
+
+    # Try multiple field name variations for the order id
     order_nsu = (body.get("order_nsu") or body.get("orderNsu")
                  or body.get("reference") or body.get("external_reference")
                  or body.get("external_order_nsu") or body.get("nsu"))
+
+    # Detect "paid". Strategy in priority order:
+    # 1) Real InfinitePay Checkout signature: `transaction_nsu` present AND
+    #    (`paid_amount`>0 OR no paid_amount field but capture_method set) →
+    #    InfinitePay only fires this webhook after captured payments.
+    # 2) Legacy/other formats we've seen in the wild: paid=True, status=paid,
+    #    payment_status=approved, event=payment.approved, etc.
+    paid_amount = body.get("paid_amount")
+    try:
+        paid_amount_int = int(paid_amount) if paid_amount is not None else None
+    except (ValueError, TypeError):
+        paid_amount_int = None
+
+    is_infinitepay_capture = bool(
+        body.get("transaction_nsu")
+        and (
+            (paid_amount_int is not None and paid_amount_int > 0)
+            or body.get("capture_method")
+            or body.get("invoice_slug")
+        )
+    )
     paid = (
-        body.get("paid") is True
+        is_infinitepay_capture
+        or body.get("paid") is True
         or body.get("status") in ("paid", "approved", "PAID", "APPROVED", "completed", "captured")
         or body.get("payment_status") in ("approved", "paid", "APPROVED", "PAID", "captured")
         or body.get("event") in ("payment.approved", "checkout.paid", "transaction.captured")
@@ -269,6 +314,10 @@ async def webhook(request: Request):
         logger.warning("InfinitePay webhook missing order_nsu — full body: %s", body)
         return {"ok": False, "error": "missing order_nsu", "received": body}
 
+    logger.info(
+        "InfinitePay webhook parsed: order_nsu=%s paid=%s (transaction_nsu=%s paid_amount=%s)",
+        order_nsu, paid, body.get("transaction_nsu"), paid_amount,
+    )
     result = await _process_payment_confirmation(str(order_nsu), paid=paid, source="webhook", raw=body)
     return result
 

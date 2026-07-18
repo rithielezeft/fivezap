@@ -30,6 +30,22 @@ INFINITEPAY_API = "https://api.checkout.infinitepay.io"
 INFINITEPAY_CHECKOUT_BASE = "https://checkout.infinitepay.io"
 
 
+async def build_webhook_url(public_base: str) -> Optional[str]:
+    """Build the webhook URL we hand to InfinitePay's /links endpoint.
+
+    If `infinitepay_webhook_secret` is set in settings, embed it as `?s=<secret>`
+    so the /api/payments/webhook route can verify the caller (blocks random
+    attackers hitting the public endpoint).
+    """
+    if not public_base:
+        return None
+    secret = (await get_setting("infinitepay_webhook_secret") or "").strip()
+    base = f"{public_base}/api/payments/webhook"
+    if secret:
+        return f"{base}?s={urllib.parse.quote(secret, safe='')}"
+    return base
+
+
 def _sanitize_handle(raw: str) -> str:
     """Handle must not include the `$` prefix or spaces."""
     if not raw:
