@@ -438,8 +438,44 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         # Notify client via WhatsApp — this is what the customer sees ("Renovação confirmada")
         try:
             from services.notifier import send_notification, send_admin_alert
-            phone = customer.get("whatsapp") or ""
+            # Resolve client phone with cascading fallbacks: SQLite → Mongo → painel.fun cache.
+            # This is the same cascade used to create the payment link, so if the client
+            # was reachable at that moment, we can reach them now.
+            phone = (customer.get("whatsapp") or "").strip()
+            if not phone:
+                try:
+                    from services import mongo_store
+                    mdoc = await mongo_store.find_customer_by_painel_id(str(customer["id"]))
+                    if mdoc:
+                        phone = (mdoc.get("whatsapp") or "").strip()
+                except Exception:
+                    logger.exception("Mongo phone-fallback lookup failed")
+            if not phone:
+                try:
+                    from routers.painel_users import _read_cache
+                    from services.phone_extractor import extract_whatsapp
+                    users, _meta = await _read_cache()
+                    for u in users:
+                        uid = str(u.get("id") or u.get("user_id") or u.get("username") or "")
+                        if uid == str(customer["id"]) or uid == str(painel_id):
+                            phone = (extract_whatsapp(u) or "").strip()
+                            if phone:
+                                # Persist so next time it's instant.
+                                async with aiosqlite.connect(DB_PATH) as db:
+                                    await db.execute(
+                                        "UPDATE customers SET whatsapp = ?, updated_at = ? WHERE id = ?",
+                                        (phone, now_iso(), customer["id"]),
+                                    )
+                                    await db.commit()
+                                customer["whatsapp"] = phone
+                                logger.info("Resolved phone from painel cache for %s: %s",
+                                            customer["id"], phone)
+                            break
+                except Exception:
+                    logger.exception("Painel-cache phone-fallback failed")
+
             client_notified = False
+            fallback_msg_sent = False
             if phone:
                 client_notified = await send_notification(
                     "renewal_success", phone,
@@ -454,7 +490,24 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     await save_message(phone, "renewal_confirmed", "out", customer["id"])
                     logger.info("Renewal confirmation sent to %s", phone)
                 else:
-                    logger.warning("Renewal template disabled/missing — no message sent to %s", phone)
+                    # Template `renewal_success` is missing/disabled → send a minimal
+                    # hardcoded confirmation so the client never stays in the dark.
+                    logger.warning(
+                        "renewal_success template disabled/missing — sending hardcoded fallback to %s",
+                        phone,
+                    )
+                    try:
+                        expires_txt = f" até {new_expires}" if new_expires else ""
+                        await whatsapp_client.send_message(
+                            phone,
+                            f"✅ Pagamento confirmado, {customer['name']}!\n\n"
+                            f"Seu plano foi renovado por {payment['plan_months']} mês(es){expires_txt}. 🎉\n\n"
+                            "Obrigado pela preferência!"
+                        )
+                        await save_message(phone, "renewal_confirmed_fallback", "out", customer["id"])
+                        fallback_msg_sent = True
+                    except Exception:
+                        logger.exception("Fallback renewal message failed for %s", phone)
             else:
                 logger.warning("No whatsapp on customer %s — skipping renewal notification", customer["id"])
 
@@ -462,6 +515,14 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             # Fire-and-forget: no-op when `admin_whatsapp` setting is empty.
             try:
                 amount_brl = f"R$ {payment['amount_cents']/100:.2f}".replace(".", ",")
+                if client_notified:
+                    notify_status = "sim (template)"
+                elif fallback_msg_sent:
+                    notify_status = "sim (mensagem padrão — template desabilitado)"
+                elif phone:
+                    notify_status = "❌ falhou (WhatsApp indisponível)"
+                else:
+                    notify_status = "❌ falhou (sem número no cadastro)"
                 admin_msg = (
                     "💰 *Pagamento confirmado*\n\n"
                     f"👤 Cliente: {customer['name']}\n"
@@ -471,7 +532,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     f"🔗 Painel ID: {painel_id}\n"
                     f"📆 Novo vencimento: {new_expires or '-'}\n"
                     f"🛰️ Origem: {source}\n"
-                    f"✉️ Cliente notificado: {'sim' if client_notified else 'NÃO'}"
+                    f"✉️ Cliente notificado: {notify_status}"
                 )
                 await send_admin_alert(admin_msg)
             except Exception:
