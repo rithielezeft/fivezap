@@ -68,6 +68,37 @@ async def create_payment(payload: PaymentCreate):
             customer = dict(customer)
 
     if not customer:
+        # Try MongoDB Atlas first (works globally)
+        try:
+            from services import mongo_store
+            mongo_doc = await mongo_store.find_customer_by_painel_id(str(payload.customer_id))
+        except Exception:
+            mongo_doc = None
+        if mongo_doc:
+            customer = {
+                "id": str(mongo_doc.get("_id") or mongo_doc.get("id") or payload.customer_id),
+                "name": (mongo_doc.get("full_name") or mongo_doc.get("name")
+                         or mongo_doc.get("username") or "Cliente"),
+                "system_type": mongo_doc.get("system_type") or "iptv",
+                "expires_at": mongo_doc.get("exp_date_iso") or mongo_doc.get("expires_at") or "",
+                "whatsapp": mongo_doc.get("whatsapp") or "",
+                "painel_username": mongo_doc.get("painel_username") or mongo_doc.get("username") or "",
+            }
+            # Persist locally so the webhook can find it later
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "INSERT OR REPLACE INTO customers "
+                    "(id, name, whatsapp, system_type, painel_username, expires_at, status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+                    (
+                        customer["id"], customer["name"], customer["whatsapp"],
+                        customer["system_type"], customer["painel_username"],
+                        customer["expires_at"], now_iso(), now_iso(),
+                    ),
+                )
+                await db.commit()
+
+    if not customer:
         # Auto-create from painel.fun cache
         from routers.painel_users import _read_cache
         from services.system_detector import detect_system_type
@@ -128,7 +159,10 @@ async def create_payment(payload: PaymentCreate):
     package_id = painel.get_package_id(customer["system_type"], payload.plan_months)
 
     public_base = await get_setting("public_base_url")
-    order_nsu = f"ord-{new_id()[:8]}"
+    # order_nsu MUST include the painel id so the webhook can call
+    # /api/users/{painel_id}/renew even without querying local DB.
+    # Format: `renew-{painel_id}-{months}m` (matches _extract_painel_id_from_nsu)
+    order_nsu = f"renew-{payload.customer_id}-{payload.plan_months}m"
     payment_id = new_id()
 
     try:
@@ -160,74 +194,166 @@ async def create_payment(payload: PaymentCreate):
     }
 
 
+def _extract_painel_id_from_nsu(nsu: str) -> str:
+    """Order NSU format is `trial-{painel_id}-{months}m` (or {plan}). Extract painel_id."""
+    if not nsu:
+        return ""
+    parts = str(nsu).split("-")
+    if len(parts) >= 2:
+        return parts[1]
+    return ""
+
+
 @router.post("/webhook")
 async def webhook(request: Request):
-    """Called by InfinitePay when a payment succeeds."""
-    body = await request.json()
-    logger.info("InfinitePay webhook: %s", body)
+    """Called by InfinitePay when a payment succeeds.
 
-    order_nsu = body.get("order_nsu") or body.get("orderNsu")
-    paid = body.get("paid") or body.get("status") == "paid" or body.get("payment_status") == "approved"
+    InfinitePay sends different field names depending on the integration version.
+    We accept several shapes and log the full body for future debugging.
+    """
+    body = await request.json()
+    logger.info("InfinitePay webhook received: %s", body)
+
+    # Try multiple field name variations
+    order_nsu = (body.get("order_nsu") or body.get("orderNsu")
+                 or body.get("reference") or body.get("external_reference")
+                 or body.get("nsu"))
+    paid = (
+        body.get("paid") is True
+        or body.get("status") in ("paid", "approved", "PAID", "APPROVED", "completed")
+        or body.get("payment_status") in ("approved", "paid", "APPROVED", "PAID")
+    )
 
     if not order_nsu:
+        logger.warning("InfinitePay webhook missing order_nsu: %s", body)
         return {"ok": False, "error": "missing order_nsu"}
 
+    result = await _process_payment_confirmation(str(order_nsu), paid=paid, source="webhook", raw=body)
+    return result
+
+
+async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str = "webhook", raw: dict = None):
+    """Shared logic: mark payment paid + call painel renew_user + notify client.
+
+    Used by both /webhook (InfinitePay callback) and /reprocess/{payment_id}
+    (admin manual re-trigger when webhook didn't arrive).
+    """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM payments WHERE order_nsu = ?", (order_nsu,))
-        payment = await cur.fetchone()
-        if not payment:
-            return {"ok": False, "error": "payment not found"}
-        payment = dict(payment)
+        payment_row = await cur.fetchone()
+        if not payment_row:
+            logger.warning("Payment not found for order_nsu=%s (source=%s)", order_nsu, source)
+            return {"ok": False, "error": "payment not found", "order_nsu": order_nsu}
+        payment = dict(payment_row)
 
     if not paid:
-        return {"ok": True, "status": "not_paid"}
+        return {"ok": True, "status": "not_paid", "payment_id": payment["id"]}
 
     if payment["status"] == "paid":
-        return {"ok": True, "status": "already_processed"}
+        return {"ok": True, "status": "already_processed", "payment_id": payment["id"]}
 
-    # Mark paid and renew via painel
+    # Mark paid
     async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
         await db.execute(
             "UPDATE payments SET status = 'paid', paid_at = ? WHERE id = ?",
             (now_iso(), payment["id"]),
         )
         await db.commit()
+
+    # Resolve customer info + painel_id
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM customers WHERE id = ?", (payment["customer_id"],))
-        customer = dict(await cur.fetchone())
+        customer_row = await cur.fetchone()
+        customer = dict(customer_row) if customer_row else {"id": payment["customer_id"], "name": "?", "whatsapp": ""}
 
-    # Trigger renewal
-    try:
-        # If we have painel user id, renew directly. Otherwise, we log a manual action needed
-        if customer.get("painel_username"):
-            result = await painel.renew_user(
-                user_id=customer.get("painel_username"),
-                package_id=payment["package_id"],
+    # PAINEL ID = the numeric id painel.fun uses in /api/users/{id}/renew.
+    # We prefer the id embedded in order_nsu (`trial-{painel_id}-{months}m`),
+    # then fall back to any trial we have for this customer.
+    painel_id = _extract_painel_id_from_nsu(order_nsu)
+    if not painel_id or not painel_id.isdigit():
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT trial_user_id FROM trials WHERE customer_id = ? AND trial_user_id != '' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (customer["id"],),
             )
-            await log_activity("renewal_success", f"Renovação {payment['plan_months']}m para {customer['name']}", customer["id"], "success", result)
-            try:
-                from services.notifier import send_notification
-                new_expires = result.get("expires_at") or result.get("expiration") or ""
-                await send_notification(
-                    "renewal_success",
-                    customer["whatsapp"],
-                    {
-                        "name": customer["name"],
-                        "plan_months": payment["plan_months"],
-                        "new_expires_at": new_expires,
-                    },
-                )
-                await save_message(customer["whatsapp"], "renewal_confirmed", "out", customer["id"])
-            except Exception:
-                pass
-        else:
-            await log_activity("renewal_pending", f"Pagamento confirmado, renovação manual necessária para {customer['name']}", customer["id"], "warning")
-    except Exception as e:
-        logger.exception("Renewal failed")
-        await log_activity("renewal_error", str(e), customer["id"], "error")
+            trow = await cur.fetchone()
+            if trow and trow["trial_user_id"]:
+                painel_id = str(trow["trial_user_id"])
 
-    return {"ok": True}
+    if not painel_id:
+        await log_activity(
+            "renewal_pending",
+            f"Pagamento confirmado ({source}) mas painel_id não encontrado — renovar manualmente para {customer['name']}",
+            customer["id"], "warning", raw or {},
+        )
+        return {"ok": True, "status": "paid_no_painel_id", "payment_id": payment["id"]}
+
+    # Trigger painel renewal
+    try:
+        result = await painel.renew_user(user_id=painel_id, package_id=payment["package_id"])
+        await log_activity(
+            "renewal_success",
+            f"Renovação {payment['plan_months']}m para {customer['name']} (painel_id={painel_id}, source={source})",
+            customer["id"], "success", result,
+        )
+
+        # Notify client via WhatsApp
+        try:
+            from services.notifier import send_notification
+            new_expires = result.get("expires_at") or result.get("expiration") or result.get("exp_date") or ""
+            await send_notification(
+                "renewal_success",
+                customer.get("whatsapp") or "",
+                {
+                    "name": customer["name"],
+                    "plan_months": payment["plan_months"],
+                    "new_expires_at": new_expires,
+                },
+            )
+            await save_message(customer.get("whatsapp") or "", "renewal_confirmed", "out", customer["id"])
+        except Exception:
+            logger.exception("Post-renewal notification failed (non-fatal)")
+
+        return {"ok": True, "status": "renewed", "payment_id": payment["id"], "painel_id": painel_id, "result": result}
+    except Exception as e:
+        logger.exception("Renewal painel call failed for payment %s", payment["id"])
+        await log_activity(
+            "renewal_error",
+            f"{customer['name']}: {e}",
+            customer["id"], "error",
+        )
+        return {"ok": False, "status": "renewal_failed", "payment_id": payment["id"], "error": str(e)}
+
+
+@router.post("/reprocess/{payment_id}")
+async def reprocess_payment(payment_id: str, request: Request):
+    """Admin: manually re-trigger renewal for a payment whose webhook didn't arrive
+    or whose renewal failed. Idempotent: if already renewed, returns success."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,))
+        payment = await cur.fetchone()
+        if not payment:
+            raise HTTPException(404, f"Payment {payment_id} not found")
+        payment = dict(payment)
+
+    # Force-mark as paid if admin says so (manual override)
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        pass
+    force_paid = bool(payload.get("force_paid", True))
+
+    return await _process_payment_confirmation(
+        payment["order_nsu"], paid=force_paid,
+        source="admin_reprocess",
+        raw={"admin": True, "payment_id": payment_id},
+    )
 
 
 @router.get("/customer/{customer_id}")

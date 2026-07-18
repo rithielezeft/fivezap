@@ -620,21 +620,28 @@ async def get_account_info() -> dict:
 
 
 async def renew_user(user_id: str, package_id: int) -> dict:
-    """Renew existing user via painel API."""
+    """Renew existing user via painel API.
+
+    Endpoint: POST /api/users/{user_id}/renew
+    Body: {"package_id": <int>}
+
+    Args:
+        user_id: painel.fun user id (integer as string) — the same id used in {pay_link}
+        package_id: package to renew with (from PACKAGE_IDS mapping)
+    """
     token = await login()
     base = await get_setting("painel_base_url")
 
-    payload = {"package_id": package_id, "user_id": user_id}
-
     def _post_renew(tok):
         return cffi_requests.post(
-            f"{base}/api/renewal",
-            json=payload,
+            f"{base}/api/users/{user_id}/renew",
+            json={"package_id": package_id},
             headers={
                 "Authorization": f"Bearer {tok}",
                 "Origin": "https://painel.fun",
                 "Referer": "https://painel.fun/",
                 "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
             },
             impersonate="chrome124",
             timeout=90,
@@ -646,8 +653,11 @@ async def renew_user(user_id: str, package_id: int) -> dict:
         resp = await asyncio.to_thread(_post_renew, token)
     if resp.status_code >= 400:
         logger.error("Renew failed %s: %s", resp.status_code, resp.text[:400])
-        raise RuntimeError(f"Renew failed: {resp.status_code}")
-    return resp.json()
+        raise RuntimeError(f"Renew failed: HTTP {resp.status_code} — {resp.text[:200]}")
+    try:
+        return resp.json()
+    except Exception:
+        return {"status": resp.status_code, "text": resp.text[:200]}
 
 
 # Package IDs mapping (from problem statement)

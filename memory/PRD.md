@@ -20,6 +20,12 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FIX 2026-02-P0]** Renovação via InfinitePay corrigida: endpoint agora é `POST /api/users/{painel_id}/renew` com body `{package_id: X}` (antes chamava `/api/renewal` errado).
+- **[FEATURE 2026-02]** `order_nsu` no formato `renew-{painel_id}-{months}m` — webhook extrai o painel_id direto do NSU, não depende mais só de lookup local.
+- **[FEATURE 2026-02]** Novo endpoint `POST /api/payments/reprocess/{payment_id}` — admin pode forçar renovação manualmente quando o webhook do InfinitePay não chegar. Idempotente.
+- **[FIX 2026-02]** Webhook aceita múltiplas variações de payload (paid, status=approved/paid/completed, payment_status, etc) e formatos de campo (order_nsu, orderNsu, reference, external_reference, nsu).
+- **[FEATURE 2026-02]** `POST /api/payments` (criar checkout do /pay) agora busca cliente também no Mongo Atlas antes de cair no cache do painel — clientes globais sempre encontrados.
+
 - **[FIX 2026-02-P0 CRITICAL]** **Bug real do "Link inválido"**: o middleware auth bloqueava `/api/payments/customer/{id}` porque estava listado como `/api/pay/customer/` (path errado). Adicionado prefixo correto + `POST /api/payments` público (só para checkout) enquanto `GET /api/payments` continua admin-only.
 - **[FEATURE 2026-02]** **MongoDB Atlas** como fonte da verdade global. `/api/payments/customer/{painel_id}` busca no Mongo PRIMEIRO — funciona em qualquer navegador, qualquer lugar do mundo, sem cookies, sem cache local. Todo trial criado (bot, form, admin) é upserted no Mongo automaticamente. Refresh da página de clientes espelha **TODOS** os usuários do painel para o Mongo — clientes legados (não só novos) têm seus links funcionando.
 - Novo módulo `services/mongo_store.py`: `find_customer_by_painel_id`, `upsert_customer`, `ping`.
