@@ -234,23 +234,80 @@ async def webhook(request: Request):
 async def get_customer_payment_info(customer_id: str):
     """Public: fetch payment info for /pay/{customer_id} page.
 
-    Looks up in this order:
-      1. Local `customers` table (manually-created customers).
-      2. Cached painel.fun users (where customer_id == user_id from painel).
+    `customer_id` can be EITHER:
+      - The painel.fun trial user id (e.g. 227453827) — used in the {pay_link}
+        template placeholder, which is what we send to customers.
+      - The local `customers.id` UUID — used by the admin panel.
+
+    Lookup order (all local, never dependent on painel.fun availability):
+      1. `trials.trial_user_id` — matches the painel id used in every {pay_link}
+         we send. Joined with `customers` for name/whatsapp. **Primary source of truth.**
+      2. Local `customers.id` — matches the UUID (admin-created).
+      3. `customers.painel_username` — legacy fallback for old records.
+      4. Painel cache — last resort for users created before we started
+         persisting trials (or bulk-imported customers).
+
+    Steps 1-3 are 100% local: SQLite on the Raspberry Pi. Once a trial is
+    created, `/pay/{id}` works forever from any browser worldwide, no
+    dependency on painel.fun uptime, cache freshness, or Turnstile solves.
     """
-    # 1. Try local customers table
+    customer = None
+
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT id, name, system_type, expires_at FROM customers WHERE id = ?",
-            (customer_id,),
-        )
-        customer_row = await cur.fetchone()
 
-    if customer_row:
-        customer = dict(customer_row)
-    else:
-        # 2. Fallback: search in painel.fun cache
+        # 1. Lookup by painel trial_user_id (JOIN with customers for the name/whatsapp).
+        #    This is the PRIMARY path — every {pay_link} we send uses the painel id.
+        cur = await db.execute(
+            """
+            SELECT
+                t.trial_user_id AS painel_id,
+                t.system_type AS trial_system_type,
+                t.expires_at AS trial_expires_at,
+                c.id AS local_id,
+                c.name AS name,
+                c.whatsapp AS whatsapp,
+                c.system_type AS customer_system_type,
+                c.expires_at AS customer_expires_at
+            FROM trials t
+            LEFT JOIN customers c ON c.id = t.customer_id
+            WHERE t.trial_user_id = ?
+            ORDER BY t.created_at DESC
+            LIMIT 1
+            """,
+            (str(customer_id),),
+        )
+        row = await cur.fetchone()
+        if row:
+            customer = {
+                "id": str(row["painel_id"] or row["local_id"] or customer_id),
+                "name": row["name"] or "Cliente",
+                "system_type": row["trial_system_type"] or row["customer_system_type"] or "iptv",
+                "expires_at": row["trial_expires_at"] or row["customer_expires_at"],
+            }
+
+        # 2. Lookup by local customer UUID
+        if not customer:
+            cur = await db.execute(
+                "SELECT id, name, system_type, expires_at FROM customers WHERE id = ?",
+                (str(customer_id),),
+            )
+            row = await cur.fetchone()
+            if row:
+                customer = dict(row)
+
+        # 3. Lookup by painel_username
+        if not customer:
+            cur = await db.execute(
+                "SELECT id, name, system_type, expires_at FROM customers WHERE painel_username = ?",
+                (str(customer_id),),
+            )
+            row = await cur.fetchone()
+            if row:
+                customer = dict(row)
+
+    # 4. Last resort: painel cache
+    if not customer:
         from routers.painel_users import _read_cache
         from services.system_detector import detect_system_type
         from services.expiration import compute_expiration_info
@@ -263,20 +320,21 @@ async def get_customer_payment_info(customer_id: str):
                 found = u
                 break
 
-        if not found:
-            raise HTTPException(
-                404,
-                f"Cliente {customer_id} não encontrado. "
-                f"Atualize o cache do painel em Clientes → 'Atualizar do painel'."
-            )
+        if found:
+            exp_info = compute_expiration_info(found)
+            customer = {
+                "id": str(found.get("id") or found.get("user_id") or found.get("username")),
+                "name": found.get("full_name") or found.get("name") or found.get("username") or "Cliente",
+                "system_type": detect_system_type(found) or "iptv",
+                "expires_at": exp_info["expires_at_iso"],
+            }
 
-        exp_info = compute_expiration_info(found)
-        customer = {
-            "id": str(found.get("id") or found.get("user_id") or found.get("username")),
-            "name": found.get("full_name") or found.get("name") or found.get("username") or "Cliente",
-            "system_type": detect_system_type(found) or "iptv",
-            "expires_at": exp_info["expires_at_iso"],
-        }
+    if not customer:
+        raise HTTPException(
+            404,
+            f"Cliente {customer_id} não encontrado. "
+            f"Atualize o cache do painel em Clientes → 'Atualizar do painel'."
+        )
 
     # Fetch prices for all 4 plans
     prices = {}
