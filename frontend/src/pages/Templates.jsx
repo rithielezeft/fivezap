@@ -70,7 +70,28 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
       <div className="col-span-2">
         <Label>Resposta ao cliente</Label>
         <Textarea rows={5} className="font-mono text-xs" data-testid="input-template-response" value={f.response_template} onChange={(e) => setF({ ...f, response_template: e.target.value })} />
-        <p className="text-xs text-white/40 mt-1">Variáveis: {"{user} {pass} {expires} {mac} {system_type} {name}"}</p>
+        <div className="text-xs text-white/40 mt-1 space-y-1">
+          <div>
+            <span className="text-white/60 font-medium">Dados do teste:</span>{" "}
+            <code className="text-[#007AFF]">{"{user}"}</code>{" "}
+            <code className="text-[#007AFF]">{"{pass}"}</code>{" "}
+            <code className="text-[#007AFF]">{"{expires}"}</code>{" "}
+            <code className="text-[#007AFF]">{"{mac}"}</code>{" "}
+            <code className="text-[#007AFF]">{"{system_type}"}</code>{" "}
+            <code className="text-[#007AFF]">{"{name}"}</code>
+          </div>
+          <div>
+            <span className="text-white/60 font-medium">Links de pagamento:</span>{" "}
+            <code className="text-emerald-400">{"{pay_link}"}</code>{" "}
+            <code className="text-emerald-400">{"{pay_link_1m}"}</code>{" "}
+            <code className="text-emerald-400">{"{pay_link_3m}"}</code>{" "}
+            <code className="text-emerald-400">{"{pay_link_6m}"}</code>{" "}
+            <code className="text-emerald-400">{"{pay_link_12m}"}</code>
+          </div>
+          <div className="text-white/30">
+            {"{pay_link}"} é o link mensal padrão. Os demais são gerados sob demanda pelos planos configurados.
+          </div>
+        </div>
       </div>
       <div className="col-span-2 flex items-center justify-between p-3 rounded-md bg-white/[0.03] border border-white/10">
         <div className="text-sm font-medium">Ativo</div>
