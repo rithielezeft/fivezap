@@ -58,7 +58,10 @@ async def check_pending_once() -> dict:
     for pmt in pending:
         try:
             check = await infinitepay.check_payment(pmt["order_nsu"])
-            is_paid = bool(check.get("paid") or check.get("success"))
+            # STRICT: only accept when InfinitePay explicitly says paid=true.
+            # `success:true` alone from /payment_check means "found the record",
+            # not paid — we would falsely renew clients otherwise.
+            is_paid = check.get("paid") is True
             if is_paid:
                 proc = await _process_payment_confirmation(
                     pmt["order_nsu"], paid=True, source="poller", raw=check,

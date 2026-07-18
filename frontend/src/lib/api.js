@@ -87,7 +87,8 @@ export const paymentsApi = {
   create: (data) => api.post("/payments", data).then((r) => r.data),
   customerInfo: (id) => api.get(`/payments/customer/${id}`).then((r) => r.data),
   testLink: () => api.post("/payments/test-link", null, { timeout: 45000 }).then((r) => r.data),
-  checkStatus: (customerId) => api.post(`/payments/check-status/${customerId}`).then((r) => r.data),
+  checkStatus: (customerId, body = {}) =>
+    api.post(`/payments/check-status/${customerId}`, body).then((r) => r.data),
 };
 
 export const settingsApi = {

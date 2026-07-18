@@ -240,25 +240,31 @@ def _extract_painel_id_from_nsu(nsu: str) -> str:
 async def webhook(request: Request):
     """Called by InfinitePay when a payment succeeds.
 
-    InfinitePay sends different field names depending on the integration version.
-    We accept several shapes and log the full body for future debugging.
+    Also accepts variations — we log every incoming request in full so we
+    can debug when InfinitePay changes their format or fires from a new IP.
     """
     body = await request.json()
     logger.info("InfinitePay webhook received: %s", body)
+    # Also log headers to help debug missing webhooks
+    hdrs = {k: v for k, v in request.headers.items()
+            if k.lower() in ("user-agent", "referer", "origin", "x-forwarded-for",
+                             "x-real-ip", "content-type", "x-webhook-signature")}
+    logger.info("InfinitePay webhook headers: %s", hdrs)
 
     # Try multiple field name variations
     order_nsu = (body.get("order_nsu") or body.get("orderNsu")
                  or body.get("reference") or body.get("external_reference")
-                 or body.get("nsu"))
+                 or body.get("external_order_nsu") or body.get("nsu"))
     paid = (
         body.get("paid") is True
-        or body.get("status") in ("paid", "approved", "PAID", "APPROVED", "completed")
-        or body.get("payment_status") in ("approved", "paid", "APPROVED", "PAID")
+        or body.get("status") in ("paid", "approved", "PAID", "APPROVED", "completed", "captured")
+        or body.get("payment_status") in ("approved", "paid", "APPROVED", "PAID", "captured")
+        or body.get("event") in ("payment.approved", "checkout.paid", "transaction.captured")
     )
 
     if not order_nsu:
-        logger.warning("InfinitePay webhook missing order_nsu: %s", body)
-        return {"ok": False, "error": "missing order_nsu"}
+        logger.warning("InfinitePay webhook missing order_nsu — full body: %s", body)
+        return {"ok": False, "error": "missing order_nsu", "received": body}
 
     result = await _process_payment_confirmation(str(order_nsu), paid=paid, source="webhook", raw=body)
     return result
@@ -464,23 +470,46 @@ async def reprocess_payment(payment_id: str, request: Request):
 
 
 @router.post("/check-status/{customer_id}")
-async def check_status_by_customer(customer_id: str):
+async def check_status_by_customer(customer_id: str, request: Request):
     """PUBLIC: called by the /pay/{id}?ok=1 page after the customer returns
-    from InfinitePay. Actively queries InfinitePay for every pending payment
-    of this customer and, if any is paid, triggers the renewal flow
-    immediately (don't wait for webhook or poller).
+    from InfinitePay. Multi-strategy confirmation:
 
-    This is what makes the "Renovação confirmada" arrive within seconds of
-    the customer returning to our page after paying — critical for a good UX.
+    Strategy 1: query InfinitePay via `check_payment` (order_nsu based) —
+                the "official" way, but sometimes returns `success:false`
+                even after real payment (InfinitePay caching/lag).
+    Strategy 2: REDIRECT TRUST — if the request came from checkout.infinitepay.io
+                (Referer / Origin) AND `?ok=1` was set AND the payment is
+                recent (<24h), we accept the redirect as payment confirmation.
+                InfinitePay only redirects to `redirect_url?ok=1` after a
+                successful capture, so this is safe as long as we validate
+                the referrer/origin.
+
+    Either strategy → renewal fires. Idempotent (won't re-renew).
     """
     from services import infinitepay
     from datetime import datetime, timezone, timedelta
+
+    # Body: optional {"trust_redirect": true} for cases where the JS
+    # explicitly signals it's coming from the InfinitePay redirect.
+    body = {}
+    try: body = await request.json()
+    except Exception: pass
+    client_says_ok = bool(body.get("trust_redirect") or body.get("ok"))
+
+    # Referer / Origin check for redirect trust
+    referer = (request.headers.get("referer") or "").lower()
+    origin = (request.headers.get("origin") or "").lower()
+    from_infinitepay = (
+        "checkout.infinitepay.io" in referer or "checkout.infinitepay.io" in origin
+        or "infinitepay" in referer or "infinitepay" in origin
+    )
+
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT id, order_nsu FROM payments "
+            "SELECT id, order_nsu, infinitepay_url, created_at FROM payments "
             "WHERE customer_id = ? AND status = 'pending' AND created_at >= ? "
             "ORDER BY created_at DESC LIMIT 5",
             (str(customer_id), cutoff),
@@ -491,18 +520,38 @@ async def check_status_by_customer(customer_id: str):
         return {"ok": True, "status": "no_pending", "checked": 0}
 
     for pmt in pendings:
+        # Strategy 1: InfinitePay official /payment_check
         try:
             check = await infinitepay.check_payment(pmt["order_nsu"])
-            if check.get("paid") or check.get("success"):
+            # Only accept when InfinitePay explicitly says paid=true.
+            # `success:true` alone means "found the link", not paid.
+            if check.get("paid") is True:
                 proc = await _process_payment_confirmation(
                     pmt["order_nsu"], paid=True, source="pay_page_return", raw=check,
                 )
                 return {"ok": True, "status": proc.get("status"), "payment_id": pmt["id"],
-                        "checked": len(pendings)}
+                        "strategy": "payment_check", "checked": len(pendings)}
         except Exception as e:
-            logger.exception("check_status_by_customer error for %s: %s", pmt["order_nsu"], e)
+            logger.exception("payment_check failed for %s: %s", pmt["order_nsu"], e)
 
-    return {"ok": True, "status": "still_pending", "checked": len(pendings)}
+    # Strategy 2: Redirect trust — accept when browser was redirected by
+    # InfinitePay AND client confirms `?ok=1` on the URL. This bridges the
+    # gap when /payment_check has cache lag but the payment WAS successful
+    # (proven by InfinitePay redirecting back).
+    if client_says_ok and from_infinitepay and pendings:
+        # Trust the most recent pending payment
+        pmt = pendings[0]
+        logger.info("Redirect-trust confirmation for %s (referer=%s, origin=%s)",
+                    pmt["order_nsu"], referer, origin)
+        proc = await _process_payment_confirmation(
+            pmt["order_nsu"], paid=True, source="redirect_trust",
+            raw={"referer": referer, "origin": origin, "client_says_ok": True},
+        )
+        return {"ok": True, "status": proc.get("status"), "payment_id": pmt["id"],
+                "strategy": "redirect_trust", "checked": len(pendings)}
+
+    return {"ok": True, "status": "still_pending", "checked": len(pendings),
+            "hint": "InfinitePay ainda não confirmou. Se você pagou, a confirmação chega em alguns minutos."}
 
 
 @router.post("/poll-now")

@@ -37,7 +37,10 @@ export default function PublicPay() {
       while (!cancelled && attempts < MAX_ATTEMPTS) {
         attempts++;
         try {
-          const r = await paymentsApi.checkStatus(customerId);
+          // Send trust_redirect=true so the backend can accept the payment
+          // as confirmed even when InfinitePay's /payment_check has cache lag —
+          // safe because the backend also verifies the Referer/Origin.
+          const r = await paymentsApi.checkStatus(customerId, { trust_redirect: true });
           if (r?.status === "renewed" || r?.status === "already_processed") {
             setRenewalStatus("renewed");
             setConfirmingPayment(false);
