@@ -46,7 +46,32 @@ const SYSTEM_STYLES = {
 };
 
 function StatusBadge({ user }) {
-  const exp = pickField(user, ["expires_at", "expiration", "expiry_date", "expire_date"]);
+  // Backend already computes `_status` from painel.fun `enabled` + `exp_date`
+  // (see services/expiration.compute_expiration_info). Prefer it — falls back
+  // to raw field parsing only for very old cached rows.
+  const st = user?._status;
+  if (st === "active") {
+    return (
+      <span data-testid="status-badge-active" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30">
+        Ativo
+      </span>
+    );
+  }
+  if (st === "expiring_soon") {
+    return (
+      <span data-testid="status-badge-expiring" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30">
+        Vencendo
+      </span>
+    );
+  }
+  if (st === "expired") {
+    return (
+      <span data-testid="status-badge-expired" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#FF3B30]/10 text-[#FF3B30] border-[#FF3B30]/30">
+        Vencido
+      </span>
+    );
+  }
+  // Legacy fallback
   const active = pickField(user, ["active", "is_active", "status"]);
   const isActive =
     active === true ||
@@ -55,6 +80,7 @@ function StatusBadge({ user }) {
     String(active).toLowerCase() === "ativo";
   return (
     <span
+      data-testid="status-badge-fallback"
       className={
         "text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " +
         (isActive
@@ -88,8 +114,10 @@ export default function Customers() {
     queryKey: ["painel-users", debounced],
     queryFn: () => painelApi.listUsers({ search: debounced || undefined }),
     retry: 1,
-    refetchOnWindowFocus: false,
-    refetchInterval: (q) => (q?.state?.data?.refreshing ? 3000 : 60000),
+    refetchOnWindowFocus: true,
+    // Snappy live-sync: 3s while refreshing, 30s otherwise. Backend caches
+    // the painel.fun response and refreshes in background every ~3min.
+    refetchInterval: (q) => (q?.state?.data?.refreshing ? 3000 : 30000),
   });
 
   const refreshMut = useMutation({

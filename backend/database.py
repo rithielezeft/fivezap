@@ -259,6 +259,18 @@ async def init_db():
             await db.execute("ALTER TABLE payments ADD COLUMN confirmation_token TEXT")
         except Exception:
             pass
+        # Migration: add transaction_nsu to payments — InfinitePay generates a
+        # different transaction_nsu per capture, so the SAME checkout link can
+        # be paid multiple times (each triggering a new renewal). We use this
+        # column as the true idempotency key, not order_nsu.
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN transaction_nsu TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_txn_nsu ON payments(transaction_nsu)")
+        except Exception:
+            pass
         # Cleanup: remove old *_cents price keys (kept if you rely on them)
         await db.execute("DELETE FROM settings WHERE key IN ('plan_price_1m_cents','plan_price_3m_cents','plan_price_6m_cents','plan_price_12m_cents')")
         await db.commit()

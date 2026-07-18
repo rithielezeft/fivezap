@@ -159,14 +159,16 @@ async def list_users(search: Optional[str] = None, background_tasks: BackgroundT
     """Return cached users. Kick off a refresh in background if the cache is old."""
     users, updated_at = await _read_cache()
 
-    # Trigger background refresh if cache is empty or older than 10 minutes
+    # Trigger background refresh if cache is empty or older than 3 minutes.
+    # Threshold intentionally short so the Clientes page reflects real-time
+    # panel changes (renewals, status flips, new users) without user action.
     should_refresh = False
     if not users:
         should_refresh = True
     elif updated_at:
         try:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(updated_at)).total_seconds()
-            if age > 600:
+            if age > 180:
                 should_refresh = True
         except Exception:
             should_refresh = True

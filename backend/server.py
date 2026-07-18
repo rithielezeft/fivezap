@@ -99,9 +99,27 @@ async def lifespan(app: FastAPI):
         import logging
         logging.getLogger(__name__).exception("Failed to start payment poller (non-fatal)")
         stop_poller = None  # type: ignore
+
+    # Background painel.fun cache refresher — keeps the Clientes page in
+    # sync with the panel every ~5 minutes without requiring user activity.
+    async def _painel_refresh_loop():
+        import logging
+        from routers.painel_users import refresh_cache_task
+        log = logging.getLogger("painel_refresh_loop")
+        log.info("painel_refresh_loop started (interval=300s)")
+        while True:
+            try:
+                await refresh_cache_task()
+            except Exception:
+                log.exception("painel_refresh_loop iteration failed (keeping loop alive)")
+            await asyncio.sleep(300)  # 5 min
+
+    task_painel_refresh = asyncio.create_task(_painel_refresh_loop())
+
     yield
     task_exp.cancel()
     task_rem.cancel()
+    task_painel_refresh.cancel()
     if stop_poller:
         try:
             stop_poller()

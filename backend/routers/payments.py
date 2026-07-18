@@ -327,10 +327,38 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
 
     Used by both /webhook (InfinitePay callback) and /reprocess/{payment_id}
     (admin manual re-trigger when webhook didn't arrive).
+
+    Idempotency: keyed by `transaction_nsu` (unique per InfinitePay capture),
+    NOT by `order_nsu`. This means the same checkout link can be paid multiple
+    times and each capture triggers a fresh renewal — a client paying twice
+    gets two months added. If the InfinitePay payload doesn't include a
+    `transaction_nsu` (rare/legacy), we fall back to `order_nsu` as the
+    idempotency key.
     """
+    raw = raw or {}
+    transaction_nsu = str(raw.get("transaction_nsu") or "").strip()
+
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM payments WHERE order_nsu = ?", (order_nsu,))
+        # First — if transaction_nsu was already processed, we're idempotent.
+        if transaction_nsu:
+            cur = await db.execute(
+                "SELECT * FROM payments WHERE transaction_nsu = ? LIMIT 1",
+                (transaction_nsu,),
+            )
+            already = await cur.fetchone()
+            if already:
+                logger.info(
+                    "transaction_nsu=%s already processed as payment=%s → idempotent",
+                    transaction_nsu, already["id"],
+                )
+                return {"ok": True, "status": "already_processed",
+                        "payment_id": already["id"], "idempotent_by": "transaction_nsu"}
+        # Otherwise look up the original pending payment for this order_nsu.
+        cur = await db.execute(
+            "SELECT * FROM payments WHERE order_nsu = ? ORDER BY created_at DESC LIMIT 1",
+            (order_nsu,),
+        )
         payment_row = await cur.fetchone()
         if not payment_row:
             logger.warning("Payment not found for order_nsu=%s (source=%s)", order_nsu, source)
@@ -340,16 +368,48 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
     if not paid:
         return {"ok": True, "status": "not_paid", "payment_id": payment["id"]}
 
+    # If the original payment row is already marked paid AND we got a NEW
+    # transaction_nsu, this is a subsequent capture on the same checkout link.
+    # Clone the payment row so we track each capture independently and can
+    # renew the client again.
     if payment["status"] == "paid":
-        return {"ok": True, "status": "already_processed", "payment_id": payment["id"]}
-
-    # Mark paid
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE payments SET status = 'paid', paid_at = ? WHERE id = ?",
-            (now_iso(), payment["id"]),
-        )
-        await db.commit()
+        if transaction_nsu and transaction_nsu != (payment.get("transaction_nsu") or ""):
+            new_id_val = new_id()
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "INSERT INTO payments (id, customer_id, plan_months, amount_cents,"
+                    " package_id, status, infinitepay_url, order_nsu, confirmation_token,"
+                    " transaction_nsu, paid_at, created_at) VALUES (?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?)",
+                    (new_id_val, payment["customer_id"], payment["plan_months"],
+                     payment["amount_cents"], payment["package_id"],
+                     payment.get("infinitepay_url"), order_nsu,
+                     payment.get("confirmation_token"),
+                     transaction_nsu, now_iso(), now_iso()),
+                )
+                await db.commit()
+            payment["id"] = new_id_val
+            payment["status"] = "paid"
+            payment["transaction_nsu"] = transaction_nsu
+            logger.info(
+                "New capture on existing link (order_nsu=%s) → cloned payment=%s "
+                "(transaction_nsu=%s) — will renew again",
+                order_nsu, new_id_val, transaction_nsu,
+            )
+        else:
+            # Same transaction (or no transaction_nsu at all) → already handled.
+            return {"ok": True, "status": "already_processed",
+                    "payment_id": payment["id"], "idempotent_by": "order_nsu"}
+    else:
+        # First-time confirmation for this pending payment: mark paid + store txn.
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE payments SET status = 'paid', paid_at = ?, "
+                "transaction_nsu = COALESCE(NULLIF(?, ''), transaction_nsu) "
+                "WHERE id = ?",
+                (now_iso(), transaction_nsu, payment["id"]),
+            )
+            await db.commit()
+        payment["transaction_nsu"] = transaction_nsu or payment.get("transaction_nsu")
 
     # Resolve customer info + painel_id
     async with aiosqlite.connect(DB_PATH) as db:
@@ -631,6 +691,65 @@ async def reprocess_payment(payment_id: str, request: Request):
         source="admin_reprocess",
         raw={"admin": True, "payment_id": payment_id},
     )
+
+
+@router.get("/diagnostics")
+async def payments_diagnostics():
+    """Admin diagnostic snapshot: reveals *why* recent payments may not have
+    fired the confirmation flow. Read-only.
+
+    Returns: settings health (admin_whatsapp/public_base_url), pending vs
+    paid counts, last 10 payments with resolved customer/phone/status, and
+    template `renewal_success` enabled state.
+    """
+    admin_wa = (await get_setting("admin_whatsapp") or "").strip()
+    public_base = (await get_setting("public_base_url") or "").strip()
+    handle = (await get_setting("infinitepay_handle") or "").strip()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Template health
+        cur = await db.execute(
+            "SELECT enabled, LENGTH(body) as body_len FROM notification_templates "
+            "WHERE event_key = 'renewal_success'"
+        )
+        tpl_row = await cur.fetchone()
+        tpl = dict(tpl_row) if tpl_row else None
+
+        cur = await db.execute("SELECT status, COUNT(*) as c FROM payments GROUP BY status")
+        by_status = {r["status"]: r["c"] for r in await cur.fetchall()}
+
+        cur = await db.execute(
+            "SELECT p.id, p.customer_id, p.order_nsu, p.transaction_nsu, p.status,"
+            " p.plan_months, p.amount_cents, p.paid_at, p.created_at,"
+            " c.name as customer_name, c.whatsapp as customer_whatsapp"
+            " FROM payments p LEFT JOIN customers c ON c.id = p.customer_id"
+            " ORDER BY p.created_at DESC LIMIT 10"
+        )
+        recent = [dict(r) for r in await cur.fetchall()]
+
+    return {
+        "settings_health": {
+            "admin_whatsapp_configured": bool(admin_wa),
+            "admin_whatsapp_masked": (admin_wa[:4] + "***" + admin_wa[-2:]) if admin_wa else "",
+            "public_base_url": public_base,
+            "public_base_url_ok": public_base.startswith("http"),
+            "infinitepay_handle_configured": bool(handle),
+        },
+        "renewal_template": {
+            "exists": tpl is not None,
+            "enabled": bool(tpl and tpl["enabled"]),
+            "body_length": tpl["body_len"] if tpl else 0,
+        },
+        "payment_counts_by_status": by_status,
+        "recent_payments": recent,
+        "hint": (
+            "Se admin_whatsapp_configured=false → configure em Configurações → 'Admin — Seu WhatsApp'. "
+            "Se public_base_url não é HTTPS público → InfinitePay não consegue chamar o webhook. "
+            "Se renewal_template.enabled=false → cliente recebe apenas mensagem hardcoded."
+        ),
+    }
 
 
 @router.post("/check-status/{customer_id}")
