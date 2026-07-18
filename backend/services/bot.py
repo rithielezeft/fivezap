@@ -65,6 +65,29 @@ _MAC_FORMAT_HELP = (
 )
 
 
+def _infer_system_type(trigger: str, name: str, current: str) -> str:
+    """Guard against mis-configured templates.
+
+    Some production templates had `system_type='iptv'` but the trigger/name
+    clearly said "hybrid" or "dream tv" — which caused the wrong flow to run
+    (Hybrid ending up as DreamTV IPTV, and DreamTV ending up as plain IPTV).
+    We infer from trigger+name and override when they contradict.
+
+    Priority: hybrid > p2p > iptv (DreamTV) > iptv (plain).
+    """
+    text = f"{trigger} {name}".lower()
+    if any(k in text for k in ("hybrid", "híbrido", "hibrido")):
+        return "hybrid"
+    if "p2p" in text or "p2 p" in text or "braz" in text:
+        return "p2p"
+    # "dream tv", "dreamtv" → still IPTV type but with MAC (DreamTV flow)
+    if "dream" in text or "dreamtv" in text:
+        return "iptv"
+    if current in ("iptv", "p2p", "hybrid"):
+        return current
+    return "iptv"
+
+
 async def log_activity(activity_type: str, message: str, customer_id: str = None, status: str = "info", metadata: dict = None):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -291,7 +314,7 @@ async def process_incoming_message(
             }
             await whatsapp_client.send_message(
                 phone_clean,
-                f"📺 Para criar seu teste {matched['system_type'].upper()} preciso do endereço MAC do seu aparelho.\n\n"
+                f"📺 Para criar seu teste {(matched.get('system_type') or 'iptv').upper()} preciso do endereço MAC do seu aparelho.\n\n"
                 f"📱 Formato: `AA:BB:CC:DD:EE:FF`\n"
                 f"💡 Onde encontrar: Menu → Configurações → Info do sistema → Endereço MAC\n\n"
                 f"Você tem {_MAX_MAC_ATTEMPTS} tentativas para enviar o MAC correto."
@@ -308,16 +331,35 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
     Extracted from process_incoming_message so the MAC-retry flow can call it
     once a valid MAC arrives on a subsequent message.
     """
-    await log_activity("bot_trigger", f"Comando '{matched['trigger_command']}' de {phone_clean}", customer["id"], "info")
+    # ---- Defensive normalization of system_type ----
+    # In production we saw templates whose trigger_command / name clearly say
+    # "hybrid" or "dream tv" but whose `system_type` DB column was set to
+    # "iptv" by mistake — result: Hybrid clients ended up as plain DreamTV
+    # trials and vice-versa. Infer from name+trigger when they contradict.
+    raw_system = (matched.get("system_type") or "").lower().strip()
+    inferred_system = _infer_system_type(
+        matched.get("trigger_command") or "",
+        matched.get("name") or "",
+        raw_system,
+    )
+    if inferred_system != raw_system:
+        logger.warning(
+            "Template %r has system_type=%r but trigger/name says %r — using inferred value. "
+            "Fix the template in the admin panel to remove this warning.",
+            matched.get("name"), raw_system, inferred_system,
+        )
+    system_type = inferred_system
+
+    await log_activity("bot_trigger", f"Comando '{matched['trigger_command']}' de {phone_clean} (system={system_type})", customer["id"], "info")
     logger.info(
         "Creating trial via painel.fun: system=%s mac=%s customer=%s",
-        matched["system_type"], mac, customer["id"],
+        system_type, mac, customer["id"],
     )
 
     try:
         # Call painel.fun to create trial
         result = await painel.create_trial(
-            system_type=matched["system_type"],
+            system_type=system_type,
             mac=mac,
             name=customer.get("name") or phone_clean,
             # For LID chats we can't send a real phone to painel.fun — send only if plain
@@ -334,14 +376,14 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 "INSERT INTO trials (id, customer_id, system_type, mac, painel_user, painel_pass, trial_user_id, expires_at, created_at, raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (trial_id, customer["id"], matched["system_type"], mac,
+                (trial_id, customer["id"], system_type, mac,
                  painel_user, painel_pass, trial_user_id, expires, now_iso(),
                  json.dumps(result)),
             )
             # Update customer system_type + credentials
             await db.execute(
                 "UPDATE customers SET system_type = ?, mac = COALESCE(?, mac), painel_username = ?, painel_password = ?, expires_at = ?, updated_at = ? WHERE id = ?",
-                (matched["system_type"], mac, painel_user, painel_pass, expires, now_iso(), customer["id"])
+                (system_type, mac, painel_user, painel_pass, expires, now_iso(), customer["id"])
             )
             await db.commit()
 
@@ -378,7 +420,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                     result_link = await infinitepay.create_payment_link(
                         order_nsu=f"trial-{order_ref}-{months}m",
                         amount_cents=amount_cents,
-                        description=f"Assinatura {matched['system_type'].upper()} — {months} {'mês' if months == 1 else 'meses'}",
+                        description=f"Assinatura {system_type.upper()} — {months} {'mês' if months == 1 else 'meses'}",
                         redirect_url=f"{public_base}/pay/{payment_ref_id}?ok=1" if public_base else None,
                         webhook_url=f"{public_base}/api/payments/webhook" if public_base else None,
                         customer_name=customer.get("name"),
@@ -389,7 +431,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                     logger.warning("Failed to generate InfinitePay link for %dm: %s", months, pay_err)
 
         response = (template
-                    .replace("{system_type}", matched["system_type"].upper())
+                    .replace("{system_type}", system_type.upper())
                     .replace("{user}", painel_user or "-")
                     .replace("{pass}", painel_pass or "-")
                     .replace("{expires}", expires or "24h")
@@ -403,7 +445,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
 
         await whatsapp_client.send_message(phone_clean, response)
         await save_message(phone_clean, response, "out", customer["id"])
-        await log_activity("trial_created", f"Teste {matched['system_type']} criado para {phone_clean}", customer["id"], "success", result)
+        await log_activity("trial_created", f"Teste {system_type} criado para {phone_clean}", customer["id"], "success", result)
 
         # Schedule 1h + 3h reminders
         try:
@@ -413,7 +455,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                 "user": painel_user or "",
                 "pass": painel_pass or "",
                 "expires": expires or "",
-                "system_type": (matched["system_type"] or "").upper(),
+                "system_type": (system_type or "").upper(),
                 "mac": mac or "",
                 "pay_link": checkout_link,
                 "pay_link_1m": pay_links_by_plan.get(1, checkout_link) or "",
@@ -441,7 +483,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                 "full_name": customer.get("name") or "",
                 "whatsapp": phone_clean,
                 "is_trial": 1,
-                "system": {"iptv": 1, "p2p": 2, "hybrid": 3}.get(matched["system_type"], 1),
+                "system": {"iptv": 1, "p2p": 2, "hybrid": 3}.get(system_type, 1),
             }
             await upsert_users_in_cache([trial_user_record])
             logger.info("Injected trial %s into cache for instant /pay/%s lookup",
@@ -462,7 +504,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                 "painel_password": painel_pass,
                 "full_name": customer.get("name") or "",
                 "whatsapp": phone_clean,
-                "system_type": matched["system_type"],
+                "system_type": system_type,
                 "is_trial": True,
                 "mac": mac,
                 "exp_date_iso": expires,
