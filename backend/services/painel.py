@@ -169,33 +169,51 @@ async def create_trial(
 
     password = _rand(8)
 
+    # painel.fun expects `type` as integer: 1=IPTV, 2=P2P, 3=Hybrid.
+    # The Hybrid trial payload also requires `isHybrid: true` and empty
+    # username/password strings (painel generates them server-side after
+    # change_system).
+    type_int_map = {"iptv": 1, "p2p": 2, "hybrid": 3}
+    type_int = type_int_map.get((system_type or "").lower(), 1)
+    is_hybrid = (system_type or "").lower() == "hybrid"
+
+    if is_hybrid:
+        # Hybrid: no local credentials — painel creates them after change_system
+        payload_username = ""
+        payload_password = ""
+    else:
+        payload_username = username
+        payload_password = password
+
     payload: dict = {
         "package_id": package_id,
-        "username": username,
-        "password": password,
-        "is_trial": True,
-        "adult_channels": True,
+        "username": payload_username,
+        "password": payload_password,
+        "max_connections": 1,
+        "type": type_int,
+        "isHybrid": is_hybrid,
+        "as_number": whatsapp or "",
+        "full_name": name or "",
     }
+    # keep legacy fields for backward compat with older painel deployments
+    if not is_hybrid:
+        payload["is_trial"] = True
+        payload["adult_channels"] = True
+    payload["system"] = type_int
+    if system_type:
+        payload["system_type"] = system_type
     if name:
         payload["name"] = name
-        payload["full_name"] = name
     if whatsapp:
         payload["whatsapp"] = whatsapp
-        payload["as_number"] = whatsapp
+    # MAC goes in the initial payload for IPTV+MAC and for Hybrid
     if mac and system_type in ("iptv", "hybrid"):
         payload["mac"] = mac
         payload["macaddr"] = mac
-    # painel.fun expects `system` as integer: 1=IPTV, 2=P2P, 3=Hybrid
-    system_int_map = {"iptv": 1, "p2p": 2, "hybrid": 3}
-    if system_type:
-        payload["system_type"] = system_type
-        system_int = system_int_map.get(system_type.lower())
-        if system_int is not None:
-            payload["system"] = system_int
 
     logger.info(
-        "create_trial payload username=%s system=%s (int=%s) mac=%s",
-        username, system_type, payload.get("system"), mac,
+        "create_trial payload username=%s type=%s isHybrid=%s mac=%s",
+        payload_username or "(empty)", type_int, is_hybrid, mac,
     )
 
     def _post_trial(tok):
@@ -217,8 +235,9 @@ async def create_trial(
         token = await login(force=True)
         resp = await asyncio.to_thread(_post_trial, token)
 
-    # If username already exists on painel.fun, retry once with a short random suffix
-    if resp.status_code >= 400 and any(
+    # If username already exists on painel.fun, retry once with a short random suffix.
+    # Skip for Hybrid — its username is empty by design (painel generates server-side).
+    if not is_hybrid and resp.status_code >= 400 and any(
         keyword in resp.text.lower()
         for keyword in ("já existe", "already exist", "already taken", "duplicate", "username")
     ):
@@ -235,8 +254,10 @@ async def create_trial(
 
     result = resp.json() if resp.text else {}
     if isinstance(result, dict):
-        result.setdefault("username", username)
-        result.setdefault("password", password)
+        # For Hybrid, painel returns null username/password — don't force ours in
+        if not is_hybrid:
+            result.setdefault("username", username)
+            result.setdefault("password", password)
 
     trial_id = result.get("id") or result.get("user_id")
 
@@ -244,7 +265,7 @@ async def create_trial(
     # painel.fun creates every trial as IPTV (system=1) by default. To convert
     # to P2P or Hybrid we must call `change_system` right after creation.
     if trial_id and system_type in ("p2p", "hybrid"):
-        target_int = system_int_map[system_type]
+        target_int = type_int_map[system_type]
         try:
             await change_system(str(trial_id), target_int)
             result["system"] = target_int

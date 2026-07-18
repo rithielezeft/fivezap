@@ -331,6 +331,98 @@ def test_create_trial_iptv_fails_when_mac_invalid_on_dreamtv():
         _run(go())
 
 
+def test_hybrid_payload_matches_real_panel_format():
+    """The Hybrid trial_users payload must include:
+       - type: 3
+       - isHybrid: true
+       - macaddr: <mac>
+       - username: "" and password: "" (painel generates them)
+       - max_connections: 1
+       - full_name: <name>
+       - as_number: <whatsapp>
+    Based on the real browser payload from painel.fun.
+    """
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, **kwargs):
+        if "trial_users" in url and "payload" not in captured:
+            captured["payload"] = json
+        return FakeResp(200, {"id": 228124790, "macaddr": (json or {}).get("macaddr")})
+
+    def fake_get(url, params=None, **kwargs):
+        return FakeResp(200, {"valid": True})
+
+    async def go():
+        with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
+             patch.object(painel, "get_setting", side_effect=_fake_get_setting), \
+             patch.object(painel, "resync_user", new=AsyncMock(return_value={"ok": True})), \
+             patch("services.painel.cffi_requests.post", side_effect=fake_post), \
+             patch("services.painel.cffi_requests.get", side_effect=fake_get):
+            await painel.create_trial(
+                system_type="hybrid", name="guilhermetv",
+                whatsapp="", mac="55:F0:DC:50:5C:2C",
+            )
+
+    _run(go())
+    p = captured["payload"]
+    assert p["type"] == 3, "Hybrid must send type=3"
+    assert p["isHybrid"] is True, "Hybrid must send isHybrid=true"
+    assert p["macaddr"] == "55:F0:DC:50:5C:2C"
+    assert p["username"] == "", "Hybrid username must be empty (painel generates)"
+    assert p["password"] == "", "Hybrid password must be empty (painel generates)"
+    assert p["max_connections"] == 1
+    assert p["full_name"] == "guilhermetv"
+    assert p["package_id"] == 61
+
+
+def test_p2p_payload_has_type_2_and_isHybrid_false():
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, **kwargs):
+        if "trial_users" in url and "payload" not in captured:
+            captured["payload"] = json
+        return FakeResp(200, {"id": 111, "username": (json or {}).get("username")})
+
+    async def go():
+        with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
+             patch.object(painel, "get_setting", side_effect=_fake_get_setting), \
+             patch.object(painel, "resync_user", new=AsyncMock(return_value={"ok": True})), \
+             patch("services.painel.cffi_requests.post", side_effect=fake_post):
+            await painel.create_trial(
+                system_type="p2p", name="Ana", whatsapp="551190000012"
+            )
+
+    _run(go())
+    p = captured["payload"]
+    assert p["type"] == 2
+    assert p["isHybrid"] is False
+    assert p["username"], "P2P must have generated username"
+    assert p["password"], "P2P must have generated password"
+    assert p["max_connections"] == 1
+
+
+def test_iptv_payload_has_type_1_and_isHybrid_false():
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, **kwargs):
+        if "trial_users" in url and "payload" not in captured:
+            captured["payload"] = json
+        return FakeResp(200, {"id": 999, "username": (json or {}).get("username")})
+
+    async def go():
+        with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
+             patch.object(painel, "get_setting", side_effect=_fake_get_setting), \
+             patch("services.painel.cffi_requests.post", side_effect=fake_post):
+            await painel.create_trial(
+                system_type="iptv", name="Ana", whatsapp="551190000012"
+            )
+
+    _run(go())
+    p = captured["payload"]
+    assert p["type"] == 1
+    assert p["isHybrid"] is False
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
