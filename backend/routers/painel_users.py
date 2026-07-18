@@ -55,6 +55,49 @@ async def _write_cache(users: list[dict]):
         await db.commit()
 
 
+def _user_key(u: dict) -> Optional[str]:
+    """Stable identity for a painel user record (used to dedupe on upsert)."""
+    for k in ("id", "user_id", "username"):
+        v = u.get(k)
+        if v is not None and str(v).strip():
+            return str(v)
+    return None
+
+
+async def upsert_users_in_cache(new_users: list[dict]) -> int:
+    """Add or update the given users in the local cache WITHOUT wiping existing ones.
+
+    This is called right after trial creation so `/pay/{id}` and `/customers`
+    show the newly-created trial immediately — no waiting for a full painel
+    refresh (which can take 30–90 seconds because of Turnstile solve).
+
+    Also used by refresh_cache_task to merge painel results with previously
+    known users, so a transient painel outage never makes previously-active
+    payment links stop working ("Link inválido") for other customers.
+    """
+    if not new_users:
+        return 0
+    existing, _ = await _read_cache()
+    by_key: dict = {}
+    for u in existing:
+        k = _user_key(u)
+        if k:
+            by_key[k] = u
+    added = 0
+    for u in new_users:
+        k = _user_key(u)
+        if not k:
+            continue
+        if k in by_key:
+            # Merge: new fields overwrite old ones, but keep old fields we don't get
+            by_key[k] = {**by_key[k], **u}
+        else:
+            by_key[k] = u
+            added += 1
+    await _write_cache(list(by_key.values()))
+    return added
+
+
 async def refresh_cache_task():
     if _refresh_state["running"]:
         return
@@ -64,11 +107,17 @@ async def refresh_cache_task():
         try:
             logger.info("Refreshing painel.fun users cache...")
             users = await painel.list_users(limit=10000)
-            await _write_cache(users)
+            # MERGE strategy: never wipe already-known users when painel
+            # returns an empty/short list (transient error, throttling, etc.).
+            # This guarantees active pay links stay valid.
+            if users:
+                added = await upsert_users_in_cache(users)
+                logger.info("Painel cache refreshed: %d users (added %d new)", len(users), added)
+            else:
+                logger.warning("Painel returned empty user list — keeping existing cache intact")
             _refresh_state["last_refresh_at"] = datetime.now(timezone.utc).isoformat()
-            logger.info("Painel cache refreshed: %d users", len(users))
         except Exception as e:
-            logger.exception("Painel cache refresh failed")
+            logger.exception("Painel cache refresh failed — keeping existing cache")
             _refresh_state["last_error"] = str(e)
         finally:
             _refresh_state["running"] = False

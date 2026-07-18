@@ -27,6 +27,11 @@ def test_endpoint_falls_back_to_painel_cache(monkeypatch):
     from database import init_db, DB_PATH  # noqa
     import database
     importlib.reload(database)  # re-read env var
+    # Also reload modules that import DB_PATH at module-load time, so they
+    # pick up the reloaded database.DB_PATH.
+    from routers import painel_users, payments  # noqa
+    importlib.reload(painel_users)
+    importlib.reload(payments)
 
     async def _run():
         await database.init_db()

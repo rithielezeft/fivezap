@@ -65,13 +65,26 @@ async def public_request_trial(payload: PublicTrialRequest):
 
     await log_activity("public_trial_created", f"Teste solicitado por {payload.name}", customer_id, "success")
 
-    # Refresh the painel users cache so the /customers page shows the new trial
+    # Inject the freshly-created trial into the cache IMMEDIATELY so /pay/{id}
+    # works from any browser worldwide without waiting for the async painel
+    # refresh (30–90s Turnstile-gated).
     try:
+        from routers.painel_users import upsert_users_in_cache, refresh_cache_task
+        trial_user_id_str = str(result.get("id") or result.get("user_id") or "")
+        trial_user_record = {
+            **(result if isinstance(result, dict) else {}),
+            "id": trial_user_id_str or None,
+            "username": painel_user,
+            "full_name": payload.name or "",
+            "whatsapp": phone_digits or "",
+            "is_trial": 1,
+            "system": {"iptv": 1, "p2p": 2, "hybrid": 3}.get(payload.system_type, 1),
+        }
+        await upsert_users_in_cache([trial_user_record])
         import asyncio as _asyncio
-        from routers.painel_users import refresh_cache_task
         _asyncio.create_task(refresh_cache_task())
     except Exception:
-        logger.exception("Failed to schedule painel users cache refresh")
+        logger.exception("Failed to inject trial into painel users cache")
 
     # Fire trial_ready + schedule 1h/3h reminders
     try:

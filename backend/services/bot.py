@@ -428,13 +428,28 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
 
         # Fire-and-forget: refresh the painel users cache so the /customers
         # page in the admin panel shows the newly-created trial immediately.
+        # BUT ALSO synchronously inject the trial into the cache so /pay/{id}
+        # works instantly from any browser worldwide — no waiting for the
+        # 30-90s Turnstile-gated painel refresh.
         try:
+            from routers.painel_users import upsert_users_in_cache, refresh_cache_task
+            # Build a painel-user-shaped record from the trial result
+            trial_user_record = {
+                **(result if isinstance(result, dict) else {}),
+                "id": trial_user_id or result.get("id"),
+                "username": painel_user or result.get("username"),
+                "full_name": customer.get("name") or "",
+                "whatsapp": phone_clean,
+                "is_trial": 1,
+                "system": {"iptv": 1, "p2p": 2, "hybrid": 3}.get(matched["system_type"], 1),
+            }
+            await upsert_users_in_cache([trial_user_record])
+            logger.info("Injected trial %s into cache for instant /pay/%s lookup",
+                        trial_user_id, trial_user_id)
             import asyncio as _asyncio
-            from routers.painel_users import refresh_cache_task
             _asyncio.create_task(refresh_cache_task())
-            logger.info("Scheduled painel users cache refresh after trial creation")
         except Exception:
-            logger.exception("Failed to schedule painel users cache refresh")
+            logger.exception("Failed to inject trial into painel users cache")
 
     except Exception as e:
         logger.exception("Failed to create trial: %s", e)
