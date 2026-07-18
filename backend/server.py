@@ -168,26 +168,24 @@ async def health():
     return {"status": "healthy"}
 
 
-@app.on_event("startup")
-async def _startup_launch_pollers():
-    """Launch background pollers on FastAPI startup.
+@app.get("/api/health/poller")
+async def health_poller():
+    """Observability endpoint: is the payment poller task alive?
 
-    - payment_poller: actively reconciles pending payments with InfinitePay
-      every 20s. Guarantees renewals happen even when the webhook is slow,
-      dropped or blocked.
+    Returns 200 with running=true when the background task is scheduled and
+    hasn't errored out. Used for smoke tests + monitoring to catch silent
+    startup failures (e.g. the earlier @app.on_event vs lifespan= regression).
     """
-    try:
-        from services.payment_poller import start_poller
-        start_poller()
-    except Exception:
-        import logging
-        logging.getLogger(__name__).exception("Failed to start payment poller (non-fatal)")
+    from services import payment_poller
+    task = payment_poller._poller_task
+    return {
+        "running": bool(task and not task.done()),
+        "task_name": task.get_name() if task else None,
+        "task_done": bool(task and task.done()),
+    }
 
 
-@app.on_event("shutdown")
-async def _shutdown_stop_pollers():
-    try:
-        from services.payment_poller import stop_poller
-        stop_poller()
-    except Exception:
-        pass
+# NOTE: startup/shutdown for the payment poller is handled inside the
+# `lifespan()` context manager above (see start of file). FastAPI ignores
+# @app.on_event decorators when a lifespan= is set — do NOT re-introduce
+# them here.

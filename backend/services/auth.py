@@ -66,6 +66,8 @@ PUBLIC_PATH_PREFIXES = (
 def is_public(path: str, method: str = "GET") -> bool:
     if path == "/api/" or path == "/api/health":
         return True
+    if path.startswith("/api/health"):  # includes /api/health/poller
+        return True
     if path.startswith("/api/auth/"):
         return True
     if path.startswith("/api/public/"):
