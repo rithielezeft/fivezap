@@ -195,9 +195,12 @@ def test_create_trial_p2p_calls_change_system_2_and_resync_p2p():
 
 
 def test_create_trial_hybrid_full_flow():
-    """Hybrid + MAC: trial_users → change_system{3} → validate_mac → dreamtv/playlist → resync_hybrid."""
+    """Hybrid + MAC: trial_users → change_system{3} → resync_hybrid.
+
+    Hybrid does NOT call DreamTV validate/playlist — that's IPTV-only.
+    The macaddr is already sent in the initial trial_users payload.
+    """
     calls = []
-    validated_mac = {"got": None}
 
     def fake_post(url, json=None, headers=None, **kwargs):
         calls.append({"url": url, "payload": json})
@@ -205,8 +208,10 @@ def test_create_trial_hybrid_full_flow():
             return FakeResp(200, {"id": 222, "username": (json or {}).get("username")})
         return FakeResp(200, {"ok": True})
 
+    dreamtv_called = {"flag": False}
+
     def fake_get(url, params=None, **kwargs):
-        validated_mac["got"] = (params or {}).get("mac")
+        dreamtv_called["flag"] = True
         return FakeResp(200, {"valid": True})
 
     async def go():
@@ -226,12 +231,13 @@ def test_create_trial_hybrid_full_flow():
     cs = [c for c in calls if c["url"].endswith("/change_system")]
     assert len(cs) == 1
     assert cs[0]["payload"] == {"system_id": 3}
-    # dreamtv/playlist
-    dtv = [c for c in calls if c["url"].endswith("/dreamtv/playlist")]
-    assert len(dtv) == 1
-    assert dtv[0]["payload"]["macaddr"] == "55:F0:DC:50:5C:2C"
-    # validated MAC via dreamtv.life
-    assert validated_mac["got"] == "55:F0:DC:50:5C:2C"
+    # NO dreamtv/playlist for hybrid
+    assert not any(u.endswith("/dreamtv/playlist") for u in urls)
+    # NO dreamtv validate_mac for hybrid
+    assert dreamtv_called["flag"] is False
+    # macaddr must be in the initial trial_users payload
+    trial_call = next(c for c in calls if c["url"].endswith("/trial_users"))
+    assert trial_call["payload"].get("macaddr") == "55:F0:DC:50:5C:2C"
     # resync_hybrid
     assert any(u.endswith("/api/users/222/resync_hybrid") for u in urls)
 
@@ -270,13 +276,44 @@ def test_create_trial_iptv_with_mac_calls_dreamtv_but_not_change_system():
 
 
 def test_create_trial_hybrid_fails_when_mac_invalid_on_dreamtv():
+    """Hybrid should NOT call DreamTV — so even with 'invalid' MAC, trial succeeds
+    (change_system happens, macaddr is stored on the user, and resync completes).
+    """
     def fake_post(url, json=None, headers=None, **kwargs):
         if "trial_users" in url:
             return FakeResp(200, {"id": 444, "username": (json or {}).get("username")})
         return FakeResp(200, {"ok": True})
 
+    dreamtv_called = {"flag": False}
+
     def fake_get(url, params=None, **kwargs):
-        # DreamTV says invalid
+        dreamtv_called["flag"] = True
+        return FakeResp(200, {"valid": False})
+
+    async def go():
+        with patch.object(painel, "login", new=AsyncMock(return_value="tok")), \
+             patch.object(painel, "get_setting", side_effect=_fake_get_setting), \
+             patch("services.painel.cffi_requests.post", side_effect=fake_post), \
+             patch("services.painel.cffi_requests.get", side_effect=fake_get):
+            return await painel.create_trial(
+                system_type="hybrid", name="Dan", whatsapp="551190000067",
+                mac="00:00:00:00:00:00",
+            )
+
+    result = _run(go())
+    assert result["id"] == 444
+    # DreamTV must NOT be consulted for hybrid
+    assert dreamtv_called["flag"] is False
+
+
+def test_create_trial_iptv_fails_when_mac_invalid_on_dreamtv():
+    """IPTV+MAC (DreamTV) must fail if MAC is rejected by dreamtv.life."""
+    def fake_post(url, json=None, headers=None, **kwargs):
+        if "trial_users" in url:
+            return FakeResp(200, {"id": 555, "username": (json or {}).get("username")})
+        return FakeResp(200, {"ok": True})
+
+    def fake_get(url, params=None, **kwargs):
         return FakeResp(200, {"valid": False})
 
     async def go():
@@ -285,7 +322,7 @@ def test_create_trial_hybrid_fails_when_mac_invalid_on_dreamtv():
              patch("services.painel.cffi_requests.post", side_effect=fake_post), \
              patch("services.painel.cffi_requests.get", side_effect=fake_get):
             await painel.create_trial(
-                system_type="hybrid", name="Dan", whatsapp="551190000067",
+                system_type="iptv", name="Eve", whatsapp="551190000089",
                 mac="00:00:00:00:00:00",
             )
 

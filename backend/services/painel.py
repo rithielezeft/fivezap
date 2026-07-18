@@ -253,10 +253,11 @@ async def create_trial(
             logger.error("change_system FAILED for %s → %s: %s", trial_id, target_int, e)
             raise RuntimeError(f"Trial criado mas falha ao mudar sistema para {system_type.upper()}: {e}")
 
-    # ---- STEP 3: DreamTV playlist for IPTV/Hybrid trials with MAC ----
-    # IPTV (com MAC) e Hybrid usam DreamTV. É preciso validar o MAC em
-    # dreamtv.life e depois criar a playlist no painel.
-    if trial_id and mac and system_type in ("iptv", "hybrid"):
+    # ---- STEP 3: DreamTV playlist for IPTV trials with MAC ----
+    # Apenas IPTV (DreamTV) precisa validar o MAC em dreamtv.life e criar a
+    # playlist. Hybrid NÃO faz esse passo — o macaddr já vai no trial_users e
+    # o change_system=3 basta.
+    if trial_id and mac and system_type == "iptv":
         try:
             valid = await validate_mac_dreamtv(mac)
             if not valid:

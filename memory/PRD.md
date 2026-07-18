@@ -21,7 +21,7 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 - **[FIX 2026-02-P0]** `create_trial` P2P/Hybrid: após POST /api/trial_users, chama `POST /api/users/{id}/change_system` com `{system_id: 2}` (P2P) ou `{system_id: 3}` (Hybrid) — painel.fun sempre cria como IPTV por padrão
-- **[FIX 2026-02-P0]** DreamTV com MAC (IPTV+MAC e Hybrid): valida MAC via `GET https://api.dreamtv.life/api/validate_mac?mac=xx` e ativa via `POST /api/users/{id}/dreamtv/playlist` com `{macaddr}` no payload
+- **[FIX 2026-02-P0]** DreamTV validate+playlist é chamado APENAS para IPTV+MAC. Hybrid não passa por DreamTV — o `macaddr` já é enviado no `POST /api/trial_users` e o `change_system=3` completa o fluxo.
 - **[FIX 2026-02-P0]** Bot MAC retry: cliente tem **3 tentativas** para enviar MAC no formato correto (AA:BB:CC:DD:EE:FF, aceita também `-` e sem separador). Cada tentativa inválida explica o formato e mostra tentativas restantes. Após 3 falhas o bot desiste graciosamente e limpa o estado.
 - **[FIX 2026-02-P0]** Pay link vinculado ao painel trial id: `order_nsu=trial-{painel_id}-{months}m` e `redirect_url=/pay/{painel_id}` — webhook InfinitePay agora encontra o cliente correto do trial
 - **[FIX 2026-02-P0]** `create_trial` agora envia `system` como inteiro no payload: 1=IPTV, 2=P2P, 3=Hybrid
