@@ -20,6 +20,9 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 ## Implemented (2026-02)
+- **[FEATURE 2026-02]** InfinitePay checkout pré-preenchido: `POST /api/payments` agora passa `customer_name` (do Mongo/local) e `customer_phone` (whatsapp digits-only, sem `@c.us`/`@lid`) para o InfinitePay. Cliente não precisa digitar nome/telefone no checkout, InfinitePay associa pagamento ao painel_id.
+- **[FIX 2026-02-P0]** Soft-failure detection avançado em `renew_user`: painel.fun envia respostas Rails-style com erro aninhado em `{"original": {"message": "..."}}`. Agora inspecionamos tanto top-level quanto `original` — evita marcar payment como renewed falsamente e mandar "Renovação confirmada" quando painel na verdade rejeitou.
+
 - **[FIX 2026-02-P0]** `renew_user` soft-failure detection: painel.fun às vezes retorna HTTP 200 com `{"message": "You do not have access..."}` em vez de 4xx. Agora detectamos isso e lançamos `RuntimeError` para o webhook não marcar payment como `renewed` falsamente e não enviar "Renovação confirmada" errada. (bug crítico identificado pelo testing agent iteration_12)
 - **[FIX 2026-02-P0]** WhatsApp service (`whatsapp-service/index.js`): `clearChromeStaleLocks()` remove SingletonLock/SingletonCookie/SingletonSocket/lockfile do userDataDir do Chrome no startup, resolvendo o erro "The browser is already running for /root/.whatsflow/wwebjs_auth/session-whatsflow". Também mata processos Chrome órfãos que estivessem segurando o profile. Graceful shutdown via SIGTERM/SIGINT.
 
