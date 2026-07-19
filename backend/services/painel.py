@@ -14,6 +14,37 @@ logger = logging.getLogger(__name__)
 _token_cache: dict = {"token": None, "expires_at": 0}
 
 
+def _sanitize_for_painel(s: Optional[str], max_len: int = 60) -> str:
+    """Strip characters that painel.fun's MySQL DB (utf8, not utf8mb4) rejects.
+
+    Reported error: `Incorrect string value: '\\xF0\\x9F\\xA4\\x8D'` — that's
+    the 4-byte UTF-8 encoding of an emoji (in this case 🤍). MySQL columns
+    declared as `utf8` (not `utf8mb4`) refuse any 4-byte codepoint.
+
+    We drop:
+      - all characters above U+FFFF (all emojis and rarely-used scripts)
+      - ASCII control chars (except newline/tab)
+      - trailing whitespace
+    We keep accented Latin characters (é, ç, ã, ü) — those are safe in utf8.
+    """
+    if not s:
+        return ""
+    out = []
+    for ch in str(s):
+        cp = ord(ch)
+        # Drop 4-byte UTF-8 (emojis, ancient scripts) — MySQL utf8 refuses these
+        if cp > 0xFFFF:
+            continue
+        # Drop C0 controls except common whitespace
+        if cp < 0x20 and ch not in ("\t", "\n"):
+            continue
+        # Drop DEL and C1 controls
+        if 0x7F <= cp <= 0x9F:
+            continue
+        out.append(ch)
+    return "".join(out).strip()[:max_len]
+
+
 async def solve_turnstile() -> str:
     """Solve Cloudflare Turnstile via 2Captcha (sync API in thread)."""
     api_key = await get_setting("twocaptcha_key")
@@ -152,6 +183,12 @@ async def create_trial(
             if cleaned:
                 return cleaned[:15]
         return ""
+
+    # Sanitize name/whatsapp for painel.fun's MySQL (utf8 not utf8mb4).
+    # Emojis in WhatsApp push names (🤍, 😊, etc.) cause 400 error:
+    # "Incorrect string value: '\\xF0\\x9F...' for column".
+    name = _sanitize_for_painel(name)
+    whatsapp = _sanitize_for_painel(whatsapp, max_len=30)
 
     # Build username: {firstname}{last_2_digits}new
     digits_only = "".join(c for c in (whatsapp or "") if c.isdigit())
