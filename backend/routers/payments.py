@@ -1190,18 +1190,42 @@ async def get_customer_payment_info(customer_id: str):
 
     # Recent payments (last 10) — with receipts. Shown on /pay/{id} so the
     # client always sees their own history and proof-of-payment.
+    # Backfill: for paid payments missing `receipt_url`, try InfinitePay's
+    # /payment_check to fetch it now (in-page) so the client sees the
+    # comprovante immediately even for older captures.
     payments_history = []
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             cur = await db.execute(
                 "SELECT id, plan_months, amount_cents, status, paid_at, created_at,"
-                " receipt_url, infinitepay_url"
+                " receipt_url, infinitepay_url, order_nsu, transaction_nsu"
                 " FROM payments WHERE customer_id = ?"
                 " ORDER BY created_at DESC LIMIT 10",
                 (customer["id"],),
             )
             payments_history = [dict(r) for r in await cur.fetchall()]
+
+        # Best-effort backfill of missing receipt_url for paid payments.
+        # Non-blocking on failure — we always return whatever we already have.
+        for p in payments_history:
+            if p.get("status") == "paid" and not p.get("receipt_url") and p.get("order_nsu"):
+                try:
+                    from services import infinitepay
+                    check = await infinitepay.check_payment(
+                        p["order_nsu"], transaction_nsu=p.get("transaction_nsu"),
+                    )
+                    r_url = str(check.get("receipt_url") or "").strip()
+                    if r_url:
+                        p["receipt_url"] = r_url
+                        async with aiosqlite.connect(DB_PATH) as db:
+                            await db.execute(
+                                "UPDATE payments SET receipt_url = ? WHERE id = ?",
+                                (r_url, p["id"]),
+                            )
+                            await db.commit()
+                except Exception:
+                    logger.exception("receipt_url backfill failed for payment %s", p.get("id"))
     except Exception:
         logger.exception("Failed to load payments history for %s", customer["id"])
 

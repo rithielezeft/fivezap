@@ -231,52 +231,95 @@ export default function PublicPay() {
         {(data?.payments_history?.length > 0) && (
           <div className="surface rounded-2xl p-6 mt-6" data-testid="payments-history">
             <h3 className="text-sm uppercase tracking-widest text-white/50 mb-4">
-              Seus pagamentos
+              Seus pagamentos e comprovantes
             </h3>
-            <div className="space-y-3">
-              {data.payments_history.map((p) => (
+
+            {/* Destaque no último pagamento pago */}
+            {(() => {
+              const latestPaid = data.payments_history.find((p) => p.status === "paid");
+              if (!latestPaid) return null;
+              const receiptLink = latestPaid.receipt_url || latestPaid.infinitepay_url;
+              return (
                 <div
-                  key={p.id}
-                  data-testid={`history-payment-${p.id}`}
-                  className="flex items-center justify-between p-3 rounded-lg border border-white/[0.05] bg-white/[0.02]"
+                  data-testid="latest-receipt-highlight"
+                  className="mb-4 p-4 rounded-xl border border-[#34C759]/40 bg-[#34C759]/5"
                 >
-                  <div>
-                    <div className="text-sm font-medium">
-                      {p.plan_months} mês{p.plan_months > 1 ? "es" : ""} — {formatMoney(p.amount_cents)}
-                    </div>
-                    <div className="text-xs text-white/40 mt-0.5">
-                      {p.status === "paid"
-                        ? `Pago em ${new Date(p.paid_at || p.created_at).toLocaleString("pt-BR")}`
-                        : p.status === "pending"
-                        ? "Aguardando pagamento"
-                        : p.status}
-                    </div>
+                  <div className="text-xs uppercase tracking-widest text-[#34C759] mb-2">
+                    Último pagamento confirmado
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={
-                        "text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " +
-                        (p.status === "paid"
-                          ? "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30"
-                          : "bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30")
-                      }
-                    >
-                      {p.status === "paid" ? "Confirmado" : p.status}
-                    </span>
-                    {p.receipt_url && (
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-lg font-semibold">
+                        {formatMoney(latestPaid.amount_cents)} · {latestPaid.plan_months} mês
+                        {latestPaid.plan_months > 1 ? "es" : ""}
+                      </div>
+                      <div className="text-xs text-white/50 mt-1">
+                        {new Date(latestPaid.paid_at || latestPaid.created_at).toLocaleString("pt-BR")}
+                      </div>
+                    </div>
+                    {receiptLink && (
                       <a
-                        href={p.receipt_url}
+                        href={receiptLink}
                         target="_blank"
                         rel="noreferrer"
-                        data-testid={`receipt-link-${p.id}`}
-                        className="text-[#007AFF] text-xs hover:underline"
+                        data-testid="latest-receipt-link"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#34C759] text-black text-xs font-semibold hover:bg-[#34C759]/90 transition-colors"
                       >
-                        Comprovante ↗
+                        {latestPaid.receipt_url ? "Ver comprovante" : "Ver pagamento"} ↗
                       </a>
                     )}
                   </div>
                 </div>
-              ))}
+              );
+            })()}
+
+            <div className="space-y-3">
+              {data.payments_history.map((p) => {
+                const link = p.receipt_url || p.infinitepay_url;
+                return (
+                  <div
+                    key={p.id}
+                    data-testid={`history-payment-${p.id}`}
+                    className="flex items-center justify-between p-3 rounded-lg border border-white/[0.05] bg-white/[0.02]"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">
+                        {p.plan_months} mês{p.plan_months > 1 ? "es" : ""} — {formatMoney(p.amount_cents)}
+                      </div>
+                      <div className="text-xs text-white/40 mt-0.5">
+                        {p.status === "paid"
+                          ? `Pago em ${new Date(p.paid_at || p.created_at).toLocaleString("pt-BR")}`
+                          : p.status === "pending"
+                          ? "Aguardando pagamento"
+                          : p.status}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={
+                          "text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " +
+                          (p.status === "paid"
+                            ? "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30"
+                            : "bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30")
+                        }
+                      >
+                        {p.status === "paid" ? "Confirmado" : p.status}
+                      </span>
+                      {link && (
+                        <a
+                          href={link}
+                          target="_blank"
+                          rel="noreferrer"
+                          data-testid={`receipt-link-${p.id}`}
+                          className="text-[#007AFF] text-xs hover:underline"
+                        >
+                          {p.receipt_url ? "Comprovante" : "Detalhes"} ↗
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
