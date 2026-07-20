@@ -286,6 +286,12 @@ async def init_db():
             await db.execute("ALTER TABLE payments ADD COLUMN transaction_nsu TEXT")
         except Exception:
             pass
+        # Receipt URL from InfinitePay webhook (payload.receipt_url) — shown
+        # on /pay/{id} so the client can see proof of their own payment.
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN receipt_url TEXT")
+        except Exception:
+            pass
         try:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_txn_nsu ON payments(transaction_nsu)")
         except Exception:

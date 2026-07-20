@@ -39,7 +39,7 @@ def test_send_admin_alert_skips_when_setting_empty(tmp_path):
 
     sent = []
 
-    async def fake_send(phone, body, image_url=None):
+    async def fake_send(phone, body, image_url=None, **kw):
         sent.append((phone, body))
 
     async def go():
@@ -57,7 +57,7 @@ def test_send_admin_alert_sends_to_configured_phone(tmp_path):
 
     sent = []
 
-    async def fake_send(phone, body, image_url=None):
+    async def fake_send(phone, body, image_url=None, **kw):
         sent.append((phone, body))
 
     async def go():
@@ -75,7 +75,7 @@ def test_send_admin_alert_survives_whatsapp_failure(tmp_path):
     database = _fresh_env(tmp_path)
     from services import notifier, whatsapp_client
 
-    async def bad_send(phone, body, image_url=None):
+    async def bad_send(phone, body, image_url=None, **kw):
         raise RuntimeError("wa-service down")
 
     async def go():
@@ -100,7 +100,7 @@ def test_admin_alert_fires_on_successful_renewal(tmp_path):
     admin_msgs = []
     client_msgs = []
 
-    async def fake_wa_send(phone, body, image_url=None):
+    async def fake_wa_send(phone, body, image_url=None, **kw):
         # admin_whatsapp is 5511777777777, customer is 5511888888888
         if phone == "5511777777777":
             admin_msgs.append(body)
@@ -157,7 +157,7 @@ def test_admin_alert_fires_when_painel_id_missing(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     admin_msgs = []
 
-    async def fake_wa_send(phone, body, image_url=None):
+    async def fake_wa_send(phone, body, image_url=None, **kw):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
@@ -203,7 +203,7 @@ def test_admin_alert_fires_when_painel_renewal_fails(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     admin_msgs = []
 
-    async def fake_wa_send(phone, body, image_url=None):
+    async def fake_wa_send(phone, body, image_url=None, **kw):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
@@ -254,7 +254,7 @@ def test_admin_alert_silent_when_setting_empty_on_renewal(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     all_sends = []
 
-    async def fake_wa_send(phone, body, image_url=None):
+    async def fake_wa_send(phone, body, image_url=None, **kw):
         all_sends.append((phone, body))
 
     async def fake_renew(user_id, package_id):

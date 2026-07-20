@@ -375,21 +375,24 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
     if payment["status"] == "paid":
         if transaction_nsu and transaction_nsu != (payment.get("transaction_nsu") or ""):
             new_id_val = new_id()
+            receipt_url = str(raw.get("receipt_url") or "").strip()
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
                     "INSERT INTO payments (id, customer_id, plan_months, amount_cents,"
                     " package_id, status, infinitepay_url, order_nsu, confirmation_token,"
-                    " transaction_nsu, paid_at, created_at) VALUES (?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?)",
+                    " transaction_nsu, receipt_url, paid_at, created_at) VALUES (?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)",
                     (new_id_val, payment["customer_id"], payment["plan_months"],
                      payment["amount_cents"], payment["package_id"],
                      payment.get("infinitepay_url"), order_nsu,
                      payment.get("confirmation_token"),
-                     transaction_nsu, now_iso(), now_iso()),
+                     transaction_nsu, receipt_url or None,
+                     now_iso(), now_iso()),
                 )
                 await db.commit()
             payment["id"] = new_id_val
             payment["status"] = "paid"
             payment["transaction_nsu"] = transaction_nsu
+            payment["receipt_url"] = receipt_url
             logger.info(
                 "New capture on existing link (order_nsu=%s) → cloned payment=%s "
                 "(transaction_nsu=%s) — will renew again",
@@ -401,15 +404,18 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     "payment_id": payment["id"], "idempotent_by": "order_nsu"}
     else:
         # First-time confirmation for this pending payment: mark paid + store txn.
+        receipt_url = str(raw.get("receipt_url") or "").strip()
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 "UPDATE payments SET status = 'paid', paid_at = ?, "
-                "transaction_nsu = COALESCE(NULLIF(?, ''), transaction_nsu) "
+                "transaction_nsu = COALESCE(NULLIF(?, ''), transaction_nsu), "
+                "receipt_url = COALESCE(NULLIF(?, ''), receipt_url) "
                 "WHERE id = ?",
-                (now_iso(), transaction_nsu, payment["id"]),
+                (now_iso(), transaction_nsu, receipt_url, payment["id"]),
             )
             await db.commit()
         payment["transaction_nsu"] = transaction_nsu or payment.get("transaction_nsu")
+        payment["receipt_url"] = receipt_url or payment.get("receipt_url")
 
     # Resolve customer info + painel_id
     async with aiosqlite.connect(DB_PATH) as db:
@@ -419,20 +425,32 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         customer = dict(customer_row) if customer_row else {"id": payment["customer_id"], "name": "?", "whatsapp": "", "system_type": ""}
 
     # If customer info is missing (e.g. legacy customer only in Mongo), fill from Mongo
-    if not customer.get("whatsapp") or not customer.get("name") or customer.get("name") == "?":
+    if not customer.get("whatsapp") or not customer.get("name") or customer.get("name") in ("?", "cliente", "Cliente"):
         try:
             from services import mongo_store
             mongo_doc = await mongo_store.find_customer_by_painel_id(str(payment["customer_id"]))
             if mongo_doc:
-                if not customer.get("name") or customer.get("name") == "?":
+                if not customer.get("name") or customer.get("name") in ("?", "cliente", "Cliente"):
                     customer["name"] = (mongo_doc.get("full_name") or mongo_doc.get("name")
-                                        or mongo_doc.get("username") or "Cliente")
+                                        or mongo_doc.get("username") or "")
                 if not customer.get("whatsapp"):
                     customer["whatsapp"] = mongo_doc.get("whatsapp") or ""
                 if not customer.get("system_type"):
                     customer["system_type"] = mongo_doc.get("system_type") or ""
         except Exception:
             logger.exception("Mongo lookup for customer fallback failed")
+
+    # Final resolver — always ends up with the real name from painel.fun
+    # cache when local/mongo don't have it. Never leaves "?", "cliente", "".
+    if not customer.get("name") or customer.get("name") in ("?", "cliente", "Cliente"):
+        try:
+            from services.name_resolver import resolve_customer_name
+            customer["name"] = await resolve_customer_name(
+                str(payment["customer_id"]), fallback="cliente"
+            )
+        except Exception:
+            logger.exception("resolve_customer_name failed for %s", payment["customer_id"])
+            customer["name"] = customer.get("name") or "cliente"
 
     # PAINEL ID = the numeric id painel.fun uses in /api/users/{id}/renew.
     # We prefer the id embedded in order_nsu (`trial-{painel_id}-{months}m`),
@@ -1150,6 +1168,17 @@ async def get_customer_payment_info(customer_id: str):
             f"Atualize o cache do painel em Clientes → 'Atualizar do painel'."
         )
 
+    # If we resolved to a generic name, try harder — never show "Cliente"
+    # or the raw painel_id when a real name exists in another source.
+    if not customer.get("name") or customer["name"] in ("Cliente", "cliente"):
+        try:
+            from services.name_resolver import resolve_customer_name
+            better = await resolve_customer_name(str(customer["id"]), fallback="")
+            if better:
+                customer["name"] = better
+        except Exception:
+            pass
+
     # Fetch prices for all 4 plans
     prices = {}
     for m in (1, 3, 6, 12):
@@ -1159,4 +1188,44 @@ async def get_customer_payment_info(customer_id: str):
         except ValueError:
             prices[m] = 3500
 
-    return {"customer": customer, "prices_cents": prices}
+    # Recent payments (last 10) — with receipts. Shown on /pay/{id} so the
+    # client always sees their own history and proof-of-payment.
+    payments_history = []
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT id, plan_months, amount_cents, status, paid_at, created_at,"
+                " receipt_url, infinitepay_url"
+                " FROM payments WHERE customer_id = ?"
+                " ORDER BY created_at DESC LIMIT 10",
+                (customer["id"],),
+            )
+            payments_history = [dict(r) for r in await cur.fetchall()]
+    except Exception:
+        logger.exception("Failed to load payments history for %s", customer["id"])
+
+    # Recent WhatsApp messages this customer received from us (last 15).
+    # Filtered to outgoing only — never expose incoming private chat back to
+    # a public /pay/{id} page.
+    messages_history = []
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT id, phone, message, direction, timestamp"
+                " FROM messages"
+                " WHERE customer_id = ? AND direction = 'out'"
+                " ORDER BY timestamp DESC LIMIT 15",
+                (customer["id"],),
+            )
+            messages_history = [dict(r) for r in await cur.fetchall()]
+    except Exception:
+        logger.exception("Failed to load messages history for %s", customer["id"])
+
+    return {
+        "customer": customer,
+        "prices_cents": prices,
+        "payments_history": payments_history,
+        "messages_history": messages_history,
+    }

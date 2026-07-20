@@ -76,7 +76,7 @@ def test_phone_falls_back_to_painel_cache_and_notifies(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     all_sends = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         all_sends.append({"phone": phone, "body": body})
 
     async def fake_renew(user_id, package_id):
@@ -149,7 +149,7 @@ def test_hardcoded_fallback_when_template_disabled(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     sent = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         sent.append({"phone": phone, "body": body})
 
     async def fake_renew(user_id, package_id):
@@ -200,7 +200,7 @@ def test_admin_alert_shows_notify_status_success(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     admin_msgs = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
@@ -240,7 +240,7 @@ def test_admin_alert_shows_notify_status_when_no_phone(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     admin_msgs = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
@@ -284,7 +284,7 @@ def test_admin_alert_shows_notify_status_when_template_disabled(tmp_path):
     now_iso = datetime.now(timezone.utc).isoformat()
     admin_msgs = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511777777777":
             admin_msgs.append(body)
 

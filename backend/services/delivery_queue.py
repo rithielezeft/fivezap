@@ -36,22 +36,30 @@ async def enqueue(
     image_url: Optional[str] = None,
     customer_id: Optional[str] = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    typing_ms: int = 0,
 ) -> str:
     """Record a new delivery and attempt to send it immediately.
 
     Returns the delivery id. If the immediate send succeeds, status='sent'.
     If it fails, status='pending' and the retry loop will pick it up.
+
+    `typing_ms` is stored in `last_error` field prefixed with `__typing_ms__:`
+    so retries also honour the typing indicator without changing the schema.
+    Actual meaningful `last_error` is written on failure, overwriting this.
     """
     did = new_id()
     created_at = now_iso()
+    # Encode typing_ms into a lightweight side-channel: we keep a "hint" in
+    # last_error until first send happens; overwritten on real error.
+    hint = f"__typing_ms__:{int(typing_ms)}" if typing_ms and typing_ms > 0 else None
     async with aiosqlite.connect(database.DB_PATH) as db:
         await db.execute(
             "INSERT INTO notification_deliveries "
             "(id, event_key, phone, body, image_url, customer_id, status, "
-            " attempts, max_attempts, next_retry_at, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)",
+            " attempts, max_attempts, next_retry_at, last_error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)",
             (did, event_key, phone, body, image_url, customer_id, max_attempts,
-             created_at, created_at),
+             created_at, hint, created_at),
         )
         await db.commit()
 
@@ -78,9 +86,18 @@ async def _attempt(delivery_id: str) -> bool:
         return False
 
     attempts = int(d["attempts"]) + 1
+    # Extract typing_ms hint from last_error (set at enqueue time), if any.
+    typing_ms = 0
+    le = (d.get("last_error") or "")
+    if le.startswith("__typing_ms__:"):
+        try:
+            typing_ms = int(le.split(":", 1)[1])
+        except Exception:
+            typing_ms = 0
     try:
         await whatsapp_client.send_message(
-            d["phone"], d["body"], image_url=d["image_url"] or None
+            d["phone"], d["body"], image_url=d["image_url"] or None,
+            typing_ms=typing_ms,
         )
         async with aiosqlite.connect(database.DB_PATH) as db:
             await db.execute(

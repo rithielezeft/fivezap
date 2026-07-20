@@ -61,6 +61,18 @@ async def _check_and_notify():
     days_str = await get_setting("notification_days", "3,1,0")
     days = [int(d.strip()) for d in days_str.split(",") if d.strip()]
     public_base = await get_setting("public_base_url", "")
+    # Pacing: seconds between sending to consecutive clients so we don't
+    # look like a spam blast. Configurable; default 120s (2 min).
+    try:
+        pacing_seconds = int(await get_setting("notification_pacing_seconds", "120"))
+    except Exception:
+        pacing_seconds = 120
+    # Typing indicator duration (ms) — makes the message feel human-typed
+    # instead of instant-blasted. Default ~4s.
+    try:
+        typing_ms = int(await get_setting("notification_typing_ms", "4000"))
+    except Exception:
+        typing_ms = 4000
 
     # Try to fetch ALL users from painel.fun (paginated)
     try:
@@ -70,9 +82,13 @@ async def _check_and_notify():
         return
 
     now = datetime.now(timezone.utc)
-    logger.info("Notification check: %d users to scan, thresholds=%s", len(users), days)
+    logger.info(
+        "Notification check: %d users, thresholds=%s, pacing=%ds, typing=%dms",
+        len(users), days, pacing_seconds, typing_ms,
+    )
 
     sent_count = 0
+    first_send = True
     for u in users:
         try:
             info = compute_expiration_info(u)
@@ -94,7 +110,17 @@ async def _check_and_notify():
             if already:
                 continue
 
-            name = _pick(u, ["name", "full_name", "customer_name"]) or "cliente"
+            # Resolve real name — never send "cliente" if we can help it.
+            name = _pick(u, ["full_name", "name", "customer_name", "display_name",
+                             "username", "login"]) or ""
+            if not name.strip():
+                try:
+                    from services.name_resolver import resolve_customer_name
+                    name = await resolve_customer_name(user_id, fallback="cliente")
+                except Exception:
+                    name = "cliente"
+            name = (name or "cliente").strip()
+
             pay_link = f"{public_base}/pay/{user_id}"
             exp_dt = datetime.fromisoformat(exp_iso)
             ctx = {
@@ -108,7 +134,18 @@ async def _check_and_notify():
             event = _event_for_days(diff_days)
             if not event:
                 continue
-            sent = await send_notification(event, str(phone), ctx)
+
+            # Human-pacing: wait between clients (skip on the very first send
+            # so the loop feels responsive when there's only one match).
+            if not first_send and pacing_seconds > 0:
+                logger.info("Pacing: sleeping %ds before next reminder", pacing_seconds)
+                await asyncio.sleep(pacing_seconds)
+            first_send = False
+
+            sent = await send_notification(
+                event, str(phone), ctx, customer_id=user_id,
+                typing_ms=typing_ms,
+            )
             if sent:
                 await set_setting(key, "1")
                 sent_count += 1

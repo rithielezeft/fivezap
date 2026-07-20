@@ -27,11 +27,19 @@ async def get_qr() -> dict:
         return {"qr": None, "error": str(e)}
 
 
-async def send_message(phone: str, message: str, image_url: str = None) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
+async def send_message(phone: str, message: str, image_url: str = None,
+                       typing_ms: int = 0) -> dict:
+    """Send a WhatsApp message. Optionally shows "digitando..." for
+    `typing_ms` milliseconds before the message is delivered (max 15s).
+    Useful for expiration reminders to feel human, not batch-blasted."""
+    # httpx client timeout must exceed typing_ms + wa network overhead.
+    total_timeout = max(30, (typing_ms // 1000) + 20)
+    async with httpx.AsyncClient(timeout=total_timeout) as client:
         payload = {"phone": phone, "message": message}
         if image_url:
             payload["image_url"] = image_url
+        if typing_ms and typing_ms > 0:
+            payload["typing_ms"] = int(typing_ms)
         resp = await client.post(
             f"{WA_SERVICE_URL}/send",
             json=payload,

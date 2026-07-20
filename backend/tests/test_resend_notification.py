@@ -74,7 +74,7 @@ def test_resend_sends_via_template_when_enabled(tmp_path):
 
     sent = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         sent.append({"phone": phone, "body": body})
 
     async def fake_status():
@@ -101,7 +101,7 @@ def test_resend_fallback_when_template_disabled(tmp_path):
 
     sent = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         sent.append({"phone": phone, "body": body})
 
     async def fake_status():
@@ -162,7 +162,7 @@ def test_resend_resolves_phone_from_painel_cache(tmp_path):
     async def fake_status():
         return {"ready": True, "state": "connected"}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         pass
 
     async def go():

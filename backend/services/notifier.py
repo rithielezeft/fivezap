@@ -30,11 +30,16 @@ def render(template: str, ctx: dict) -> str:
 
 
 async def send_notification(event_key: str, phone: str, ctx: dict,
-                            customer_id: str | None = None) -> bool:
+                            customer_id: str | None = None,
+                            typing_ms: int = 0) -> bool:
     """Enqueue a template-rendered notification. Returns True if the FIRST
     attempt succeeded synchronously (message delivered inline), False if it
     was queued for retry. Missing/disabled template → returns False without
-    enqueuing anything (caller decides fallback)."""
+    enqueuing anything (caller decides fallback).
+
+    `typing_ms`: optional "digitando..." duration before the actual send.
+    Passed through to the WhatsApp service.
+    """
     tpl = await get_template(event_key)
     if not tpl:
         logger.info("Notification template '%s' disabled or missing", event_key)
@@ -49,6 +54,7 @@ async def send_notification(event_key: str, phone: str, ctx: dict,
             body=body,
             image_url=image,
             customer_id=customer_id,
+            typing_ms=typing_ms,
         )
         # `enqueue` already tried once synchronously — re-read to see the outcome.
         import aiosqlite

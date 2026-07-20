@@ -82,7 +82,7 @@ def test_two_captures_same_link_both_renew(tmp_path):
         renew_calls.append({"user_id": user_id, "package_id": package_id})
         return {"expires_at": "2027-01-01"}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         pass  # We don't care about the WA content here; other tests cover that
 
     async def go():

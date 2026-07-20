@@ -43,7 +43,7 @@ def test_enqueue_sends_immediately_and_marks_sent(tmp_path):
 
     sent = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         sent.append((phone, body))
 
     async def go():
@@ -75,7 +75,7 @@ def test_enqueue_failure_marks_pending_and_sets_next_retry(tmp_path):
     import aiosqlite
     from services import delivery_queue, whatsapp_client
 
-    async def bad_wa(phone, body, image_url=None):
+    async def bad_wa(phone, body, image_url=None, **kw):
         raise RuntimeError("wa-service down")
 
     async def go():
@@ -112,7 +112,7 @@ def test_retry_succeeds_when_wa_comes_back(tmp_path):
 
     call_count = [0]
 
-    async def flaky_wa(phone, body, image_url=None):
+    async def flaky_wa(phone, body, image_url=None, **kw):
         call_count[0] += 1
         if call_count[0] == 1:
             raise RuntimeError("first fail")
@@ -161,7 +161,7 @@ def test_retry_loop_ignores_pending_before_next_retry_at(tmp_path):
 
     call_count = [0]
 
-    async def bad_wa(phone, body, image_url=None):
+    async def bad_wa(phone, body, image_url=None, **kw):
         call_count[0] += 1
         raise RuntimeError("still down")
 
@@ -191,7 +191,7 @@ def test_max_attempts_reached_marks_failed_permanent_and_alerts_admin(tmp_path):
     from services import delivery_queue, whatsapp_client
 
     admin_msgs = []
-    async def bad_wa(phone, body, image_url=None):
+    async def bad_wa(phone, body, image_url=None, **kw):
         if phone == "5511777777777":  # admin
             admin_msgs.append(body)
             return  # admin alert succeeds (no raise)
@@ -240,7 +240,7 @@ def test_send_notification_uses_delivery_queue(tmp_path):
     import aiosqlite
     from services import notifier, whatsapp_client
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         pass
 
     async def go():
@@ -273,7 +273,7 @@ def test_send_admin_alert_uses_queue_when_configured(tmp_path):
     import aiosqlite
     from services import notifier, whatsapp_client
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         pass
 
     async def go():
@@ -303,7 +303,7 @@ def test_send_admin_alert_noop_when_setting_empty(tmp_path):
 
     sent = []
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         sent.append(phone)
 
     async def go():

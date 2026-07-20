@@ -281,6 +281,21 @@ app.post('/send', async (req, res) => {
       }
     }
 
+    // Optional typing indicator: show "digitando..." for N ms before sending
+    // the message. Simulates a human writing, reduces WA anti-spam heuristics,
+    // and makes notifications feel more personal.
+    const typingMs = Math.max(0, Math.min(15000, parseInt(req.body.typing_ms) || 0));
+    if (typingMs > 0) {
+      try {
+        const chat = await client.getChatById(chatId);
+        await chat.sendStateTyping();
+        await new Promise((resolve) => setTimeout(resolve, typingMs));
+        // Do NOT clear state — sendMessage below will replace it naturally.
+      } catch (typingErr) {
+        console.warn('[WA] sendStateTyping failed (non-fatal):', typingErr.message);
+      }
+    }
+
     let result;
     if (image_url) {
       const { MessageMedia } = require('whatsapp-web.js');

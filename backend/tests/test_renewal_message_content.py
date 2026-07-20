@@ -62,7 +62,7 @@ def test_iso_date_normalized_to_br_format(tmp_path):
 
     captured = {}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511900001111":
             captured["body"] = body
 
@@ -91,7 +91,7 @@ def test_full_iso_timestamp_normalized_to_br(tmp_path):
 
     captured = {}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511900001111":
             captured["body"] = body
 
@@ -118,7 +118,7 @@ def test_unix_timestamp_normalized_to_br(tmp_path):
 
     captured = {}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511900001111":
             captured["body"] = body
 
@@ -149,7 +149,7 @@ def test_missing_expiry_projected_from_current_customer_date(tmp_path):
 
     captured = {}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511900001111":
             captured["body"] = body
 
@@ -177,7 +177,7 @@ def test_missing_expiry_and_expired_customer_projects_from_today(tmp_path):
 
     captured = {}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511900001111":
             captured["body"] = body
 
@@ -211,7 +211,7 @@ def test_template_body_has_name_months_and_expires(tmp_path):
 
     captured = {}
 
-    async def fake_wa(phone, body, image_url=None):
+    async def fake_wa(phone, body, image_url=None, **kw):
         if phone == "5511900001111":
             captured["body"] = body
 
