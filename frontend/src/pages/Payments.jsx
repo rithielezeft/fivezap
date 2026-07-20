@@ -49,6 +49,7 @@ export default function Payments() {
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Pago em</th>
               <th className="px-4 py-3">Link</th>
+              <th className="px-4 py-3">Comprovante</th>
               <th className="px-4 py-3">Ações</th>
             </tr>
           </thead>
@@ -56,7 +57,25 @@ export default function Payments() {
             {(payments || []).map((p) => (
               <tr key={p.id} className="border-t border-white/[0.05]" data-testid={`payment-row-${p.id}`}>
                 <td className="px-4 py-3 text-xs text-white/60">{formatDateBR(p.created_at)}</td>
-                <td className="px-4 py-3 font-mono text-xs">{p.customer_id?.slice(0, 8)}...</td>
+                <td className="px-4 py-3">
+                  {p.customer_login ? (
+                    <span data-testid={`customer-login-${p.id}`} className="font-mono text-xs">
+                      {p.customer_login}
+                    </span>
+                  ) : (
+                    <span
+                      data-testid={`customer-id-${p.id}`}
+                      className="font-mono text-xs text-white/50"
+                      title="Login não encontrado — mostrando ID como fallback"
+                    >
+                      {p.customer_id?.slice(0, 10)}
+                      {p.customer_id?.length > 10 ? "…" : ""}
+                    </span>
+                  )}
+                  {p.customer_name && (
+                    <div className="text-[10px] text-white/40 mt-0.5">{p.customer_name}</div>
+                  )}
+                </td>
                 <td className="px-4 py-3">{p.plan_months} mês(es)</td>
                 <td className="px-4 py-3 text-right font-mono">{formatMoney(p.amount_cents)}</td>
                 <td className="px-4 py-3">
@@ -67,8 +86,35 @@ export default function Payments() {
                 <td className="px-4 py-3 text-xs text-white/60">{p.paid_at ? formatDateBR(p.paid_at) : "—"}</td>
                 <td className="px-4 py-3">
                   {p.infinitepay_url ? (
-                    <a href={p.infinitepay_url} target="_blank" rel="noreferrer" className="text-[#007AFF] hover:underline text-xs">Abrir</a>
+                    <a
+                      href={p.infinitepay_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[#007AFF] hover:underline text-xs"
+                      data-testid={`link-${p.id}`}
+                    >
+                      Abrir
+                    </a>
                   ) : "—"}
+                </td>
+                <td className="px-4 py-3">
+                  {p.status === "paid" && p.receipt_url ? (
+                    <a
+                      href={p.receipt_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border border-[#34C759]/40 bg-[#34C759]/5 text-[#34C759] hover:bg-[#34C759]/15 transition-colors"
+                      data-testid={`receipt-${p.id}`}
+                    >
+                      Ver ↗
+                    </a>
+                  ) : p.status === "paid" ? (
+                    <span className="text-[10px] text-white/30" title="Sem receipt_url — InfinitePay pode não ter retornado">
+                      pendente
+                    </span>
+                  ) : (
+                    <span className="text-white/30 text-xs">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {p.status === "paid" && (
@@ -85,7 +131,7 @@ export default function Payments() {
               </tr>
             ))}
             {(!payments || payments.length === 0) && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-white/40">Nenhum pagamento ainda</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-white/40">Nenhum pagamento ainda</td></tr>
             )}
           </tbody>
         </table>

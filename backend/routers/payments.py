@@ -16,10 +16,79 @@ logger = logging.getLogger(__name__)
 
 @router.get("", response_model=List[Payment])
 async def list_payments():
+    """Admin list — enriched with `customer_login` (painel.fun username) and
+    `customer_name` (real name), plus `receipt_url` for the Comprovante column.
+
+    The `customer_login` cascade in the UI is: painel_username → id.
+    Backfill of missing `receipt_url` for paid payments is best-effort via a
+    single InfinitePay `check_payment` call per row (skipped on errors so the
+    admin page always loads fast even when InfinitePay is slow).
+    """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM payments ORDER BY created_at DESC LIMIT 200")
-        return [Payment(**dict(r)) for r in await cur.fetchall()]
+        cur = await db.execute(
+            "SELECT p.*, c.painel_username, c.name as customer_name"
+            " FROM payments p LEFT JOIN customers c ON c.id = p.customer_id"
+            " ORDER BY p.created_at DESC LIMIT 200"
+        )
+        rows = [dict(r) for r in await cur.fetchall()]
+
+    # Backfill painel_username from the painel.fun cache for rows where it's
+    # missing — this happens for customers auto-created via /pay/{id} public
+    # link before we started persisting the username. Small in-memory index
+    # so we only scan the cache once per request.
+    missing_login = [r for r in rows if not r.get("painel_username")]
+    if missing_login:
+        try:
+            from routers.painel_users import _read_cache
+            users, _ = await _read_cache()
+            by_id = {}
+            for u in users:
+                uid = str(u.get("id") or u.get("user_id") or u.get("username") or "")
+                if uid:
+                    by_id[uid] = u.get("username") or u.get("login") or ""
+            async with aiosqlite.connect(DB_PATH) as db:
+                for r in missing_login:
+                    login = by_id.get(str(r["customer_id"]))
+                    if login:
+                        r["painel_username"] = login
+                        await db.execute(
+                            "UPDATE customers SET painel_username = ? WHERE id = ?",
+                            (login, r["customer_id"]),
+                        )
+                await db.commit()
+        except Exception:
+            logger.exception("painel_username backfill failed")
+
+    # Best-effort receipt_url backfill for paid rows missing it. We only
+    # try the first 10 to keep the admin page snappy — subsequent visits
+    # will fill in the rest.
+    to_backfill = [r for r in rows if r["status"] == "paid" and not r.get("receipt_url") and r.get("order_nsu")]
+    for r in to_backfill[:10]:
+        try:
+            check = await infinitepay.check_payment(
+                r["order_nsu"], transaction_nsu=r.get("transaction_nsu"),
+            )
+            r_url = str(check.get("receipt_url") or "").strip()
+            if r_url:
+                r["receipt_url"] = r_url
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute(
+                        "UPDATE payments SET receipt_url = ? WHERE id = ?",
+                        (r_url, r["id"]),
+                    )
+                    await db.commit()
+        except Exception:
+            # Silent — non-critical enrichment
+            pass
+
+    return [
+        Payment(
+            **{k: v for k, v in r.items() if k in Payment.model_fields},
+            customer_login=r.get("painel_username") or None,
+        )
+        for r in rows
+    ]
 
 
 @router.post("/test-link")

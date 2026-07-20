@@ -143,6 +143,11 @@ class Payment(BaseModel):
     order_nsu: Optional[str] = None
     paid_at: Optional[str] = None
     created_at: str
+    receipt_url: Optional[str] = None
+    transaction_nsu: Optional[str] = None
+    # Enriched fields for admin listing (never present at insert time):
+    customer_login: Optional[str] = None
+    customer_name: Optional[str] = None
 
 
 # ---- Settings ----
