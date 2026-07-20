@@ -170,7 +170,7 @@ async def init_db():
             {
                 "event_key": "expiration_7d",
                 "title": "Vencimento em 7 dias",
-                "body": "Olá {name}! 👋\n\nSeu plano vence em *7 dias* ({expires_at}).\n\nRenove agora e garanta 7 dias extras de brinde:\n{pay_link}",
+                "body": "Olá {name}! 👋\n\nSeu plano vence em *7 dias* ({expires_at}).\n\n{discount_line}Renove agora:\n{pay_link}",
                 "image_url": "",
             },
             {
@@ -262,6 +262,11 @@ async def init_db():
             "plan_price_12m": "280,00",
             "admin_whatsapp": "",
             "infinitepay_webhook_secret": "",
+            # Discount for clients who pay ON THE SAME DAY the 7-day reminder was sent.
+            # Toggled and % set by admin; expires end-of-day automatically since the
+            # 7d reminder idempotency key is dated.
+            "discount_7d_enabled": "false",
+            "discount_7d_percent": "5",
         }
         for key, value in defaults.items():
             await db.execute(
@@ -290,6 +295,16 @@ async def init_db():
         # on /pay/{id} so the client can see proof of their own payment.
         try:
             await db.execute("ALTER TABLE payments ADD COLUMN receipt_url TEXT")
+        except Exception:
+            pass
+        # Discount fields — populated when a payment is created within the same
+        # calendar day the 7-day reminder went out (if `discount_7d_enabled` is on).
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN discount_percent INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN original_amount_cents INTEGER")
         except Exception:
             pass
         try:

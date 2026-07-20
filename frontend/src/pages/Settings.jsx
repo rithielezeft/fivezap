@@ -18,6 +18,8 @@ const FIELDS = [
   { key: "turnstile_pageurl", label: "Turnstile — pageurl", group: "captcha" },
   { key: "infinitepay_handle", label: "InfinitePay — Handle (InfiniteTag)", group: "pay" },
   { key: "infinitepay_webhook_secret", label: "InfinitePay — Webhook Secret (opcional, valida origem)", group: "pay", type: "password", placeholder: "deixe vazio para desativar" },
+  { key: "discount_7d_enabled", label: "Desconto no lembrete 7d — Ativo? (true/false)", group: "pay", placeholder: "false" },
+  { key: "discount_7d_percent", label: "Desconto no lembrete 7d — % (só vale no MESMO dia do lembrete)", group: "pay", placeholder: "5" },
   { key: "plan_price_1m", label: "Preço 1 mês (R$)", group: "pay", placeholder: "35,00" },
   { key: "plan_price_3m", label: "Preço 3 meses (R$)", group: "pay", placeholder: "90,00" },
   { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },

@@ -225,6 +225,20 @@ async def create_payment(payload: PaymentCreate):
         amount = int(round(float(normalized) * 100))
     except ValueError:
         amount = 3500
+    original_amount = amount
+
+    # Apply same-day 7d discount if active.
+    from services.discount import get_active_discount, apply_discount
+    discount = await get_active_discount(str(payload.customer_id))
+    discount_percent = int(discount["percent"]) if discount else 0
+    if discount_percent > 0:
+        amount = apply_discount(amount, discount_percent)
+        logger.info(
+            "Applied 7d same-day discount for %s: %d%% (R$%.2f → R$%.2f)",
+            payload.customer_id, discount_percent,
+            original_amount / 100, amount / 100,
+        )
+
     package_id = painel.get_package_id(customer["system_type"], payload.plan_months)
 
     public_base = await get_setting("public_base_url")
@@ -262,9 +276,10 @@ async def create_payment(payload: PaymentCreate):
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
             (payment_id, payload.customer_id, payload.plan_months, amount, package_id,
-             link_data.get("url"), order_nsu, confirmation_token, now_iso()),
+             link_data.get("url"), order_nsu, confirmation_token,
+             discount_percent, original_amount, now_iso()),
         )
         await db.commit()
 
@@ -1321,4 +1336,15 @@ async def get_customer_payment_info(customer_id: str):
         "prices_cents": prices,
         "payments_history": payments_history,
         "messages_history": messages_history,
+        "active_discount": await _get_active_discount_for_public(str(customer["id"])),
     }
+
+
+async def _get_active_discount_for_public(customer_id: str) -> dict | None:
+    """Public-facing wrapper — returns None or {'percent': int, 'source': str}
+    so the client sees on /pay/{id} why they should pay today."""
+    try:
+        from services.discount import get_active_discount
+        return await get_active_discount(customer_id)
+    except Exception:
+        return None

@@ -91,6 +91,10 @@ export default function PublicPay() {
 
   const customer = data?.customer;
   const prices = data?.prices_cents || {};
+  const discount = data?.active_discount;
+  const discountPct = discount?.percent || 0;
+  const rawPrice = prices[selected] ?? 0;
+  const discountedPrice = discountPct > 0 ? Math.floor((rawPrice * (100 - discountPct)) / 100) : rawPrice;
 
   return (
     <div className="min-h-screen bg-[#050505] text-white relative overflow-hidden">
@@ -200,10 +204,35 @@ export default function PublicPay() {
         </div>
 
         <div className="surface rounded-2xl p-6">
+          {discountPct > 0 && (
+            <div
+              data-testid="discount-banner"
+              className="mb-4 p-3 rounded-xl border border-[#34C759]/40 bg-[#34C759]/5"
+            >
+              <div className="text-xs uppercase tracking-widest text-[#34C759]">
+                🎁 Desconto especial ativo
+              </div>
+              <div className="text-sm mt-1">
+                Pague <span className="font-bold">hoje</span> e ganhe{" "}
+                <span className="font-bold">{discountPct}% off</span> — válido até o fim do dia.
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-4">
             <div>
               <div className="text-xs uppercase tracking-widest text-white/40">Total a pagar</div>
-              <div className="font-display text-4xl font-bold mt-1">{formatMoney(prices[selected] ?? 0)}</div>
+              {discountPct > 0 ? (
+                <div className="flex items-baseline gap-3 mt-1">
+                  <div className="font-display text-4xl font-bold text-[#34C759]" data-testid="discounted-price">
+                    {formatMoney(discountedPrice)}
+                  </div>
+                  <div className="text-lg text-white/40 line-through" data-testid="original-price">
+                    {formatMoney(rawPrice)}
+                  </div>
+                </div>
+              ) : (
+                <div className="font-display text-4xl font-bold mt-1">{formatMoney(rawPrice)}</div>
+              )}
             </div>
             <div className="text-right">
               <div className="text-xs text-white/40">Sistema</div>
