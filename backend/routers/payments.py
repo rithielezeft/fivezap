@@ -789,6 +789,23 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 pass
 
             if phone:
+                # Cancel any pending trial reminders (trial_1h_reminder /
+                # trial_expired) — the client just paid + renewed, they don't
+                # need to be reminded the test is ending.
+                try:
+                    from services.reminders import cancel_pending_for_phone
+                    cancelled = await cancel_pending_for_phone(
+                        phone,
+                        event_keys=["trial_1h_reminder", "trial_expired"],
+                    )
+                    if cancelled > 0:
+                        logger.info(
+                            "Cancelled %d pending trial reminder(s) for %s "
+                            "(client already renewed)", cancelled, phone,
+                        )
+                except Exception:
+                    logger.exception("Failed to cancel pending reminders for %s", phone)
+
                 client_notified = await send_notification(
                     "renewal_success", phone,
                     {

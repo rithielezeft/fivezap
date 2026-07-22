@@ -71,3 +71,40 @@ async def reminder_loop():
         except Exception:
             logger.exception("reminder_loop error")
         await asyncio.sleep(30)
+
+
+
+async def cancel_pending_for_phone(phone: str, event_keys: list[str] | None = None) -> int:
+    """Cancel any pending reminders for the given phone number.
+
+    Called when a trial user successfully pays — we don't want to keep firing
+    `trial_1h_reminder` / `trial_expired` messages telling them the test is
+    about to end when they've already renewed.
+
+    Returns the number of reminders cancelled.
+    """
+    if not phone:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as db:
+        if event_keys:
+            placeholders = ",".join("?" for _ in event_keys)
+            query = (
+                f"UPDATE scheduled_reminders SET sent = 3 "
+                f"WHERE sent = 0 AND phone = ? AND event_key IN ({placeholders})"
+            )
+            params = (phone, *event_keys)
+        else:
+            query = (
+                "UPDATE scheduled_reminders SET sent = 3 "
+                "WHERE sent = 0 AND phone = ?"
+            )
+            params = (phone,)
+        cur = await db.execute(query, params)
+        cancelled = cur.rowcount
+        await db.commit()
+    if cancelled > 0:
+        logger.info(
+            "Cancelled %d pending reminder(s) for %s (event_keys=%s)",
+            cancelled, phone, event_keys,
+        )
+    return cancelled

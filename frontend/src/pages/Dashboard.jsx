@@ -124,14 +124,25 @@ export default function Dashboard() {
             </div>
           ) : painelBalance.balance != null ? (
             <>
-              <div className="mt-4 font-display text-3xl font-bold">
+              <div className="mt-4 font-display text-3xl font-bold" data-testid="painel-balance-value">
                 {typeof painelBalance.balance === "number"
                   ? painelBalance.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                   : painelBalance.balance}
               </div>
               <div className="text-xs text-white/40 mt-1">
-                créditos disponíveis · campo: {painelBalance.raw_field}
+                créditos disponíveis
+                {painelBalance.username ? ` · ${painelBalance.username}` : ""}
               </div>
+              {(painelBalance.bonus_credits != null && painelBalance.bonus_credits > 0) && (
+                <div className="text-[11px] text-[#30D158] mt-2">
+                  + {painelBalance.bonus_credits.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} bônus
+                </div>
+              )}
+              {painelBalance.last_recharge_credits != null && (
+                <div className="text-[11px] text-white/40 mt-1">
+                  última recarga: R$ {painelBalance.last_recharge_credits.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              )}
             </>
           ) : (
             <div className="mt-4">

@@ -643,7 +643,12 @@ async def get_account_info() -> dict:
         )
 
     attempts = []
-    for path in ("/api/user/me", "/api/me", "/api/account", "/api/user", "/api/credits", "/api/dashboard"):
+    # `/api/profile` is the actual endpoint used by painel.fun frontend
+    # (baseURL=https://api.controle.fit/api, then GET /profile). It returns
+    # `{id, username, credits, credits_double, bonus_credits, ...}` — this is
+    # the ONLY endpoint with real reseller balance. The others are legacy
+    # probes kept as fallback.
+    for path in ("/api/profile", "/api/user/me", "/api/me", "/api/account", "/api/user", "/api/credits", "/api/dashboard"):
         try:
             resp = await asyncio.to_thread(_get, path, token)
             attempts.append(f"{path}={resp.status_code}")
@@ -659,25 +664,61 @@ async def get_account_info() -> dict:
 async def get_reseller_balance() -> dict:
     """Return a normalized {balance, currency, raw} from painel.fun.
 
-    Reads whatever `get_account_info()` gives us and extracts the most
-    likely balance field (`credits`, `balance`, `saldo`, `available`).
+    The `/api/profile` endpoint returns the reseller `credits` (main balance)
+    and `bonus_credits` (extra). We surface both so the dashboard shows the
+    real, current wallet state.
     """
     info = await get_account_info()
     data = info.get("data") or {}
     # Some painel builds nest under 'user' or 'data'
     d = data.get("user") or data.get("data") or data
+    if not isinstance(d, dict):
+        return {"balance": None, "currency": "BRL", "raw": str(d)[:200],
+                "source_endpoint": info.get("path"),
+                "note": "resposta inesperada do painel"}
+
+    # Main credits balance
+    balance = None
+    raw_field = None
     for key in ("credits", "balance", "saldo", "available_balance", "wallet"):
-        v = d.get(key) if isinstance(d, dict) else None
+        v = d.get(key)
         if v is not None:
             try:
-                return {"balance": float(v), "currency": "BRL", "raw_field": key,
-                        "source_endpoint": info.get("path")}
+                balance = float(v)
+                raw_field = key
+                break
             except (TypeError, ValueError):
-                return {"balance_raw": v, "raw_field": key,
-                        "source_endpoint": info.get("path")}
-    return {"balance": None, "currency": "BRL", "raw": d if isinstance(d, dict) else str(d)[:200],
-            "source_endpoint": info.get("path"),
-            "note": "campo de saldo não encontrado na resposta"}
+                pass
+
+    if balance is None:
+        return {"balance": None, "currency": "BRL",
+                "raw": {k: d.get(k) for k in list(d.keys())[:20]},
+                "source_endpoint": info.get("path"),
+                "note": "campo de saldo não encontrado na resposta"}
+
+    result = {
+        "balance": balance,
+        "currency": "BRL",
+        "raw_field": raw_field,
+        "source_endpoint": info.get("path"),
+        "username": d.get("username"),
+    }
+    # Extras — bonus credits (given by upline) and last recharge info
+    bonus = d.get("bonus_credits")
+    if bonus is not None:
+        try:
+            result["bonus_credits"] = float(bonus)
+        except (TypeError, ValueError):
+            pass
+    last_recharge = d.get("credits_last_recharge")
+    if last_recharge is not None:
+        try:
+            result["last_recharge_credits"] = float(last_recharge)
+        except (TypeError, ValueError):
+            pass
+    if d.get("date_last_recharge"):
+        result["last_recharge_at"] = d.get("date_last_recharge")
+    return result
 
 
 async def renew_user(user_id: str, package_id: int) -> dict:
