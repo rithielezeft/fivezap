@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt } from "@phosphor-icons/react";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -103,6 +103,9 @@ export default function Customers() {
   const [statusFilter, setStatusFilter] = useState("all"); // all | active | expiring_soon | expired
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugData, setDebugData] = useState(null);
+  const [expiredOpen, setExpiredOpen] = useState(false);
+  const [expiredData, setExpiredData] = useState(null);
+  const [expiredSelected, setExpiredSelected] = useState({}); // { user_id: true }
 
   // debounce search
   useEffect(() => {
@@ -151,6 +154,32 @@ export default function Customers() {
     onSuccess: (d) => {
       setDebugData(d);
       setDebugOpen(true);
+    },
+    onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const expiredPreviewMut = useMutation({
+    mutationFn: painelApi.listExpired,
+    onSuccess: (d) => {
+      setExpiredData(d);
+      // Pre-select only users WITH whatsapp — no point sending to the rest.
+      const pre = {};
+      (d?.users || []).forEach((u) => {
+        if (u.has_whatsapp) pre[u.user_id] = true;
+      });
+      setExpiredSelected(pre);
+      setExpiredOpen(true);
+    },
+    onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const notifyExpiredMut = useMutation({
+    mutationFn: (ids) => painelApi.notifyExpired(ids),
+    onSuccess: (r) => {
+      const enq = r?.enqueued ?? 0;
+      const noWa = r?.skipped_no_whatsapp ?? 0;
+      toast.success(`${enq} notificações enfileiradas${noWa ? ` (${noWa} sem WhatsApp)` : ""}`);
+      setExpiredOpen(false);
     },
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
@@ -228,6 +257,17 @@ export default function Customers() {
           >
             <Bug size={16} className="mr-2" />
             {debugMut.isPending ? "Carregando..." : "Ver campos"}
+          </Button>
+          <Button
+            variant="outline"
+            className="border-[#FF3B30]/30 text-[#FF3B30] hover:bg-[#FF3B30]/10"
+            onClick={() => expiredPreviewMut.mutate()}
+            disabled={expiredPreviewMut.isPending}
+            data-testid="btn-notify-expired"
+            title="Enviar aviso a todos os vencidos"
+          >
+            <PaperPlaneTilt size={16} className="mr-2" />
+            {expiredPreviewMut.isPending ? "Carregando..." : "Notificar Vencidos"}
           </Button>
           <Button
             variant="outline"
@@ -606,6 +646,149 @@ export default function Customers() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      {/* Notify Expired: preview + selection dialog */}
+      <Dialog open={expiredOpen} onOpenChange={setExpiredOpen}>
+        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              Notificar clientes vencidos
+            </DialogTitle>
+          </DialogHeader>
+          {expiredData && (
+            <div className="text-xs text-white/60 mb-2 flex items-center gap-3 flex-wrap">
+              <span data-testid="expired-total">
+                {expiredData.count} vencidos
+              </span>
+              <span className="text-white/40">•</span>
+              <span data-testid="expired-with-wa">
+                {expiredData.count_with_whatsapp} com WhatsApp
+              </span>
+              <span className="text-white/40">•</span>
+              <span data-testid="expired-selected">
+                {Object.values(expiredSelected).filter(Boolean).length} selecionados
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const all = {};
+                    (expiredData.users || []).forEach((u) => {
+                      if (u.has_whatsapp) all[u.user_id] = true;
+                    });
+                    setExpiredSelected(all);
+                  }}
+                  className="px-2 py-1 rounded-md border border-white/10 hover:bg-white/[0.05] text-[11px]"
+                  data-testid="btn-expired-select-all"
+                >
+                  Selecionar todos c/ WA
+                </button>
+                <button
+                  onClick={() => setExpiredSelected({})}
+                  className="px-2 py-1 rounded-md border border-white/10 hover:bg-white/[0.05] text-[11px]"
+                  data-testid="btn-expired-select-none"
+                >
+                  Limpar
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto border border-white/[0.05] rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-white/[0.02] text-left text-white/50 text-xs uppercase tracking-widest sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 w-8"></th>
+                  <th className="px-3 py-2">Usuário</th>
+                  <th className="px-3 py-2">Nome</th>
+                  <th className="px-3 py-2">WhatsApp</th>
+                  <th className="px-3 py-2">Sistema</th>
+                  <th className="px-3 py-2 text-right">Dias vencido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(expiredData?.users || []).map((u) => {
+                  const st = SYSTEM_STYLES[u.system_type];
+                  const disabled = !u.has_whatsapp;
+                  return (
+                    <tr
+                      key={u.user_id}
+                      className={`border-t border-white/[0.05] ${disabled ? "opacity-50" : "hover:bg-white/[0.02]"}`}
+                      data-testid={`expired-row-${u.user_id}`}
+                    >
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          disabled={disabled}
+                          checked={!!expiredSelected[u.user_id]}
+                          onChange={(e) => {
+                            setExpiredSelected((prev) => ({
+                              ...prev,
+                              [u.user_id]: e.target.checked,
+                            }));
+                          }}
+                          data-testid={`expired-check-${u.user_id}`}
+                        />
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">{u.username || "—"}</td>
+                      <td className="px-3 py-2">{u.name || "—"}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-white/70">
+                        {u.whatsapp || <span className="text-[#FF3B30]">sem WhatsApp</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {st ? (
+                          <span className={`uppercase text-[10px] font-semibold px-2 py-1 rounded-md border ${st.bg} ${st.text} ${st.border}`}>
+                            {st.label}
+                          </span>
+                        ) : (
+                          <span className="text-white/40 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs text-[#FF3B30] font-mono">
+                        {u.days_expired}d
+                      </td>
+                    </tr>
+                  );
+                })}
+                {expiredData && (expiredData.users || []).length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-8 text-center text-white/40">
+                      Nenhum cliente vencido no momento 🎉
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.05]">
+            <Button
+              variant="ghost"
+              onClick={() => setExpiredOpen(false)}
+              data-testid="btn-expired-cancel"
+            >
+              Cancelar
+            </Button>
+            <Button
+              className="bg-[#FF3B30] hover:bg-[#D9251B]"
+              disabled={
+                notifyExpiredMut.isPending ||
+                Object.values(expiredSelected).filter(Boolean).length === 0
+              }
+              onClick={() => {
+                const ids = Object.entries(expiredSelected)
+                  .filter(([, v]) => v)
+                  .map(([k]) => k);
+                notifyExpiredMut.mutate(ids);
+              }}
+              data-testid="btn-expired-confirm"
+            >
+              <PaperPlaneTilt size={16} className="mr-2" />
+              {notifyExpiredMut.isPending
+                ? "Enfileirando..."
+                : `Enviar para ${Object.values(expiredSelected).filter(Boolean).length}`}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </Layout>

@@ -189,7 +189,7 @@ def test_upload_get_public(anon_client):
     assert r.content == _PNG_1x1
 
 
-# ========== NOTIFICATIONS (9 templates now) ==========
+# ========== NOTIFICATIONS (12 templates now: 9 defaults + 2 trial + manual_expired_alert) ==========
 EXPECTED_EVENTS_11 = {
     "trial_1h_reminder", "trial_expired",
 }
@@ -197,6 +197,7 @@ EXPECTED_EVENTS_9 = {
     "expiration_7d", "expiration_3d", "expiration_1d", "expiration_0d",
     "expired_1d", "expired_3d", "expired_7d",
     "renewal_success", "trial_ready",
+    "manual_expired_alert",
 }
 
 
@@ -204,7 +205,7 @@ def test_notifications_list_has_11(client):
     r = client.get(f"{API}/notifications")
     assert r.status_code == 200, r.text
     lst = r.json()
-    assert len(lst) == 11, f"expected 11 templates, got {len(lst)}"
+    assert len(lst) == 12, f"expected 12 templates, got {len(lst)}"
     keys = {t["event_key"] for t in lst}
     expected = EXPECTED_EVENTS_9 | EXPECTED_EVENTS_11
     missing = expected - keys

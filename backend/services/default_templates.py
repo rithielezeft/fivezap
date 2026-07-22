@@ -53,6 +53,12 @@ DEFAULT_TEMPLATES = [
         "body": "✅ Pagamento confirmado, {name}!\n\nSeu login *{user}* foi renovado por *{plan_months} mês(es)* e já está ativo até {new_expires_at}.\n\nObrigado pela preferência! 🎉",
         "image_url": "",
     },
+    {
+        "event_key": "manual_expired_alert",
+        "title": "Aviso manual — cliente vencido",
+        "body": "Olá {name}! 👋\n\nSeu login *{user}* está vencido desde {expires_at}.\n\nRenove agora para voltar a assistir sem interrupções:\n{pay_link}\n\nQualquer dúvida é só chamar aqui! 💬",
+        "image_url": "",
+    },
 ]
 
 DEFAULT_TEMPLATES_BY_EVENT = {t["event_key"]: t for t in DEFAULT_TEMPLATES}

@@ -459,8 +459,85 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         )
         payment_row = await cur.fetchone()
         if not payment_row:
-            logger.warning("Payment not found for order_nsu=%s (source=%s)", order_nsu, source)
-            return {"ok": False, "error": "payment not found", "order_nsu": order_nsu}
+            # Trial-flow order_nsus ("trial-{painel_id}-{months}m") are
+            # created directly at InfinitePay by services.bot when the client
+            # takes the test — WITHOUT any local `payments` row. When that
+            # link is later paid, the webhook fires with an order_nsu we've
+            # never stored. Auto-create the row here so the normal renewal
+            # + notification flow can proceed for these trial converts.
+            if str(order_nsu).startswith("trial-"):
+                logger.info(
+                    "Trial webhook (order_nsu=%s) — auto-creating payment row "
+                    "so we can renew + notify the client",
+                    order_nsu,
+                )
+                painel_id = _extract_painel_id_from_nsu(order_nsu)
+                parts = str(order_nsu).split("-")
+                months_str = parts[2].rstrip("m") if len(parts) >= 3 else "1"
+                try:
+                    plan_months = int(months_str)
+                except (TypeError, ValueError):
+                    plan_months = 1
+
+                # Locate the trial in our local trials table, then fill in
+                # customer_id + system_type from there. If nothing found,
+                # we still try to renew using the painel_id from order_nsu.
+                trial_customer_id = ""
+                trial_system_type = ""
+                cur2 = await db.execute(
+                    "SELECT customer_id, system_type FROM trials "
+                    "WHERE trial_user_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (painel_id,),
+                )
+                trow = await cur2.fetchone()
+                if trow:
+                    trial_customer_id = trow["customer_id"] or ""
+                    trial_system_type = trow["system_type"] or ""
+
+                # Fallback: use painel_id as customer_id (matches renew flow
+                # where the local customers row is auto-created keyed on the
+                # painel id).
+                customer_id_for_payment = trial_customer_id or painel_id or "unknown"
+
+                # Package id — need system_type. If missing, default iptv.
+                system_type_for_pkg = trial_system_type or "iptv"
+                try:
+                    package_id = painel.get_package_id(system_type_for_pkg, plan_months)
+                except Exception:
+                    package_id = 0
+
+                # paid_amount from InfinitePay (already in cents in
+                # transaction_nsu-bearing webhooks)
+                amount_cents_from_raw = raw.get("paid_amount") or raw.get("amount") or 0
+                try:
+                    amount_cents_int = int(amount_cents_from_raw)
+                except (TypeError, ValueError):
+                    amount_cents_int = 0
+
+                new_payment_id = new_id()
+                await db.execute(
+                    "INSERT INTO payments (id, customer_id, plan_months, "
+                    "amount_cents, package_id, status, order_nsu, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+                    (new_payment_id, customer_id_for_payment, plan_months,
+                     amount_cents_int, package_id, order_nsu, now_iso()),
+                )
+                await db.commit()
+
+                # Re-read the row so downstream code has a proper dict.
+                cur3 = await db.execute(
+                    "SELECT * FROM payments WHERE id = ?", (new_payment_id,),
+                )
+                payment_row = await cur3.fetchone()
+                logger.info(
+                    "Trial payment auto-created: payment_id=%s customer_id=%s "
+                    "painel_id=%s plan_months=%s system=%s",
+                    new_payment_id, customer_id_for_payment, painel_id,
+                    plan_months, system_type_for_pkg,
+                )
+            else:
+                logger.warning("Payment not found for order_nsu=%s (source=%s)", order_nsu, source)
+                return {"ok": False, "error": "payment not found", "order_nsu": order_nsu}
         payment = dict(payment_row)
 
     if not paid:

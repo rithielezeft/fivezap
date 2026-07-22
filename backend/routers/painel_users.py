@@ -71,9 +71,9 @@ async def upsert_users_in_cache(new_users: list[dict]) -> int:
     show the newly-created trial immediately — no waiting for a full painel
     refresh (which can take 30–90 seconds because of Turnstile solve).
 
-    Also used by refresh_cache_task to merge painel results with previously
-    known users, so a transient painel outage never makes previously-active
-    payment links stop working ("Link inválido") for other customers.
+    Every user injected here is tagged with `_pending_from_trial=True` so
+    the next full refresh (which does a REPLACE from painel) knows to
+    preserve it if painel hasn't reflected the trial yet.
     """
     if not new_users:
         return 0
@@ -88,11 +88,14 @@ async def upsert_users_in_cache(new_users: list[dict]) -> int:
         k = _user_key(u)
         if not k:
             continue
+        # Mark as pending-from-trial so refresh_cache_task can preserve it
+        # until painel catches up.
+        marked = {**u, "_pending_from_trial": True}
         if k in by_key:
             # Merge: new fields overwrite old ones, but keep old fields we don't get
-            by_key[k] = {**by_key[k], **u}
+            by_key[k] = {**by_key[k], **marked}
         else:
-            by_key[k] = u
+            by_key[k] = marked
             added += 1
     await _write_cache(list(by_key.values()))
     return added
@@ -107,12 +110,32 @@ async def refresh_cache_task():
         try:
             logger.info("Refreshing painel.fun users cache...")
             users = await painel.list_users(limit=10000)
-            # MERGE strategy: never wipe already-known users when painel
-            # returns an empty/short list (transient error, throttling, etc.).
-            # This guarantees active pay links stay valid.
+            # REPLACE strategy: painel.fun is the source of truth. If it
+            # returned a real (non-empty) user list, we mirror it EXACTLY —
+            # this purges users that were deleted on painel so the Clientes
+            # page never shows ghost/stale users.
+            #
+            # If painel returned empty (transient error, throttling, WAF
+            # block etc.) we skip the write entirely so active pay links
+            # stay valid.
             if users:
-                added = await upsert_users_in_cache(users)
-                logger.info("Painel cache refreshed: %d users (added %d new)", len(users), added)
+                # Preserve any locally-injected trials that painel hasn't
+                # reflected yet (upsert_users_in_cache in trials.py adds
+                # a `_pending_from_trial` marker on injected rows).
+                existing_cache, _ = await _read_cache()
+                painel_keys = {_user_key(u) for u in users if _user_key(u)}
+                pending_trials = [
+                    u for u in existing_cache
+                    if u.get("_pending_from_trial")
+                    and _user_key(u) not in painel_keys
+                ]
+                merged = users + pending_trials
+                await _write_cache(merged)
+                logger.info(
+                    "Painel cache refreshed (REPLACE): %d users from painel + %d "
+                    "pending-trial (not yet on painel)",
+                    len(users), len(pending_trials),
+                )
 
                 # Mirror ALL users to MongoDB Atlas so /pay/{painel_id} works
                 # globally for EVERY existing customer — not just newly-created
@@ -396,3 +419,116 @@ async def notify_now():
     except Exception as e:
         logger.exception("notify-now failed")
         raise HTTPException(500, str(e))
+
+
+
+class NotifyExpiredPayload(BaseModel):
+    """Which users to notify. Empty `user_ids` → all currently-expired
+    users with WhatsApp available. Otherwise notify only the listed ones."""
+    user_ids: list[str] = []
+
+
+@router.get("/expired")
+async def list_expired():
+    """Return the current list of expired users (with WhatsApp available),
+    so the frontend can render a preview + selection UI before firing the
+    manual-expired notification wave.
+    """
+    users, _ = await _read_cache()
+    result = []
+    for u in users:
+        # Cache stores raw painel data — compute status server-side here so
+        # we don't rely on any enrichment done by list_users().
+        exp = compute_expiration_info(u)
+        if exp["status"] != "expired":
+            continue
+        uid = u.get("id") or u.get("user_id") or u.get("username")
+        if uid is None:
+            continue
+        wa = extract_whatsapp(u) or u.get("whatsapp") or u.get("_whatsapp")
+        result.append({
+            "user_id": str(uid),
+            "name": u.get("full_name") or u.get("name") or u.get("username") or "",
+            "username": u.get("username") or u.get("login") or "",
+            "whatsapp": wa,
+            "has_whatsapp": bool(wa),
+            "system_type": detect_system_type(u),
+            "expires_at": exp.get("expires_at_iso"),
+            "days_expired": abs(exp.get("days_until_expiry") or 0),
+        })
+    # Sort: with-WhatsApp first, then by days_expired asc (most recent).
+    result.sort(key=lambda x: (not x["has_whatsapp"], x["days_expired"]))
+    return {
+        "count": len(result),
+        "count_with_whatsapp": sum(1 for r in result if r["has_whatsapp"]),
+        "users": result,
+    }
+
+
+@router.post("/notify-expired")
+async def notify_expired(payload: NotifyExpiredPayload):
+    """Enqueue the `manual_expired_alert` template for expired users.
+
+    When `user_ids` is empty → target ALL currently-expired users with a
+    WhatsApp available. Otherwise only the listed ones. Uses the delivery
+    queue so failures auto-retry every 10s.
+    """
+    from services.notifier import send_notification
+    from database import get_setting
+
+    users, _ = await _read_cache()
+    selected_ids = {str(x) for x in (payload.user_ids or [])}
+    public_base = await get_setting("public_base_url", "")
+
+    enqueued = 0
+    skipped_no_wa = 0
+    skipped_not_expired = 0
+    errors = []
+
+    for u in users:
+        uid = u.get("id") or u.get("user_id") or u.get("username")
+        if uid is None:
+            continue
+        uid_str = str(uid)
+        if selected_ids and uid_str not in selected_ids:
+            continue
+
+        # Re-check status server-side (never trust client-passed lists blindly).
+        exp = compute_expiration_info(u)
+        if exp["status"] != "expired":
+            skipped_not_expired += 1
+            continue
+
+        phone = (extract_whatsapp(u) or u.get("whatsapp") or "").strip()
+        if not phone:
+            skipped_no_wa += 1
+            continue
+
+        pay_link = f"{public_base}/pay/{uid_str}" if public_base else ""
+        name = u.get("full_name") or u.get("name") or u.get("username") or "cliente"
+        username = u.get("username") or u.get("login") or ""
+
+        try:
+            await send_notification(
+                "manual_expired_alert", phone,
+                {
+                    "name": name,
+                    "user": username or name,
+                    "expires_at": exp.get("expires_at_iso") or "",
+                    "pay_link": pay_link,
+                    "system_type": (detect_system_type(u) or "").upper(),
+                },
+                customer_id=uid_str,
+            )
+            enqueued += 1
+        except Exception as e:
+            logger.exception("notify_expired for %s failed", uid_str)
+            errors.append({"user_id": uid_str, "error": str(e)})
+
+    return {
+        "success": True,
+        "enqueued": enqueued,
+        "skipped_no_whatsapp": skipped_no_wa,
+        "skipped_not_expired": skipped_not_expired,
+        "errors": errors,
+    }
