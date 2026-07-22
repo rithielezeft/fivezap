@@ -21,6 +21,10 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 
+- **[FIX 2026-02-22]** **Mensagem amigável ao cliente quando cria teste falha**. Antes o cliente via `"Motivo: Create trial failed: 400 — {"message":"O campo password format is invalid."}"`. Agora vê `"⚠️ Poxa, tivemos um probleminha rápido gerando seu acesso. 🤖\n\nPor gentileza, 👉 envie *!teste iptv* novamente."`. Mapping específico para: password format invalid, username taken, insufficient credits, MAC invalid, rate limit (429), timeout. Detalhes técnicos vão para o admin via `send_admin_alert`. Testes: `test_trial_error_messages.py` (6 novos testes).
+
+
+
 - **[FEATURE 2026-02-22]** **Anti-duplicata configurável em Configurações**. Duas novas settings:
   - `dedup_enabled` (true/false, default true) — liga/desliga globalmente o anti-duplicata da fila.
   - `dedup_window_minutes` (default 60) — janela em minutos para considerar uma mensagem "duplicada".

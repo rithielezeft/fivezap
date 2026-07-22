@@ -543,12 +543,74 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
 
     except Exception as e:
         logger.exception("Failed to create trial: %s", e)
-        # Show detailed error to help debugging — the client will see the actual reason
-        err_short = str(e)[:200] if str(e) else "erro desconhecido"
-        await whatsapp_client.send_message(
-            phone_clean,
-            f"❌ Não conseguimos criar seu teste agora.\n\n"
-            f"Motivo: {err_short}\n\n"
-            f"Já avisamos o suporte, tente novamente em alguns minutos."
-        )
+        err_str = str(e) or "erro desconhecido"
+        err_lower = err_str.lower()
+        trigger_cmd = matched.get("trigger_command", "").strip()
+        retry_hint = f"👉 Envie *{trigger_cmd}* novamente." if trigger_cmd else "👉 Envie o comando novamente."
+
+        # Friendly error mapping: painel.fun sometimes returns validation
+        # errors on auto-generated fields (password, username collisions,
+        # etc.). These are 100% retryable — the next attempt uses a freshly
+        # generated random password/username and usually succeeds.
+        friendly = None
+        if "password" in err_lower and ("invalid" in err_lower or "format" in err_lower):
+            friendly = (
+                "⚠️ Poxa, tivemos um probleminha rápido gerando seu acesso. 🤖\n\n"
+                f"Por gentileza, {retry_hint.lower()}"
+            )
+        elif "username" in err_lower and ("taken" in err_lower or "exists" in err_lower
+                                          or "duplic" in err_lower or "unique" in err_lower):
+            friendly = (
+                "⚠️ Já existe um usuário parecido. Vou gerar outro pra você! 🤖\n\n"
+                f"{retry_hint}"
+            )
+        elif "mac" in err_lower and ("invalid" in err_lower or "format" in err_lower
+                                     or "duplic" in err_lower):
+            friendly = (
+                "⚠️ Não consegui validar esse MAC. Confira se digitou certo "
+                "(formato *AA:BB:CC:DD:EE:FF*) e envie novamente. 📱"
+            )
+        elif "credit" in err_lower or "saldo" in err_lower or "insufficient" in err_lower:
+            friendly = (
+                "⚠️ Estamos sem créditos no painel no momento. Nossa equipe "
+                "já foi avisada — tente novamente em alguns minutos. 🙏"
+            )
+        elif "429" in err_str or "rate" in err_lower or "throttl" in err_lower:
+            friendly = (
+                "⚠️ Muitas solicitações no momento. Aguarde 1 minuto e tente "
+                f"novamente por gentileza. ⏱️\n\n{retry_hint}"
+            )
+        elif "timeout" in err_lower or "timed out" in err_lower:
+            friendly = (
+                "⚠️ O painel está lento agora. Por gentileza, aguarde uns "
+                f"segundos e tente novamente. ⏱️\n\n{retry_hint}"
+            )
+
+        if friendly:
+            client_msg = friendly
+        else:
+            # Fallback: keep it concise and human — no technical details.
+            client_msg = (
+                "❌ Não consegui criar seu teste agora. 🤖\n\n"
+                f"Por gentileza, {retry_hint.lower()}\n\n"
+                "Se continuar não funcionando, chama a gente aqui que a "
+                "equipe te ajuda. 💬"
+            )
+
+        await whatsapp_client.send_message(phone_clean, client_msg)
+
+        # Admin alert — with the full technical detail so we can debug.
+        try:
+            from services.notifier import send_admin_alert
+            await send_admin_alert(
+                "⚠️ *Falha ao criar teste*\n\n"
+                f"👤 Cliente: {customer.get('name') or phone_clean}\n"
+                f"📱 WhatsApp: {phone_clean}\n"
+                f"🎯 Sistema: {system_type.upper()}\n"
+                f"🔧 MAC: {mac or '-'}\n"
+                f"❌ Motivo técnico: {err_str[:300]}"
+            )
+        except Exception:
+            logger.exception("Failed to notify admin about trial error")
+
         await log_activity("trial_error", str(e)[:500], customer["id"], "error")
