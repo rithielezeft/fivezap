@@ -93,6 +93,9 @@ const client = new Client({
   puppeteer: {
     headless: true,
     executablePath: process.env.CHROMIUM_PATH || '/usr/bin/google-chrome',
+    // Bump the protocol timeout so Page.navigate doesn't fail on slow
+    // Raspberry Pi hardware. Default is 30s — WA web can take 60+ on ARM.
+    protocolTimeout: 180000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -102,6 +105,61 @@ const client = new Client({
     ],
   },
 });
+
+// Reconnect state machine — exponential backoff up to 5min, resets after
+// a successful `ready` event. Also runs a periodic watchdog every 30s that
+// force-reconnects when the client has been in a non-connected state for
+// longer than 3 minutes.
+let _reconnectAttempts = 0;
+let _lastReadyAt = null;
+let _lastStateChangeAt = Date.now();
+let _stateForWatchdog = state;
+
+function _scheduleReconnect(sourceLabel) {
+  _reconnectAttempts += 1;
+  // Backoff: 5s, 10s, 30s, 1m, 2m, 5m (cap)
+  const schedule = [5000, 10000, 30000, 60000, 120000, 300000];
+  const delay = schedule[Math.min(_reconnectAttempts - 1, schedule.length - 1)];
+  console.warn(`[WA] Reconnect attempt #${_reconnectAttempts} from ${sourceLabel} in ${delay}ms`);
+  setTimeout(() => {
+    try {
+      // A hard destroy → initialize is more reliable than initialize() alone
+      // when the underlying puppeteer session is stuck.
+      client.destroy()
+        .catch((e) => console.warn('[WA] destroy failed (non-fatal):', e.message))
+        .finally(() => {
+          client.initialize().catch((e) => {
+            console.error('[WA] initialize() during reconnect failed:', e.message);
+            _scheduleReconnect('post-initialize-error');
+          });
+        });
+    } catch (e) {
+      console.error('[WA] Reconnect crashed:', e.message);
+    }
+  }, delay);
+}
+
+function _markStateChange(newState) {
+  if (newState !== _stateForWatchdog) {
+    _stateForWatchdog = newState;
+    _lastStateChangeAt = Date.now();
+  }
+}
+
+// Watchdog: every 30s, if we've been in a non-connected state for more than
+// 3 minutes AND no reconnect is already scheduled, force one. This catches
+// the "silent zombie" case where events stop firing but no `disconnected`
+// event was emitted (Chrome crash, network drop, etc.).
+setInterval(() => {
+  _markStateChange(state);
+  if (state === 'connected') return;
+  const stuckMs = Date.now() - _lastStateChangeAt;
+  if (stuckMs > 3 * 60 * 1000) {
+    console.warn(`[WA] Watchdog: stuck in "${state}" for ${Math.floor(stuckMs / 1000)}s — forcing reconnect`);
+    _lastStateChangeAt = Date.now();  // reset so we don't spam every 30s
+    _scheduleReconnect('watchdog');
+  }
+}, 30000);
 
 client.on('qr', async (qr) => {
   state = 'awaiting_qr';
@@ -120,6 +178,9 @@ client.on('ready', () => {
   state = 'connected';
   currentQR = null;
   lastError = null;
+  _reconnectAttempts = 0;
+  _lastReadyAt = Date.now();
+  _lastStateChangeAt = Date.now();
 });
 
 client.on('authenticated', () => {
@@ -139,8 +200,7 @@ client.on('disconnected', (reason) => {
   ready = false;
   state = 'disconnected';
   lastError = String(reason);
-  // Attempt to re-initialize
-  setTimeout(() => client.initialize().catch(console.error), 5000);
+  _scheduleReconnect('disconnected-event');
 });
 
 // Use ONLY `message_create` — it fires for BOTH incoming (client) and
@@ -233,12 +293,25 @@ setTimeout(() => {
     console.error('[WA] Initialize error', e);
     state = 'error';
     lastError = String(e);
+    // ProtocolError, timeout, Chrome crash on startup → escalate to the
+    // reconnect state machine instead of dying silently.
+    _scheduleReconnect('initial-initialize-error');
   });
 }, 2000);
 
 // -------- HTTP API --------
 const app = express();
 app.use(express.json());
+
+// Reconnect state — how many retry attempts, when last ready was, etc.
+app.get('/reconnect-state', (req, res) => {
+  res.json({
+    attempts: _reconnectAttempts,
+    last_ready_at: _lastReadyAt,
+    last_state_change_at: _lastStateChangeAt,
+    current_state: state,
+  });
+});
 
 app.get('/status', (req, res) => {
   res.json({ ready, state, error: lastError, has_qr: !!currentQR });

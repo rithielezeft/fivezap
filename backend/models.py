@@ -130,6 +130,7 @@ class Message(BaseModel):
 class PaymentCreate(BaseModel):
     customer_id: str
     plan_months: int  # 1, 3, 6, 12
+    ref: Optional[str] = None  # Attribution bucket (from ?ref= in pay_link)
 
 
 class Payment(BaseModel):

@@ -71,7 +71,15 @@ async def update_notification(event_key: str, payload: NotifUpdate):
         await db.commit()
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM notification_templates WHERE event_key = ?", (event_key,))
-        return _row(await cur.fetchone())
+        result = _row(await cur.fetchone())
+
+    # Mirror to Atlas so multi-instance deployments share the same templates.
+    try:
+        from services import mongo_store
+        await mongo_store.upsert_template(result.model_dump())
+    except Exception:
+        logger.exception("mongo template sync failed (non-fatal)")
+    return result
 
 
 

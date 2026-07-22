@@ -307,6 +307,18 @@ async def init_db():
             await db.execute("ALTER TABLE payments ADD COLUMN original_amount_cents INTEGER")
         except Exception:
             pass
+        # Attribution bucket — where did this payment click come from?
+        # Values match the reminder event_key (expiration_7d, expiration_3d,
+        # expiration_1d, expiration_0d, expired_Xd, trial_ready) or 'manual'
+        # for admin-created links / 'direct' for links opened without ?ref=.
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN ref_bucket TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments(ref_bucket)")
+        except Exception:
+            pass
         try:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_txn_nsu ON payments(transaction_nsu)")
         except Exception:
@@ -332,6 +344,15 @@ async def set_setting(key: str, value: str):
             (key, value),
         )
         await db.commit()
+    # Mirror to Mongo Atlas so multiple instances of WhatsFlow (dev/prod,
+    # or main Pi + backup) see the same configuration. Best-effort — never
+    # blocks the local write on Atlas being reachable.
+    try:
+        from services import mongo_store
+        await mongo_store.upsert_setting(key, value)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("mongo_store.upsert_setting failed (non-fatal)")
 
 
 async def get_all_settings() -> dict:

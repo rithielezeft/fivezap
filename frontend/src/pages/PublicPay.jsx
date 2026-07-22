@@ -18,6 +18,7 @@ export default function PublicPay() {
   const [searchParams] = useSearchParams();
   const returnedFromPay = searchParams.get("ok") === "1";
   const confirmationToken = searchParams.get("t") || "";
+  const refBucket = searchParams.get("ref") || "";
 
   const [selected, setSelected] = useState(3);
   const [paymentUrl, setPaymentUrl] = useState(null);
@@ -242,7 +243,7 @@ export default function PublicPay() {
 
           <Button
             className="w-full h-12 bg-[#007AFF] hover:bg-[#005BB5] font-semibold"
-            onClick={() => createPayMut.mutate({ customer_id: customerId, plan_months: selected })}
+            onClick={() => createPayMut.mutate({ customer_id: customerId, plan_months: selected, ref: refBucket || undefined })}
             disabled={createPayMut.isPending}
             data-testid="btn-checkout"
           >

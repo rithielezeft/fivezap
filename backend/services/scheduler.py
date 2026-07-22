@@ -121,7 +121,14 @@ async def _check_and_notify():
                     name = "cliente"
             name = (name or "cliente").strip()
 
-            pay_link = f"{public_base}/pay/{user_id}"
+            # Determine notification event key up-front so it can be used as
+            # the attribution `?ref=` bucket in the pay_link. This lets the
+            # dashboard tell us which reminder converted best.
+            event = _event_for_days(diff_days)
+            if not event:
+                continue
+
+            pay_link = f"{public_base}/pay/{user_id}?ref={event}"
             exp_dt = datetime.fromisoformat(exp_iso)
             ctx = {
                 "name": name,
@@ -152,10 +159,6 @@ async def _check_and_notify():
                             )
                 except Exception:
                     pass
-
-            event = _event_for_days(diff_days)
-            if not event:
-                continue
 
             # Human-pacing: wait between clients (skip on the very first send
             # so the loop feels responsive when there's only one match).

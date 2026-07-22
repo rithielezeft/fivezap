@@ -656,6 +656,30 @@ async def get_account_info() -> dict:
     raise RuntimeError("Nenhum endpoint de conta encontrado. Tentativas: " + " | ".join(attempts))
 
 
+async def get_reseller_balance() -> dict:
+    """Return a normalized {balance, currency, raw} from painel.fun.
+
+    Reads whatever `get_account_info()` gives us and extracts the most
+    likely balance field (`credits`, `balance`, `saldo`, `available`).
+    """
+    info = await get_account_info()
+    data = info.get("data") or {}
+    # Some painel builds nest under 'user' or 'data'
+    d = data.get("user") or data.get("data") or data
+    for key in ("credits", "balance", "saldo", "available_balance", "wallet"):
+        v = d.get(key) if isinstance(d, dict) else None
+        if v is not None:
+            try:
+                return {"balance": float(v), "currency": "BRL", "raw_field": key,
+                        "source_endpoint": info.get("path")}
+            except (TypeError, ValueError):
+                return {"balance_raw": v, "raw_field": key,
+                        "source_endpoint": info.get("path")}
+    return {"balance": None, "currency": "BRL", "raw": d if isinstance(d, dict) else str(d)[:200],
+            "source_endpoint": info.get("path"),
+            "note": "campo de saldo não encontrado na resposta"}
+
+
 async def renew_user(user_id: str, package_id: int) -> dict:
     """Renew existing user via painel API.
 

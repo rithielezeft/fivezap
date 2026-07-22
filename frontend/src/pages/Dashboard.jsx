@@ -7,8 +7,15 @@ import {
   Warning,
   CurrencyDollar,
   Pulse,
+  Wallet,
+  Robot,
+  ChartBar,
+  TrendUp,
 } from "@phosphor-icons/react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  BarChart, Bar, Cell,
+} from "recharts";
 
 function StatCard({ icon: Icon, label, value, hint, color = "#007AFF", testid }) {
   return (
@@ -28,47 +35,135 @@ function StatCard({ icon: Icon, label, value, hint, color = "#007AFF", testid })
   );
 }
 
+const REF_COLORS = {
+  expiration_7d: "#007AFF",
+  expiration_3d: "#5AC8FA",
+  expiration_1d: "#FF9F0A",
+  expiration_0d: "#FF3B30",
+  expired_1d: "#8E8E93",
+  expired_3d: "#636366",
+  expired_7d: "#48484A",
+  trial_ready: "#34C759",
+  manual: "#AF52DE",
+  direct: "#FFCC00",
+  other: "#666",
+};
+
+const REF_LABELS = {
+  expiration_7d: "Lembrete 7d",
+  expiration_3d: "Lembrete 3d",
+  expiration_1d: "Lembrete 1d",
+  expiration_0d: "No dia",
+  expired_1d: "Venc. 1d",
+  expired_3d: "Venc. 3d",
+  expired_7d: "Venc. 7d",
+  trial_ready: "Trial",
+  manual: "Manual",
+  direct: "Direto",
+  other: "Outro",
+};
+
 export default function Dashboard() {
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: dashboardApi.stats, refetchInterval: 10000 });
   const { data: activity } = useQuery({ queryKey: ["activity"], queryFn: dashboardApi.activity, refetchInterval: 15000 });
+  const { data: attribution } = useQuery({ queryKey: ["attribution"], queryFn: () => dashboardApi.attribution(30), refetchInterval: 30000 });
+  const { data: revenueByDay } = useQuery({ queryKey: ["revenue-by-day"], queryFn: () => dashboardApi.revenueByDay(14), refetchInterval: 30000 });
+  const { data: balances } = useQuery({
+    queryKey: ["balances"], queryFn: dashboardApi.balances,
+    refetchInterval: 5 * 60 * 1000, // 5 min — external APIs, don't hammer
+    retry: 1,
+  });
 
   const chartData = (stats?.trials_by_day || []).map((d) => ({
     day: d.day.slice(5),
     count: d.c,
   }));
 
+  const attribChart = (attribution?.buckets || []).map((b) => ({
+    bucket: REF_LABELS[b.bucket] || b.bucket,
+    raw: b.bucket,
+    paid: b.paid_count,
+    total: b.total,
+    revenue: b.revenue_cents / 100,
+    conv: b.conversion_rate,
+  }));
+
+  const revenueChart = (revenueByDay?.days || []).map((d) => ({
+    day: (d.day || "").slice(5),
+    revenue: d.revenue_cents / 100,
+    count: d.count,
+  }));
+
+  const painelBalance = balances?.painel;
+  const twocap = balances?.twocaptcha;
+
   return (
     <Layout title="Dashboard" subtitle="Visão geral em tempo real do seu revendedor">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          icon={Ticket}
-          label="Testes hoje"
-          value={stats?.trials_today ?? "—"}
-          color="#007AFF"
-          testid="stat-trials-today"
-        />
-        <StatCard
-          icon={Users}
-          label="Clientes ativos"
-          value={stats?.active_customers ?? "—"}
-          hint={`${stats?.total_customers ?? 0} no total`}
-          color="#34C759"
-          testid="stat-active-customers"
-        />
-        <StatCard
-          icon={Warning}
-          label="Vencendo em 3d"
-          value={stats?.expiring_soon ?? "—"}
-          color="#FF9F0A"
-          testid="stat-expiring"
-        />
-        <StatCard
-          icon={CurrencyDollar}
-          label="Receita 7 dias"
-          value={formatMoney(stats?.revenue_week_cents ?? 0)}
-          color="#25D366"
-          testid="stat-revenue"
-        />
+        <StatCard icon={Ticket} label="Testes hoje" value={stats?.trials_today ?? "—"} color="#007AFF" testid="stat-trials-today" />
+        <StatCard icon={Users} label="Clientes ativos" value={stats?.active_customers ?? "—"} hint={`${stats?.total_customers ?? 0} no total`} color="#34C759" testid="stat-active-customers" />
+        <StatCard icon={Warning} label="Vencendo em 3d" value={stats?.expiring_soon ?? "—"} color="#FF9F0A" testid="stat-expiring" />
+        <StatCard icon={CurrencyDollar} label="Receita 7 dias" value={formatMoney(stats?.revenue_week_cents ?? 0)} color="#25D366" testid="stat-revenue" />
+      </div>
+
+      {/* Saldos das APIs externas */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div className="surface rounded-xl p-5" data-testid="balance-painel">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-widest text-white/40">Saldo painel.fun</span>
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#AF52DE15", color: "#AF52DE" }}>
+              <Wallet size={18} weight="duotone" />
+            </div>
+          </div>
+          {!painelBalance ? (
+            <div className="mt-4 text-white/40 text-sm">Carregando...</div>
+          ) : painelBalance.error ? (
+            <div className="mt-4">
+              <div className="text-[#FF3B30] font-mono text-xs">Erro: {painelBalance.error}</div>
+              <div className="text-white/40 text-xs mt-1">Verifique credenciais painel em Configurações</div>
+            </div>
+          ) : painelBalance.balance != null ? (
+            <>
+              <div className="mt-4 font-display text-3xl font-bold">
+                {typeof painelBalance.balance === "number"
+                  ? painelBalance.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  : painelBalance.balance}
+              </div>
+              <div className="text-xs text-white/40 mt-1">
+                créditos disponíveis · campo: {painelBalance.raw_field}
+              </div>
+            </>
+          ) : (
+            <div className="mt-4">
+              <div className="text-white/60 text-sm">Saldo desconhecido</div>
+              <div className="text-white/40 text-xs mt-1">{painelBalance.note}</div>
+            </div>
+          )}
+        </div>
+
+        <div className="surface rounded-xl p-5" data-testid="balance-2captcha">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-widest text-white/40">Saldo 2Captcha</span>
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#00C7BE15", color: "#00C7BE" }}>
+              <Robot size={18} weight="duotone" />
+            </div>
+          </div>
+          {!twocap ? (
+            <div className="mt-4 text-white/40 text-sm">Carregando...</div>
+          ) : twocap.error ? (
+            <div className="mt-4">
+              <div className="text-[#FF3B30] font-mono text-xs">Erro: {twocap.error}</div>
+              <div className="text-white/40 text-xs mt-1">Configure `twocaptcha_key` em Configurações</div>
+            </div>
+          ) : (
+            <>
+              <div className="mt-4 font-display text-3xl font-bold">
+                ${twocap.balance_usd?.toFixed(3)}
+              </div>
+              <div className="text-xs text-white/40 mt-1">USD · custa ~$0.003 por captcha</div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
@@ -85,10 +180,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                 <XAxis dataKey="day" tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
                 <YAxis tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{ background: "#121212", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
-                  labelStyle={{ color: "#fff" }}
-                />
+                <Tooltip contentStyle={{ background: "#121212", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} labelStyle={{ color: "#fff" }} />
                 <Line type="monotone" dataKey="count" stroke="#007AFF" strokeWidth={2} dot={{ r: 4, fill: "#007AFF" }} />
               </LineChart>
             </ResponsiveContainer>
@@ -118,6 +210,84 @@ export default function Dashboard() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      </div>
+
+      {/* Atribuição + Receita por dia */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <div className="surface rounded-xl p-6" data-testid="chart-attribution">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-display text-xl font-bold">Qual mensagem gera mais pagamento?</h2>
+              <p className="text-xs text-white/40">Últimos 30 dias · atribuição via ?ref=</p>
+            </div>
+            <ChartBar size={20} className="text-white/40" />
+          </div>
+          {attribChart.length === 0 ? (
+            <div className="h-56 flex items-center justify-center text-white/40 text-sm">
+              Sem pagamentos rastreados ainda. Aguarde os próximos lembretes.
+            </div>
+          ) : (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={attribChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="bucket" tick={{ fill: "#71717A", fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
+                  <YAxis tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
+                  <Tooltip
+                    contentStyle={{ background: "#121212", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                    labelStyle={{ color: "#fff" }}
+                    formatter={(v, k, entry) =>
+                      k === "revenue" ? [`R$ ${v.toFixed(2)}`, "Receita"] :
+                      k === "paid" ? [`${v} pagos (${entry?.payload?.conv}%)`, "Conversões"] :
+                      [v, k]
+                    }
+                  />
+                  <Bar dataKey="revenue" name="Receita (R$)">
+                    {attribChart.map((r) => (
+                      <Cell key={r.raw} fill={REF_COLORS[r.raw] || "#666"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+            {attribChart.slice(0, 6).map((r) => (
+              <div key={r.raw} className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ background: REF_COLORS[r.raw] || "#666" }} />
+                  <span className="text-white/80">{r.bucket}</span>
+                </span>
+                <span className="text-white/50 font-mono">{r.paid}/{r.total} · {r.conv}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="surface rounded-xl p-6" data-testid="chart-revenue-by-day">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-display text-xl font-bold">Receita por dia</h2>
+              <p className="text-xs text-white/40">Últimos 14 dias</p>
+            </div>
+            <TrendUp size={20} className="text-white/40" />
+          </div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={revenueChart}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="day" tick={{ fill: "#71717A", fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
+                <YAxis tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
+                <Tooltip
+                  contentStyle={{ background: "#121212", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                  labelStyle={{ color: "#fff" }}
+                  formatter={(v, k) => k === "revenue" ? [`R$ ${v.toFixed(2)}`, "Receita"] : [v, "Pagamentos"]}
+                />
+                <Bar dataKey="revenue" fill="#25D366" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>

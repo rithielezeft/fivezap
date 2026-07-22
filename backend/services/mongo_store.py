@@ -166,3 +166,63 @@ async def ping() -> bool:
     except Exception as e:
         logger.warning("mongo ping failed: %s", e)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Settings & templates sync to Atlas
+# ---------------------------------------------------------------------------
+
+async def upsert_setting(key: str, value: str) -> bool:
+    """Mirror a single setting from SQLite → Atlas.
+
+    Atlas collection `settings` — same shape as SQLite: {_id: key, value}.
+    Called from database.set_setting on every write. Best-effort.
+    """
+    try:
+        db = _get_db()
+        await db.settings.update_one(
+            {"_id": key},
+            {"$set": {
+                "value": value,
+                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+        return True
+    except Exception as e:
+        logger.warning("upsert_setting failed for %s: %s", key, e)
+        return False
+
+
+async def upsert_template(template: dict) -> bool:
+    """Mirror a notification_templates row → Atlas.
+
+    Called from the templates router on create/update/delete. Best-effort.
+    """
+    tid = template.get("id") or template.get("event_key")
+    if not tid:
+        return False
+    try:
+        db = _get_db()
+        await db.notification_templates.update_one(
+            {"_id": str(tid)},
+            {"$set": {
+                **template,
+                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+        return True
+    except Exception as e:
+        logger.warning("upsert_template failed for %s: %s", tid, e)
+        return False
+
+
+async def delete_template(template_id: str) -> bool:
+    try:
+        db = _get_db()
+        await db.notification_templates.delete_one({"_id": str(template_id)})
+        return True
+    except Exception as e:
+        logger.warning("delete_template failed for %s: %s", template_id, e)
+        return False

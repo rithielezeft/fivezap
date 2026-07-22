@@ -274,12 +274,26 @@ async def create_payment(payload: PaymentCreate):
     except Exception as e:
         raise HTTPException(502, f"InfinitePay error: {e}")
 
+    # Sanitize/whitelist the attribution bucket. Values must be one of the
+    # known reminder events or a short admin-supplied label — never an
+    # arbitrary string from the URL (SQL/log injection guard).
+    _ALLOWED_REFS = {
+        "expiration_7d", "expiration_3d", "expiration_1d", "expiration_0d",
+        "expired_1d", "expired_3d", "expired_7d",
+        "trial_ready", "manual", "direct", "renewal_success",
+    }
+    ref_bucket = str(payload.ref or "").strip()[:32]
+    if ref_bucket and ref_bucket not in _ALLOWED_REFS:
+        ref_bucket = "other"
+    if not ref_bucket:
+        ref_bucket = "direct"
+
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, ref_bucket, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
             (payment_id, payload.customer_id, payload.plan_months, amount, package_id,
              link_data.get("url"), order_nsu, confirmation_token,
-             discount_percent, original_amount, now_iso()),
+             discount_percent, original_amount, ref_bucket, now_iso()),
         )
         await db.commit()
 
@@ -680,11 +694,29 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
 
             client_notified = False
             fallback_msg_sent = False
+            # Fetch painel_username for the {user} template variable — some
+            # admins prefer showing the login ("joao_iptv44") over the display
+            # name, especially for verifying identity.
+            painel_user = ""
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    db.row_factory = aiosqlite.Row
+                    cur = await db.execute(
+                        "SELECT painel_username FROM customers WHERE id = ?",
+                        (customer["id"],),
+                    )
+                    row = await cur.fetchone()
+                    if row:
+                        painel_user = (row["painel_username"] or "").strip()
+            except Exception:
+                pass
+
             if phone:
                 client_notified = await send_notification(
                     "renewal_success", phone,
                     {
                         "name": customer["name"],
+                        "user": painel_user or customer["name"],
                         "plan_months": payment["plan_months"],
                         "new_expires_at": new_expires,
                         "system_type": customer.get("system_type") or "",

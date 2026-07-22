@@ -47,6 +47,9 @@ export const uploadsApi = {
 export const dashboardApi = {
   stats: () => api.get("/dashboard/stats").then((r) => r.data),
   activity: () => api.get("/dashboard/activity").then((r) => r.data),
+  attribution: (days = 30) => api.get("/dashboard/attribution", { params: { days } }).then((r) => r.data),
+  revenueByDay: (days = 14) => api.get("/dashboard/revenue-by-day", { params: { days } }).then((r) => r.data),
+  balances: () => api.get("/dashboard/balances", { timeout: 15000 }).then((r) => r.data),
 };
 
 export const customersApi = {
