@@ -126,7 +126,7 @@ export const painelApi = {
   notifyNow: () => api.post("/painel/notify-now", null, { timeout: 120000 }).then((r) => r.data),
   debugSample: () => api.get("/painel/debug-sample").then((r) => r.data),
   listExpired: () => api.get("/painel/expired").then((r) => r.data),
-  notifyExpired: (user_ids) => api.post("/painel/notify-expired", { user_ids: user_ids || [] }, { timeout: 180000 }).then((r) => r.data),
+  notifyExpired: (user_ids, force) => api.post("/painel/notify-expired", { user_ids: user_ids || [], force: !!force }, { timeout: 180000 }).then((r) => r.data),
 };
 
 export function formatMoney(cents) {

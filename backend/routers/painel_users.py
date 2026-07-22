@@ -424,8 +424,13 @@ async def notify_now():
 
 class NotifyExpiredPayload(BaseModel):
     """Which users to notify. Empty `user_ids` → all currently-expired
-    users with WhatsApp available. Otherwise notify only the listed ones."""
+    users with WhatsApp available. Otherwise notify only the listed ones.
+
+    `force=True` bypasses the "already-sent-recently" dedup check and
+    enqueues every selected user, even those who got the same template
+    within the past 60 minutes."""
     user_ids: list[str] = []
+    force: bool = False
 
 
 @router.get("/expired")
@@ -472,22 +477,27 @@ async def notify_expired(payload: NotifyExpiredPayload):
     When `user_ids` is empty → target ALL currently-expired users with a
     WhatsApp available. Otherwise only the listed ones. Uses the delivery
     queue so failures auto-retry every 10s.
+
+    Two-step confirmation flow:
+    1. If `force=False` (default) and any target already got the SAME
+       template within the last 60 min (or has a pending queue entry),
+       returns `{needs_confirmation: True, duplicates: [...]}` WITHOUT
+       enqueuing — so the frontend can ask "enviar mesmo assim?".
+    2. If `force=True`, dedup is bypassed and every selected user is
+       enqueued (used by the confirmation button in the UI).
     """
     from services.notifier import send_notification
+    from services.delivery_queue import find_recent_delivery
     from database import get_setting
 
     users, _ = await _read_cache()
     selected_ids = {str(x) for x in (payload.user_ids or [])}
     public_base = await get_setting("public_base_url", "")
 
-    enqueued = 0
+    # First pass: filter valid + expired + with WhatsApp
+    targets = []
     skipped_no_wa = 0
     skipped_not_expired = 0
-    errors = []
-    # When selection is empty, we iterate ALL users but only care about
-    # expired ones — skipping the entire active base isn't meaningful, so
-    # we don't count it (keeps `skipped_not_expired` semantically about
-    # explicit selections that were stale/wrong, not the whole DB).
     count_active_skips = bool(selected_ids)
 
     for u in users:
@@ -498,7 +508,6 @@ async def notify_expired(payload: NotifyExpiredPayload):
         if selected_ids and uid_str not in selected_ids:
             continue
 
-        # Re-check status server-side (never trust client-passed lists blindly).
         exp = compute_expiration_info(u)
         if exp["status"] != "expired":
             if count_active_skips:
@@ -510,11 +519,85 @@ async def notify_expired(payload: NotifyExpiredPayload):
             skipped_no_wa += 1
             continue
 
+        targets.append({"user": u, "uid_str": uid_str, "phone": phone, "exp": exp})
+
+    # Dedup check (unless force=True). Any target with a recent send is
+    # collected into `duplicates` and — if the caller didn't force — we
+    # short-circuit and let the frontend ask for confirmation.
+    duplicates = []
+    if not payload.force:
+        for t in targets:
+            recent = await find_recent_delivery(
+                t["phone"], "manual_expired_alert", window_minutes=60,
+            )
+            if recent:
+                from datetime import datetime as _dt, timezone as _tz
+                # Prefer sent_at when the delivery is already sent, else use
+                # created_at (still pending in queue).
+                ref = recent.get("sent_at") or recent.get("created_at")
+                minutes_ago = None
+                try:
+                    ref_dt = _dt.fromisoformat(ref.replace("Z", "+00:00")) if ref else None
+                    if ref_dt:
+                        if ref_dt.tzinfo is None:
+                            ref_dt = ref_dt.replace(tzinfo=_tz.utc)
+                        minutes_ago = int(
+                            (_dt.now(_tz.utc) - ref_dt).total_seconds() / 60
+                        )
+                except Exception:
+                    minutes_ago = None
+                u = t["user"]
+                duplicates.append({
+                    "user_id": t["uid_str"],
+                    "phone": t["phone"],
+                    "name": u.get("full_name") or u.get("name")
+                            or u.get("username") or "",
+                    "username": u.get("username") or u.get("login") or "",
+                    "status": recent["status"],
+                    "sent_at": recent.get("sent_at"),
+                    "created_at": recent.get("created_at"),
+                    "minutes_ago": minutes_ago,
+                })
+
+        if duplicates:
+            # Also compute how many WOULD be sent if the admin confirms.
+            dup_ids = {d["user_id"] for d in duplicates}
+            fresh_count = sum(1 for t in targets if t["uid_str"] not in dup_ids)
+            return {
+                "success": False,
+                "needs_confirmation": True,
+                "duplicates": duplicates,
+                "duplicate_count": len(duplicates),
+                "fresh_count": fresh_count,
+                "message": (
+                    f"{len(duplicates)} cliente(s) já receberam esse aviso "
+                    f"nos últimos 60 minutos. Clique em 'Enviar mesmo assim' "
+                    f"para reenviar ou desmarque-os."
+                ),
+            }
+
+    # Actually enqueue.
+    enqueued = 0
+    resent = 0
+    errors = []
+    for t in targets:
+        u = t["user"]
+        phone = t["phone"]
+        uid_str = t["uid_str"]
+        exp = t["exp"]
         pay_link = f"{public_base}/pay/{uid_str}" if public_base else ""
         name = u.get("full_name") or u.get("name") or u.get("username") or "cliente"
         username = u.get("username") or u.get("login") or ""
 
         try:
+            # Track whether this send BYPASSED dedup (i.e. was a re-send).
+            was_recent = False
+            if payload.force:
+                was_recent = bool(
+                    await find_recent_delivery(
+                        phone, "manual_expired_alert", window_minutes=60,
+                    )
+                )
             await send_notification(
                 "manual_expired_alert", phone,
                 {
@@ -525,8 +608,11 @@ async def notify_expired(payload: NotifyExpiredPayload):
                     "system_type": (detect_system_type(u) or "").upper(),
                 },
                 customer_id=uid_str,
+                force=payload.force,
             )
             enqueued += 1
+            if was_recent:
+                resent += 1
         except Exception as e:
             logger.exception("notify_expired for %s failed", uid_str)
             errors.append({"user_id": uid_str, "error": str(e)})
@@ -534,6 +620,7 @@ async def notify_expired(payload: NotifyExpiredPayload):
     return {
         "success": True,
         "enqueued": enqueued,
+        "resent": resent,
         "skipped_no_whatsapp": skipped_no_wa,
         "skipped_not_expired": skipped_not_expired,
         "errors": errors,

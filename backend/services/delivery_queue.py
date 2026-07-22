@@ -29,6 +29,38 @@ LOOP_TICK_SECONDS = 5   # scan the queue every 5s → up to +5s of latency
 DEFAULT_MAX_ATTEMPTS = 5
 
 
+async def find_recent_delivery(
+    phone: str,
+    event_key: str,
+    window_minutes: int = 60,
+) -> Optional[dict]:
+    """Return the most recent delivery to `phone` for `event_key` if:
+      • it's still pending in the queue (any created_at) — retrying, OR
+      • it was `sent` within the last `window_minutes` — recently delivered.
+
+    Callers use this to avoid duplicating messages when a manual bulk-send
+    button is clicked twice, when a scheduled reminder overlaps a manual
+    notification, or when two admins trigger the same wave.
+    """
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    ).isoformat()
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM notification_deliveries "
+            "WHERE phone = ? AND event_key = ? "
+            "  AND ("
+            "    status = 'pending' "
+            "    OR (status = 'sent' AND sent_at IS NOT NULL AND sent_at >= ?)"
+            "  ) "
+            "ORDER BY created_at DESC LIMIT 1",
+            (phone, event_key, cutoff),
+        )
+        row = await cur.fetchone()
+    return dict(row) if row else None
+
+
 async def enqueue(
     event_key: str,
     phone: str,
@@ -37,16 +69,38 @@ async def enqueue(
     customer_id: Optional[str] = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     typing_ms: int = 0,
+    dedup_window_minutes: int = 60,
+    force: bool = False,
 ) -> str:
     """Record a new delivery and attempt to send it immediately.
 
     Returns the delivery id. If the immediate send succeeds, status='sent'.
     If it fails, status='pending' and the retry loop will pick it up.
 
+    Deduplication: if `dedup_window_minutes > 0` and `force=False`, checks
+    for a recent delivery (same phone + event_key) that is either still
+    pending or was sent within the window. If found, returns the EXISTING
+    delivery id WITHOUT enqueueing again — preventing accidental duplicates
+    (double-clicks, overlapping schedulers, etc.). Pass `force=True` to
+    bypass and always enqueue.
+
     `typing_ms` is stored in `last_error` field prefixed with `__typing_ms__:`
     so retries also honour the typing indicator without changing the schema.
     Actual meaningful `last_error` is written on failure, overwriting this.
     """
+    if not force and dedup_window_minutes and dedup_window_minutes > 0:
+        existing = await find_recent_delivery(
+            phone, event_key, window_minutes=dedup_window_minutes,
+        )
+        if existing:
+            logger.info(
+                "delivery dedup HIT event=%s phone=%s → reusing id=%s "
+                "(status=%s, created_at=%s)",
+                event_key, phone, existing["id"], existing["status"],
+                existing["created_at"],
+            )
+            return existing["id"]
+
     did = new_id()
     created_at = now_iso()
     # Encode typing_ms into a lightweight side-channel: we keep a "hint" in

@@ -31,7 +31,9 @@ def render(template: str, ctx: dict) -> str:
 
 async def send_notification(event_key: str, phone: str, ctx: dict,
                             customer_id: str | None = None,
-                            typing_ms: int = 0) -> bool:
+                            typing_ms: int = 0,
+                            dedup_window_minutes: int = 60,
+                            force: bool = False) -> bool:
     """Enqueue a template-rendered notification. Returns True if the FIRST
     attempt succeeded synchronously (message delivered inline), False if it
     was queued for retry. Missing/disabled template → returns False without
@@ -39,6 +41,11 @@ async def send_notification(event_key: str, phone: str, ctx: dict,
 
     `typing_ms`: optional "digitando..." duration before the actual send.
     Passed through to the WhatsApp service.
+
+    `dedup_window_minutes`: skip enqueue if same (event_key, phone) was
+    sent in this window OR is still pending. Set to 0 to disable dedup.
+    `force=True` bypasses the dedup check (used by "enviar mesmo assim"
+    confirmations from the UI).
     """
     tpl = await get_template(event_key)
     if not tpl:
@@ -55,6 +62,8 @@ async def send_notification(event_key: str, phone: str, ctx: dict,
             image_url=image,
             customer_id=customer_id,
             typing_ms=typing_ms,
+            dedup_window_minutes=dedup_window_minutes,
+            force=force,
         )
         # `enqueue` already tried once synchronously — re-read to see the outcome.
         import aiosqlite
@@ -74,12 +83,17 @@ async def send_notification(event_key: str, phone: str, ctx: dict,
 async def send_hardcoded(phone: str, body: str, event_key: str = "hardcoded",
                         customer_id: str | None = None) -> bool:
     """Send a raw message (not from template) through the delivery queue.
-    Same retry semantics — the client is never left without confirmation."""
+    Same retry semantics — the client is never left without confirmation.
+
+    Dedup is DISABLED for hardcoded sends: admin alerts + fallbacks are
+    per-event (different bodies) and must always fire.
+    """
     try:
         from services.delivery_queue import enqueue
         delivery_id = await enqueue(
             event_key=event_key, phone=phone, body=body,
             image_url=None, customer_id=customer_id,
+            dedup_window_minutes=0,
         )
         import aiosqlite
         async with aiosqlite.connect(database.DB_PATH) as db:

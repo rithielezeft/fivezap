@@ -107,6 +107,7 @@ export default function Customers() {
   const [expiredOpen, setExpiredOpen] = useState(false);
   const [expiredData, setExpiredData] = useState(null);
   const [expiredSelected, setExpiredSelected] = useState({}); // { user_id: true }
+  const [dupConfirm, setDupConfirm] = useState(null); // {duplicates, fresh_count, duplicate_count, selectedIds}
 
   // debounce search
   useEffect(() => {
@@ -175,12 +176,31 @@ export default function Customers() {
   });
 
   const notifyExpiredMut = useMutation({
-    mutationFn: (ids) => painelApi.notifyExpired(ids),
-    onSuccess: (r) => {
+    mutationFn: ({ ids, force }) => painelApi.notifyExpired(ids, !!force),
+    onSuccess: (r, vars) => {
+      // Two-step flow: backend returns `needs_confirmation:true` when some
+      // of the selected clients already got the same template in the last
+      // 60 min. Show a second dialog so the admin decides whether to resend.
+      if (r?.needs_confirmation) {
+        setDupConfirm({
+          duplicates: r.duplicates || [],
+          duplicate_count: r.duplicate_count || 0,
+          fresh_count: r.fresh_count || 0,
+          message: r.message || "",
+          selectedIds: vars.ids || [],
+        });
+        return;
+      }
       const enq = r?.enqueued ?? 0;
+      const resent = r?.resent ?? 0;
       const noWa = r?.skipped_no_whatsapp ?? 0;
-      toast.success(`${enq} notificações enfileiradas${noWa ? ` (${noWa} sem WhatsApp)` : ""}`);
+      const suffix = [
+        resent > 0 ? `${resent} reenviado(s)` : null,
+        noWa ? `${noWa} sem WhatsApp` : null,
+      ].filter(Boolean).join(", ");
+      toast.success(`${enq} notificações enfileiradas${suffix ? ` (${suffix})` : ""}`);
       setExpiredOpen(false);
+      setDupConfirm(null);
     },
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
@@ -783,7 +803,7 @@ export default function Customers() {
                 const ids = Object.entries(expiredSelected)
                   .filter(([, v]) => v)
                   .map(([k]) => k);
-                notifyExpiredMut.mutate(ids);
+                notifyExpiredMut.mutate({ ids, force: false });
               }}
               data-testid="btn-expired-confirm"
             >
@@ -791,6 +811,102 @@ export default function Customers() {
               {notifyExpiredMut.isPending
                 ? "Enfileirando..."
                 : `Enviar para ${Object.values(expiredSelected).filter(Boolean).length}`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate confirmation dialog: shown when notify-expired detects
+          clients who already got the same template in the last 60 min. */}
+      <Dialog open={!!dupConfirm} onOpenChange={(open) => { if (!open) setDupConfirm(null); }}>
+        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <WarningCircle size={22} className="text-[#FF9F0A]" weight="fill" />
+              Alguns clientes já foram notificados
+            </DialogTitle>
+            <DialogDescription className="text-white/60 text-xs">
+              {dupConfirm?.message}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="text-xs text-white/60 mb-2 flex items-center gap-3 flex-wrap">
+            <span data-testid="dup-count">
+              {dupConfirm?.duplicate_count ?? 0} duplicado(s) nos últimos 60 min
+            </span>
+            <span className="text-white/40">•</span>
+            <span data-testid="dup-fresh">
+              {dupConfirm?.fresh_count ?? 0} pendentes (serão enviados normalmente)
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto border border-white/[0.05] rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-white/[0.02] text-left text-white/50 text-xs uppercase tracking-widest sticky top-0">
+                <tr>
+                  <th className="px-3 py-2">Usuário</th>
+                  <th className="px-3 py-2">WhatsApp</th>
+                  <th className="px-3 py-2">Último envio</th>
+                  <th className="px-3 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(dupConfirm?.duplicates || []).map((d) => (
+                  <tr key={d.user_id} className="border-t border-white/[0.05] hover:bg-white/[0.02]" data-testid={`dup-row-${d.user_id}`}>
+                    <td className="px-3 py-2">
+                      <div className="font-mono text-xs">{d.username || "—"}</div>
+                      <div className="text-[11px] text-white/50">{d.name || ""}</div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-white/70">{d.phone}</td>
+                    <td className="px-3 py-2 text-xs text-white/60">
+                      {d.minutes_ago != null ? `há ${d.minutes_ago} min` : "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`text-[10px] uppercase font-semibold px-2 py-1 rounded-md ${
+                        d.status === "sent"
+                          ? "bg-[#34C759]/10 text-[#34C759] border border-[#34C759]/30"
+                          : "bg-[#FF9F0A]/10 text-[#FF9F0A] border border-[#FF9F0A]/30"
+                      }`}>
+                        {d.status === "sent" ? "entregue" : "na fila"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.05]">
+            <Button
+              variant="ghost"
+              onClick={() => setDupConfirm(null)}
+              data-testid="btn-dup-cancel"
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="outline"
+              className="border-white/10 hover:bg-white/[0.05]"
+              onClick={() => {
+                const dupIds = new Set((dupConfirm?.duplicates || []).map(d => d.user_id));
+                const freshIds = (dupConfirm?.selectedIds || []).filter(id => !dupIds.has(id));
+                notifyExpiredMut.mutate({ ids: freshIds, force: false });
+              }}
+              disabled={notifyExpiredMut.isPending || (dupConfirm?.fresh_count ?? 0) === 0}
+              data-testid="btn-dup-skip"
+            >
+              Enviar só os {dupConfirm?.fresh_count ?? 0} novos
+            </Button>
+            <Button
+              className="bg-[#FF9F0A] hover:bg-[#D97F00] text-black font-medium"
+              onClick={() => {
+                notifyExpiredMut.mutate({ ids: dupConfirm?.selectedIds || [], force: true });
+              }}
+              disabled={notifyExpiredMut.isPending}
+              data-testid="btn-dup-force"
+            >
+              <PaperPlaneTilt size={16} className="mr-2" />
+              {notifyExpiredMut.isPending ? "Enviando..." : "Enviar mesmo assim"}
             </Button>
           </div>
         </DialogContent>
