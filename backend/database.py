@@ -229,6 +229,11 @@ async def init_db():
             # every enqueue always creates a new delivery row.
             "dedup_enabled": "true",
             "dedup_window_minutes": "60",
+            # How often the Clientes page auto-refreshes from painel.fun.
+            # Each refresh burns 2Captcha credits, so raising this saves $$.
+            # Applied to both the background loop AND the cache-staleness
+            # threshold used by the /api/painel/users endpoint.
+            "painel_refresh_interval_seconds": "300",
         }
         for key, value in defaults.items():
             await db.execute(

@@ -101,18 +101,27 @@ async def lifespan(app: FastAPI):
         stop_poller = None  # type: ignore
 
     # Background painel.fun cache refresher — keeps the Clientes page in
-    # sync with the panel every ~5 minutes without requiring user activity.
+    # sync with the panel. Interval is read live from the admin-controlled
+    # `painel_refresh_interval_seconds` setting so raising it in the UI
+    # takes effect on the next tick (no restart needed).
     async def _painel_refresh_loop():
         import logging
         from routers.painel_users import refresh_cache_task
+        from database import get_setting
         log = logging.getLogger("painel_refresh_loop")
-        log.info("painel_refresh_loop started (interval=300s)")
+        log.info("painel_refresh_loop started (interval read from settings)")
         while True:
             try:
                 await refresh_cache_task()
             except Exception:
                 log.exception("painel_refresh_loop iteration failed (keeping loop alive)")
-            await asyncio.sleep(300)  # 5 min
+            # Read interval fresh each cycle so the admin can change it live.
+            try:
+                interval_raw = (await get_setting("painel_refresh_interval_seconds") or "300").strip()
+                interval = max(30, int(interval_raw))
+            except Exception:
+                interval = 300
+            await asyncio.sleep(interval)
 
     task_painel_refresh = asyncio.create_task(_painel_refresh_loop())
 

@@ -30,6 +30,7 @@ const FIELDS = [
   { key: "admin_whatsapp", label: "Admin — Seu WhatsApp (recebe alertas de pagamento)", group: "notify", placeholder: "5511999998888" },
   { key: "dedup_enabled", label: "Anti-duplicata — Ativo? (true/false). Se true, não reenvia o mesmo template ao mesmo cliente antes da janela.", group: "notify", placeholder: "true" },
   { key: "dedup_window_minutes", label: "Anti-duplicata — Janela em minutos (padrão 60)", group: "notify", placeholder: "60" },
+  { key: "painel_refresh_interval_seconds", label: "Auto-refresh do Painel — segundos (padrão 300 = 5min). Aumente para economizar créditos 2Captcha (ex: 600 = 10min, 1800 = 30min).", group: "painel", placeholder: "300" },
 ];
 
 const GROUPS = {

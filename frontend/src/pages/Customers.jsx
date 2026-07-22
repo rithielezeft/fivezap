@@ -125,14 +125,17 @@ export default function Customers() {
     refetchInterval: (q) => (q?.state?.data?.refreshing ? 3000 : 30000),
   });
 
-  // On MOUNT (component load), force a synchronous refresh from painel.fun
-  // so the Clientes page never shows stale local data on first open.
-  // The ref guard prevents re-firing on hot-reload / react-strict-mode.
+  // On MOUNT, just refetch from the local cache. The backend already
+  // triggers a background painel refresh when the cache goes stale
+  // (interval controlled by the `painel_refresh_interval_seconds`
+  // setting). We DON'T force-refresh on every visit anymore because
+  // each force burns 2Captcha credits.
+  // (Manual refresh is still available via the "Atualizar do painel" button.)
   const firstLoadDone = useRef(false);
   useEffect(() => {
     if (firstLoadDone.current) return;
     firstLoadDone.current = true;
-    painelApi.listUsers({ force: true }).then(() => refetch()).catch(() => {});
+    refetch();
   }, [refetch]);
 
   const refreshMut = useMutation({

@@ -199,16 +199,22 @@ async def list_users(search: Optional[str] = None, force: bool = False,
 
     users, updated_at = await _read_cache()
 
-    # Trigger background refresh if cache is empty or older than 60 seconds.
-    # Shortened from 180s so the Clientes page reflects real-time panel
-    # changes (renewals, status flips, new users) without user action.
+    # Trigger background refresh only when the cache is older than the
+    # admin-configured `painel_refresh_interval_seconds` (default 300s).
+    # Every refresh burns 2Captcha credits, so raising this saves money.
+    from database import get_setting as _get_setting
+    try:
+        ttl_raw = (await _get_setting("painel_refresh_interval_seconds") or "300").strip()
+        ttl_seconds = max(30, int(ttl_raw))  # never below 30s to keep sane
+    except (TypeError, ValueError):
+        ttl_seconds = 300
     should_refresh = False
     if not users:
         should_refresh = True
     elif updated_at:
         try:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(updated_at)).total_seconds()
-            if age > 60:
+            if age > ttl_seconds:
                 should_refresh = True
         except Exception:
             should_refresh = True
