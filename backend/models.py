@@ -160,6 +160,7 @@ class SettingsUpdate(BaseModel):
     turnstile_sitekey: Optional[str] = None
     turnstile_pageurl: Optional[str] = None
     infinitepay_handle: Optional[str] = None
+    infinitepay_webhook_secret: Optional[str] = None
     notification_days: Optional[str] = None
     trial_package_id: Optional[str] = None
     public_base_url: Optional[str] = None
@@ -168,6 +169,9 @@ class SettingsUpdate(BaseModel):
     plan_price_3m: Optional[str] = None
     plan_price_6m: Optional[str] = None
     plan_price_12m: Optional[str] = None
+    admin_whatsapp: Optional[str] = None
+    discount_7d_enabled: Optional[str] = None
+    discount_7d_percent: Optional[str] = None
 
 
 # ---- Public trial request ----
