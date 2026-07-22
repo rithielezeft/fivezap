@@ -158,7 +158,7 @@ export default function Dashboard() {
           ) : (
             <>
               <div className="mt-4 font-display text-3xl font-bold">
-                ${twocap.balance_usd?.toFixed(3)}
+                ${twocap.balance_usd?.toFixed(2)}
               </div>
               <div className="text-xs text-white/40 mt-1">USD · custa ~$0.003 por captcha</div>
             </>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
@@ -105,7 +105,7 @@ export default function Customers() {
   const [debugData, setDebugData] = useState(null);
 
   // debounce search
-  useState(() => {
+  useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 500);
     return () => clearTimeout(t);
   }, [search]);
@@ -116,9 +116,19 @@ export default function Customers() {
     retry: 1,
     refetchOnWindowFocus: true,
     // Snappy live-sync: 3s while refreshing, 30s otherwise. Backend caches
-    // the painel.fun response and refreshes in background every ~3min.
+    // the painel.fun response and refreshes in background every ~60s.
     refetchInterval: (q) => (q?.state?.data?.refreshing ? 3000 : 30000),
   });
+
+  // On MOUNT (component load), force a synchronous refresh from painel.fun
+  // so the Clientes page never shows stale local data on first open.
+  // The ref guard prevents re-firing on hot-reload / react-strict-mode.
+  const firstLoadDone = useRef(false);
+  useEffect(() => {
+    if (firstLoadDone.current) return;
+    firstLoadDone.current = true;
+    painelApi.listUsers({ force: true }).then(() => refetch()).catch(() => {});
+  }, [refetch]);
 
   const refreshMut = useMutation({
     mutationFn: painelApi.refresh,

@@ -155,20 +155,37 @@ async def refresh_cache_task():
 
 
 @router.get("/users")
-async def list_users(search: Optional[str] = None, background_tasks: BackgroundTasks = None):
-    """Return cached users. Kick off a refresh in background if the cache is old."""
+async def list_users(search: Optional[str] = None, force: bool = False,
+                    background_tasks: BackgroundTasks = None):
+    """Return users. When `force=true` we do a SYNCHRONOUS refresh from
+    painel.fun before responding — this is what the Clientes page uses
+    for the "Atualizar do painel" button.
+
+    Without `force`, we return cached data and kick off a background
+    refresh whenever the cache is older than 60 seconds.
+    """
+    # Force-refresh path: block until we have fresh data from painel.fun.
+    # Any exception here we log but fall through to the cache so the UI
+    # never breaks completely.
+    if force:
+        try:
+            await refresh_cache_task()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("force refresh failed — serving cache")
+
     users, updated_at = await _read_cache()
 
-    # Trigger background refresh if cache is empty or older than 3 minutes.
-    # Threshold intentionally short so the Clientes page reflects real-time
-    # panel changes (renewals, status flips, new users) without user action.
+    # Trigger background refresh if cache is empty or older than 60 seconds.
+    # Shortened from 180s so the Clientes page reflects real-time panel
+    # changes (renewals, status flips, new users) without user action.
     should_refresh = False
     if not users:
         should_refresh = True
     elif updated_at:
         try:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(updated_at)).total_seconds()
-            if age > 180:
+            if age > 60:
                 should_refresh = True
         except Exception:
             should_refresh = True

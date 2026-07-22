@@ -121,6 +121,10 @@ async def _check_and_notify():
                     name = "cliente"
             name = (name or "cliente").strip()
 
+            # Try to grab painel_username for the {user} template variable
+            # too — some admins prefer showing the login in the reminder.
+            painel_login = _pick(u, ["username", "login"]) or user_id
+
             # Determine notification event key up-front so it can be used as
             # the attribution `?ref=` bucket in the pay_link. This lets the
             # dashboard tell us which reminder converted best.
@@ -132,6 +136,7 @@ async def _check_and_notify():
             exp_dt = datetime.fromisoformat(exp_iso)
             ctx = {
                 "name": name,
+                "user": painel_login,  # painel.fun login/username
                 "user_id": user_id,
                 "expires_at": exp_dt.astimezone(timezone.utc).strftime("%d/%m/%Y"),
                 "pay_link": pay_link,
