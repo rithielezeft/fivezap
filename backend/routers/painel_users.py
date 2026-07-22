@@ -484,6 +484,11 @@ async def notify_expired(payload: NotifyExpiredPayload):
     skipped_no_wa = 0
     skipped_not_expired = 0
     errors = []
+    # When selection is empty, we iterate ALL users but only care about
+    # expired ones — skipping the entire active base isn't meaningful, so
+    # we don't count it (keeps `skipped_not_expired` semantically about
+    # explicit selections that were stale/wrong, not the whole DB).
+    count_active_skips = bool(selected_ids)
 
     for u in users:
         uid = u.get("id") or u.get("user_id") or u.get("username")
@@ -496,7 +501,8 @@ async def notify_expired(payload: NotifyExpiredPayload):
         # Re-check status server-side (never trust client-passed lists blindly).
         exp = compute_expiration_info(u)
         if exp["status"] != "expired":
-            skipped_not_expired += 1
+            if count_active_skips:
+                skipped_not_expired += 1
             continue
 
         phone = (extract_whatsapp(u) or u.get("whatsapp") or "").strip()

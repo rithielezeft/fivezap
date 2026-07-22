@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt } from "@phosphor-icons/react";
@@ -655,6 +656,9 @@ export default function Customers() {
             <DialogTitle className="font-display">
               Notificar clientes vencidos
             </DialogTitle>
+            <DialogDescription className="text-white/50 text-xs">
+              Selecione quais clientes vencidos devem receber o aviso via WhatsApp usando o template <span className="font-mono">manual_expired_alert</span>.
+            </DialogDescription>
           </DialogHeader>
           {expiredData && (
             <div className="text-xs text-white/60 mb-2 flex items-center gap-3 flex-wrap">
