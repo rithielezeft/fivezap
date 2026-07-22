@@ -172,6 +172,8 @@ class SettingsUpdate(BaseModel):
     admin_whatsapp: Optional[str] = None
     discount_7d_enabled: Optional[str] = None
     discount_7d_percent: Optional[str] = None
+    dedup_enabled: Optional[str] = None
+    dedup_window_minutes: Optional[str] = None
 
 
 # ---- Public trial request ----

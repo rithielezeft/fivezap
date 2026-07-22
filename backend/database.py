@@ -224,6 +224,11 @@ async def init_db():
             # 7d reminder idempotency key is dated.
             "discount_7d_enabled": "false",
             "discount_7d_percent": "5",
+            # Dedup — prevents sending the same template (event_key) to the
+            # same phone twice within `dedup_window_minutes`. When disabled,
+            # every enqueue always creates a new delivery row.
+            "dedup_enabled": "true",
+            "dedup_window_minutes": "60",
         }
         for key, value in defaults.items():
             await db.execute(

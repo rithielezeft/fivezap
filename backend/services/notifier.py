@@ -32,7 +32,7 @@ def render(template: str, ctx: dict) -> str:
 async def send_notification(event_key: str, phone: str, ctx: dict,
                             customer_id: str | None = None,
                             typing_ms: int = 0,
-                            dedup_window_minutes: int = 60,
+                            dedup_window_minutes: int | None = None,
                             force: bool = False) -> bool:
     """Enqueue a template-rendered notification. Returns True if the FIRST
     attempt succeeded synchronously (message delivered inline), False if it
@@ -40,12 +40,12 @@ async def send_notification(event_key: str, phone: str, ctx: dict,
     enqueuing anything (caller decides fallback).
 
     `typing_ms`: optional "digitando..." duration before the actual send.
-    Passed through to the WhatsApp service.
 
-    `dedup_window_minutes`: skip enqueue if same (event_key, phone) was
-    sent in this window OR is still pending. Set to 0 to disable dedup.
-    `force=True` bypasses the dedup check (used by "enviar mesmo assim"
-    confirmations from the UI).
+    Deduplication:
+      • `dedup_window_minutes=None` (default) → uses the admin's Settings
+        (`dedup_enabled` + `dedup_window_minutes`).
+      • Explicit integer → overrides the Setting (0 = disable).
+    `force=True` bypasses dedup unconditionally.
     """
     tpl = await get_template(event_key)
     if not tpl:
@@ -54,7 +54,8 @@ async def send_notification(event_key: str, phone: str, ctx: dict,
     body = render(tpl["body"], ctx)
     image = tpl.get("image_url") or None
     try:
-        from services.delivery_queue import enqueue
+        from services.delivery_queue import enqueue, _USE_SETTING
+        window = _USE_SETTING if dedup_window_minutes is None else dedup_window_minutes
         delivery_id = await enqueue(
             event_key=event_key,
             phone=phone,
@@ -62,7 +63,7 @@ async def send_notification(event_key: str, phone: str, ctx: dict,
             image_url=image,
             customer_id=customer_id,
             typing_ms=typing_ms,
-            dedup_window_minutes=dedup_window_minutes,
+            dedup_window_minutes=window,
             force=force,
         )
         # `enqueue` already tried once synchronously — re-read to see the outcome.

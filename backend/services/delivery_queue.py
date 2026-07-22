@@ -28,6 +28,38 @@ RETRY_INTERVAL_SECONDS = 10
 LOOP_TICK_SECONDS = 5   # scan the queue every 5s → up to +5s of latency
 DEFAULT_MAX_ATTEMPTS = 5
 
+# Sentinel so callers can distinguish "use the setting" from "explicit 0".
+_USE_SETTING = -1
+
+
+async def _resolve_dedup_config(explicit_window: int) -> int:
+    """Read `dedup_enabled` / `dedup_window_minutes` from settings.
+
+    Returns the effective window in minutes:
+      • 0  → dedup disabled (setting off OR window = 0)
+      • >0 → dedup enabled with that window
+
+    `explicit_window` semantics:
+      • _USE_SETTING (-1) → obey the settings (default for send_notification).
+      • 0                → force dedup OFF (used by admin alerts).
+      • >0               → override the setting with that fixed window.
+    """
+    if explicit_window == 0:
+        return 0
+    if explicit_window > 0:
+        return explicit_window
+    # explicit_window == _USE_SETTING → read from DB
+    try:
+        raw = await database.get_setting("dedup_enabled")
+        enabled_raw = "true" if raw is None else str(raw).strip().lower()
+        if enabled_raw in ("false", "0", "no", "off", ""):
+            return 0
+        window_raw = (await database.get_setting("dedup_window_minutes") or "60").strip()
+        window = int(window_raw)
+        return max(0, window)
+    except Exception:
+        return 60  # sane fallback
+
 
 async def find_recent_delivery(
     phone: str,
@@ -69,7 +101,7 @@ async def enqueue(
     customer_id: Optional[str] = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     typing_ms: int = 0,
-    dedup_window_minutes: int = 60,
+    dedup_window_minutes: int = _USE_SETTING,
     force: bool = False,
 ) -> str:
     """Record a new delivery and attempt to send it immediately.
@@ -77,29 +109,29 @@ async def enqueue(
     Returns the delivery id. If the immediate send succeeds, status='sent'.
     If it fails, status='pending' and the retry loop will pick it up.
 
-    Deduplication: if `dedup_window_minutes > 0` and `force=False`, checks
-    for a recent delivery (same phone + event_key) that is either still
-    pending or was sent within the window. If found, returns the EXISTING
-    delivery id WITHOUT enqueueing again — preventing accidental duplicates
-    (double-clicks, overlapping schedulers, etc.). Pass `force=True` to
-    bypass and always enqueue.
-
-    `typing_ms` is stored in `last_error` field prefixed with `__typing_ms__:`
-    so retries also honour the typing indicator without changing the schema.
-    Actual meaningful `last_error` is written on failure, overwriting this.
+    Deduplication:
+      • `dedup_window_minutes=_USE_SETTING` (default) → reads
+        `dedup_enabled` + `dedup_window_minutes` from Settings.
+      • `dedup_window_minutes=0` → ALWAYS enqueue (admin alerts, etc.).
+      • `dedup_window_minutes>0` → override the setting with that fixed
+        window in minutes.
+    `force=True` bypasses the dedup check unconditionally.
     """
-    if not force and dedup_window_minutes and dedup_window_minutes > 0:
-        existing = await find_recent_delivery(
-            phone, event_key, window_minutes=dedup_window_minutes,
-        )
-        if existing:
-            logger.info(
-                "delivery dedup HIT event=%s phone=%s → reusing id=%s "
-                "(status=%s, created_at=%s)",
-                event_key, phone, existing["id"], existing["status"],
-                existing["created_at"],
+    effective_window = 0
+    if not force:
+        effective_window = await _resolve_dedup_config(dedup_window_minutes)
+        if effective_window > 0:
+            existing = await find_recent_delivery(
+                phone, event_key, window_minutes=effective_window,
             )
-            return existing["id"]
+            if existing:
+                logger.info(
+                    "delivery dedup HIT event=%s phone=%s → reusing id=%s "
+                    "(status=%s, window=%dmin)",
+                    event_key, phone, existing["id"], existing["status"],
+                    effective_window,
+                )
+                return existing["id"]
 
     did = new_id()
     created_at = now_iso()

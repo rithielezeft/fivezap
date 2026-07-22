@@ -21,6 +21,13 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 
+- **[FEATURE 2026-02-22]** **Anti-duplicata configurável em Configurações**. Duas novas settings:
+  - `dedup_enabled` (true/false, default true) — liga/desliga globalmente o anti-duplicata da fila.
+  - `dedup_window_minutes` (default 60) — janela em minutos para considerar uma mensagem "duplicada".
+  Aplicado a todos os templates enviados via `send_notification` (delivery_queue). `send_hardcoded` (alertas do admin) ignora — sempre entrega. UI atualizada em Settings.jsx (grupo Notificações). Endpoint `/api/painel/notify-expired` lê a config para decidir se pede confirmação. Testes: `test_dedup_settings.py` (4 novos testes).
+
+
+
 - **[FIX 2026-02-22 P0]** **Mensagens duplicadas em envios via fila (ex: notificar vencidos)**. Nova função `find_recent_delivery(phone, event_key, window_minutes)` em `services/delivery_queue.py` e parâmetros `dedup_window_minutes=60` + `force=False` em `enqueue()`. Se já existe entrega recente (`status=sent` dentro da janela, ou `status=pending` na fila), a chamada é no-op e retorna o id existente. `send_notification` propaga esses parâmetros; `send_hardcoded` desativa dedup (`dedup_window_minutes=0`) para não bloquear alertas do admin. Endpoint `/api/painel/notify-expired` agora tem fluxo de dois passos: 1ª chamada sem `force` → se detecta duplicados nos últimos 60min, retorna `{needs_confirmation, duplicates, duplicate_count, fresh_count, message}` sem enviar. 2ª chamada com `force=True` → bypassa dedup. Frontend `Customers.jsx` mostra segundo Dialog com lista dos duplicados (username, WhatsApp, "há N min", status entregue/na fila) e três botões: **Cancelar**, **Enviar só os N novos**, **Enviar mesmo assim**. Testado ao vivo: 2ª chamada retornou 7 duplicados corretamente. Testes: `test_delivery_dedup.py` (10 novos testes).
 
 

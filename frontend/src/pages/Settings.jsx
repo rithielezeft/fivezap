@@ -28,6 +28,8 @@ const FIELDS = [
   { key: "public_base_url", label: "URL pública (WhatsFlow)", group: "notify" },
   { key: "timezone", label: "Fuso horário", group: "notify" },
   { key: "admin_whatsapp", label: "Admin — Seu WhatsApp (recebe alertas de pagamento)", group: "notify", placeholder: "5511999998888" },
+  { key: "dedup_enabled", label: "Anti-duplicata — Ativo? (true/false). Se true, não reenvia o mesmo template ao mesmo cliente antes da janela.", group: "notify", placeholder: "true" },
+  { key: "dedup_window_minutes", label: "Anti-duplicata — Janela em minutos (padrão 60)", group: "notify", placeholder: "60" },
 ];
 
 const GROUPS = {

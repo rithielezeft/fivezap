@@ -487,12 +487,14 @@ async def notify_expired(payload: NotifyExpiredPayload):
        enqueued (used by the confirmation button in the UI).
     """
     from services.notifier import send_notification
-    from services.delivery_queue import find_recent_delivery
+    from services.delivery_queue import find_recent_delivery, _resolve_dedup_config, _USE_SETTING
     from database import get_setting
 
     users, _ = await _read_cache()
     selected_ids = {str(x) for x in (payload.user_ids or [])}
     public_base = await get_setting("public_base_url", "")
+    # Effective dedup window from settings (0 = disabled).
+    dedup_window = await _resolve_dedup_config(_USE_SETTING)
 
     # First pass: filter valid + expired + with WhatsApp
     targets = []
@@ -521,14 +523,15 @@ async def notify_expired(payload: NotifyExpiredPayload):
 
         targets.append({"user": u, "uid_str": uid_str, "phone": phone, "exp": exp})
 
-    # Dedup check (unless force=True). Any target with a recent send is
-    # collected into `duplicates` and — if the caller didn't force — we
-    # short-circuit and let the frontend ask for confirmation.
+    # Dedup check (unless force=True OR dedup disabled globally). Any target
+    # with a recent send is collected into `duplicates` and — if the caller
+    # didn't force — we short-circuit and let the frontend ask for
+    # confirmation.
     duplicates = []
-    if not payload.force:
+    if not payload.force and dedup_window > 0:
         for t in targets:
             recent = await find_recent_delivery(
-                t["phone"], "manual_expired_alert", window_minutes=60,
+                t["phone"], "manual_expired_alert", window_minutes=dedup_window,
             )
             if recent:
                 from datetime import datetime as _dt, timezone as _tz
@@ -569,9 +572,10 @@ async def notify_expired(payload: NotifyExpiredPayload):
                 "duplicates": duplicates,
                 "duplicate_count": len(duplicates),
                 "fresh_count": fresh_count,
+                "dedup_window_minutes": dedup_window,
                 "message": (
                     f"{len(duplicates)} cliente(s) já receberam esse aviso "
-                    f"nos últimos 60 minutos. Clique em 'Enviar mesmo assim' "
+                    f"nos últimos {dedup_window} min. Clique em 'Enviar mesmo assim' "
                     f"para reenviar ou desmarque-os."
                 ),
             }
@@ -595,7 +599,8 @@ async def notify_expired(payload: NotifyExpiredPayload):
             if payload.force:
                 was_recent = bool(
                     await find_recent_delivery(
-                        phone, "manual_expired_alert", window_minutes=60,
+                        phone, "manual_expired_alert",
+                        window_minutes=dedup_window if dedup_window > 0 else 60,
                     )
                 )
             await send_notification(
