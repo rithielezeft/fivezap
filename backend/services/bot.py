@@ -545,8 +545,7 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
         logger.exception("Failed to create trial: %s", e)
         err_str = str(e) or "erro desconhecido"
         err_lower = err_str.lower()
-        trigger_cmd = matched.get("trigger_command", "").strip()
-        retry_hint = f"👉 Envie *{trigger_cmd}* novamente." if trigger_cmd else "👉 Envie o comando novamente."
+        retry_hint = "👉 Envie um dos comandos que você usou novamente."
 
         # Friendly error mapping: painel.fun sometimes returns validation
         # errors on auto-generated fields (password, username collisions,

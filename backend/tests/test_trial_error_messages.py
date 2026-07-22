@@ -92,8 +92,8 @@ def test_password_format_invalid_maps_to_friendly_retry_message(tmp_path):
     assert "password" not in body_lower, f"Message leaks 'password': {body}"
     assert "format is invalid" not in body_lower, f"Message leaks error: {body}"
     assert "json" not in body_lower and "{" not in body
-    # Must include a retry hint referencing the command
-    assert "!teste iptv" in body_lower or "envie o comando" in body_lower, (
+    # Must include a retry hint referencing "um dos comandos"
+    assert "um dos comandos" in body_lower or "envie um dos" in body_lower, (
         f"Message doesn't ask to retry: {body}"
     )
     # Must be friendly-toned (no "avisamos o suporte")
@@ -133,7 +133,7 @@ def test_generic_error_still_asks_retry(tmp_path):
     # Must NOT leak the raw error
     assert "weird internal" not in body
     # Must ask to retry
-    assert "!teste iptv" in body or "envie o comando" in body
+    assert "um dos comandos" in body or "envie um dos" in body
 
 
 def test_admin_gets_technical_details(tmp_path):
