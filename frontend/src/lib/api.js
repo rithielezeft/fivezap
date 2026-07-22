@@ -112,6 +112,7 @@ export const notificationsApi = {
   list: () => api.get("/notifications").then((r) => r.data),
   get: (event_key) => api.get(`/notifications/${event_key}`).then((r) => r.data),
   update: (event_key, data) => api.put(`/notifications/${event_key}`, data).then((r) => r.data),
+  restoreDefault: (event_key) => api.post(`/notifications/${event_key}/restore-defaults`).then((r) => r.data),
 };
 
 export const painelApi = {

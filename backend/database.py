@@ -165,56 +165,13 @@ async def init_db():
         )
         await db.commit()
 
-        # Seed default notification templates
-        default_notifs = [
-            {
-                "event_key": "expiration_7d",
-                "title": "Vencimento em 7 dias",
-                "body": "Olá {name}! 👋\n\nSeu plano vence em *7 dias* ({expires_at}).\n\n{discount_line}Renove agora:\n{pay_link}",
-                "image_url": "",
-            },
-            {
-                "event_key": "expiration_3d",
-                "title": "Vencimento em 3 dias",
-                "body": "Olá {name}! 👋\n\nSeu plano vence em *3 dias* ({expires_at}).\n\nRenove agora e ganhe 5% de desconto no Pix:\n{pay_link}\n\nQualquer dúvida é só chamar aqui! 😉",
-                "image_url": "",
-            },
-            {
-                "event_key": "expiration_1d",
-                "title": "Vencimento amanhã",
-                "body": "⚠️ Olá {name}!\n\nSeu plano vence *amanhã* ({expires_at}).\n\nRenove agora para não perder o acesso:\n{pay_link}",
-                "image_url": "",
-            },
-            {
-                "event_key": "expiration_0d",
-                "title": "Venceu hoje",
-                "body": "🔴 Olá {name}, seu plano *venceu hoje*.\n\nRenove agora para reativar o acesso:\n{pay_link}",
-                "image_url": "",
-            },
-            {
-                "event_key": "expired_1d",
-                "title": "Vencido há 1 dia",
-                "body": "Olá {name}, seu plano está vencido há *1 dia*. 😢\n\nQue tal renovar agora e voltar a assistir?\n{pay_link}",
-                "image_url": "",
-            },
-            {
-                "event_key": "expired_3d",
-                "title": "Vencido há 3 dias",
-                "body": "Ei {name}, sentimos sua falta! Seu plano está vencido há *3 dias*.\n\nRenove pelo link e volte já a assistir:\n{pay_link}",
-                "image_url": "",
-            },
-            {
-                "event_key": "expired_7d",
-                "title": "Vencido há 7 dias",
-                "body": "{name}, faz uma semana que seu plano venceu.\n\nQuer voltar? Renove agora com condição especial:\n{pay_link}",
-                "image_url": "",
-            },
-            {
-                "event_key": "renewal_success",
-                "title": "Renovação confirmada",
-                "body": "✅ Pagamento confirmado, {name}!\n\nSeu plano foi renovado por *{plan_months} mês(es)* e já está ativo até {new_expires_at}.\n\nObrigado pela preferência! 🎉",
-                "image_url": "",
-            },
+        # Seed default notification templates (shared source of truth so
+        # the restore-defaults endpoint stays in sync with the initial seed).
+        # The trial-related templates are kept inline here (not in the shared
+        # module) because they aren't restorable via /restore-defaults — the
+        # admin edits them and we don't want to override.
+        from services.default_templates import DEFAULT_TEMPLATES
+        default_notifs = list(DEFAULT_TEMPLATES) + [
             {
                 "event_key": "trial_ready",
                 "title": "Teste criado",

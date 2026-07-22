@@ -11,54 +11,72 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Bell, Image as ImageIcon, FloppyDisk, PaperPlaneRight, X, UploadSimple, Trash } from "@phosphor-icons/react";
 
+// Legenda das variáveis dinâmicas — aparece como tooltip nos chips.
+const VAR_HELP = {
+  "{name}": "Nome real do cliente (ex: João Cliente)",
+  "{user}": "Login do painel.fun (ex: joao_iptv44)",
+  "{user_id}": "ID numérico do cliente no painel",
+  "{expires_at}": "Data de vencimento formatada (dd/mm/aaaa)",
+  "{new_expires_at}": "Nova data de expiração após renovação",
+  "{plan_months}": "Quantidade de meses renovados (ex: 3)",
+  "{pay_link}": "Link personalizado de pagamento",
+  "{days}": "Dias até (ou desde) o vencimento",
+  "{system_type}": "Tipo do plano (iptv, p2p, hybrid)",
+  "{pass}": "Senha do teste",
+  "{expires}": "Expiração do teste em minutos/horas",
+  "{mac}": "Endereço MAC (só DreamTV/Hybrid)",
+  "{discount_line}": "Frase de desconto (auto no lembrete 7d se ativo)",
+  "{discount_percent}": "% de desconto (auto no lembrete 7d se ativo)",
+};
+
 const EVENT_META = {
   expiration_7d: {
     icon: "📅",
     color: "#5AC8FA",
     description: "Enviado 7 dias antes do vencimento",
-    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+    vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}", "{discount_line}", "{discount_percent}"],
   },
   expiration_3d: {
     icon: "🕒",
     color: "#FF9F0A",
     description: "Enviado 3 dias antes do vencimento",
-    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+    vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
   expiration_1d: {
     icon: "⏰",
     color: "#FF9F0A",
     description: "Enviado 1 dia antes do vencimento",
-    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+    vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
   expiration_0d: {
     icon: "🚨",
     color: "#FF3B30",
     description: "Enviado no dia do vencimento",
-    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}"],
+    vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}"],
   },
   expired_1d: {
     icon: "😢",
     color: "#FF3B30",
     description: "Enviado 1 dia após o vencimento",
-    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+    vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
   expired_3d: {
     icon: "💤",
     color: "#8E8E93",
     description: "Enviado 3 dias após o vencimento",
-    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+    vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
   expired_7d: {
     icon: "👋",
     color: "#8E8E93",
     description: "Enviado 7 dias após o vencimento (última tentativa)",
-    vars: ["{name}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
+    vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
   renewal_success: {
     icon: "✅",
     color: "#34C759",
     description: "Enviado após confirmação do pagamento InfinitePay",
-    vars: ["{name}", "{plan_months}", "{new_expires_at}"],
+    vars: ["{name}", "{user}", "{plan_months}", "{new_expires_at}", "{system_type}"],
   },
   trial_ready: {
     icon: "🎁",
@@ -80,7 +98,7 @@ const EVENT_META = {
   },
 };
 
-function NotificationCard({ notif, onSave, testPhone, onSendTest }) {
+function NotificationCard({ notif, onSave, onRestore, testPhone, onSendTest }) {
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState({
@@ -210,12 +228,17 @@ function NotificationCard({ notif, onSave, testPhone, onSendTest }) {
               data-testid={`notif-body-${notif.event_key}`}
             />
             <div className="flex flex-wrap gap-1.5 mt-2">
+              <span className="text-[10px] uppercase tracking-widest text-white/40 w-full mb-1">
+                Variáveis disponíveis (clique pra inserir):
+              </span>
               {meta.vars?.map((v) => (
                 <button
                   key={v}
                   onClick={() => setForm({ ...form, body: form.body + v })}
-                  className="text-[10px] font-mono px-2 py-1 rounded bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.1]"
+                  className="text-[10px] font-mono px-2 py-1 rounded bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.1] hover:border-[#007AFF]/40 hover:text-[#007AFF] transition-colors"
                   type="button"
+                  title={VAR_HELP[v] || v}
+                  data-testid={`var-chip-${notif.event_key}-${v.replace(/[{}]/g, '')}`}
                 >
                   {v}
                 </button>
@@ -286,6 +309,18 @@ function NotificationCard({ notif, onSave, testPhone, onSendTest }) {
           </Button>
         )}
         <Button
+          variant="outline"
+          className="border-white/10 text-white/60 hover:bg-white/[0.05]"
+          onClick={() => {
+            if (window.confirm(`Restaurar template "${notif.event_key}" para o padrão? Isso vai sobrescrever suas edições.`)) {
+              onRestore(notif.event_key);
+            }
+          }}
+          data-testid={`notif-restore-${notif.event_key}`}
+        >
+          Restaurar padrão
+        </Button>
+        <Button
           className="bg-[#007AFF] hover:bg-[#005BB5]"
           disabled={!dirty}
           onClick={() => onSave(notif.event_key, form)}
@@ -321,6 +356,15 @@ export default function Notifications() {
     onError: (e) => toast.error("Falhou: " + (e.response?.data?.detail || e.message)),
   });
 
+  const restoreMut = useMutation({
+    mutationFn: (event_key) => notificationsApi.restoreDefault(event_key),
+    onSuccess: () => {
+      toast.success("Template restaurado ao padrão");
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (e) => toast.error("Falhou: " + (e.response?.data?.detail || e.message)),
+  });
+
   return (
     <Layout
       title="Notificações"
@@ -352,6 +396,7 @@ export default function Notifications() {
             <NotificationCard
               notif={n}
               onSave={(event_key, data) => saveMut.mutate({ event_key, data })}
+              onRestore={(event_key) => restoreMut.mutate(event_key)}
               testPhone={testPhone}
               onSendTest={{
                 setTestPhone,

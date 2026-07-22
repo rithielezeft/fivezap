@@ -82,6 +82,43 @@ async def update_notification(event_key: str, payload: NotifUpdate):
     return result
 
 
+@router.post("/{event_key}/restore-defaults")
+async def restore_default_template(event_key: str):
+    """Restore this notification template to the shipping default (from
+    services.default_templates.DEFAULT_TEMPLATES). Useful when the admin
+    wants to pick up new `{user}` variables or other improvements.
+
+    Note: OVERWRITES the current body/title/image_url. `enabled` is preserved.
+    """
+    from services.default_templates import DEFAULT_TEMPLATES_BY_EVENT
+    default = DEFAULT_TEMPLATES_BY_EVENT.get(event_key)
+    if not default:
+        raise HTTPException(404, f"No default template registered for '{event_key}'")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "UPDATE notification_templates SET title = ?, body = ?, image_url = ? "
+            "WHERE event_key = ?",
+            (default["title"], default["body"], default["image_url"], event_key),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, f"Template '{event_key}' not found in DB")
+        await db.commit()
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM notification_templates WHERE event_key = ?", (event_key,)
+        )
+        result = _row(await cur.fetchone())
+
+    try:
+        from services import mongo_store
+        await mongo_store.upsert_template(result.model_dump())
+    except Exception:
+        logger.exception("mongo template sync (restore) failed (non-fatal)")
+
+    return result
+
+
 
 # ---------------------------------------------------------------------------
 # Delivery-tracking endpoints (per-message send status + manual retry)
