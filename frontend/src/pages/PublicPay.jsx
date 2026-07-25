@@ -284,7 +284,7 @@ export default function PublicPay() {
                         {latestPaid.plan_months > 1 ? "es" : ""}
                       </div>
                       <div className="text-xs text-white/50 mt-1">
-                        {new Date(latestPaid.paid_at || latestPaid.created_at).toLocaleString("pt-BR")}
+                        {formatDateBR(latestPaid.paid_at || latestPaid.created_at)}
                       </div>
                     </div>
                     {receiptLink && (
@@ -318,7 +318,7 @@ export default function PublicPay() {
                       </div>
                       <div className="text-xs text-white/40 mt-0.5">
                         {p.status === "paid"
-                          ? `Pago em ${new Date(p.paid_at || p.created_at).toLocaleString("pt-BR")}`
+                          ? `Pago em ${formatDateBR(p.paid_at || p.created_at)}`
                           : p.status === "pending"
                           ? "Aguardando pagamento"
                           : p.status}
@@ -368,7 +368,7 @@ export default function PublicPay() {
                   className="p-3 rounded-lg border border-white/[0.05] bg-white/[0.02]"
                 >
                   <div className="text-xs text-white/40 mb-1">
-                    {new Date(m.timestamp).toLocaleString("pt-BR")}
+                    {formatDateBR(m.timestamp)}
                   </div>
                   <div className="text-sm whitespace-pre-wrap text-white/80">{m.message}</div>
                 </div>
