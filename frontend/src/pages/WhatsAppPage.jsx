@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import Layout from "@/components/Layout";
 import { whatsappApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { WhatsappLogo, ArrowClockwise, SignOut, CheckCircle, WarningCircle } from "@phosphor-icons/react";
+import { WhatsappLogo, ArrowClockwise, SignOut, CheckCircle, WarningCircle, Power } from "@phosphor-icons/react";
 
 export default function WhatsAppPage() {
   const { data: status, refetch: refetchStatus } = useQuery({
@@ -24,6 +24,16 @@ export default function WhatsAppPage() {
     onSuccess: () => { toast.success("Desconectado"); refetchStatus(); refetchQR(); },
   });
 
+  const restartMut = useMutation({
+    mutationFn: whatsappApi.restart,
+    onSuccess: (r) => {
+      toast.success(r?.message || "Serviço reiniciado");
+      // Wait a bit more then force reload of status + QR
+      setTimeout(() => { refetchStatus(); refetchQR(); }, 3000);
+    },
+    onError: (e) => toast.error("Erro ao reiniciar: " + (e.response?.data?.detail || e.message)),
+  });
+
   const ready = status?.ready;
 
   return (
@@ -34,6 +44,20 @@ export default function WhatsAppPage() {
         <>
           <Button variant="outline" className="border-white/10" onClick={() => { refetchStatus(); refetchQR(); }} data-testid="btn-refresh-wa">
             <ArrowClockwise size={16} className="mr-2" /> Atualizar
+          </Button>
+          <Button
+            variant="outline"
+            className="border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10"
+            onClick={() => {
+              if (window.confirm("Reiniciar o serviço WhatsApp?\n\nUse para resolver erros como 'All connection attempts failed'. A sessão fica salva — provavelmente não precisa escanear QR de novo.")) {
+                restartMut.mutate();
+              }
+            }}
+            disabled={restartMut.isPending}
+            data-testid="btn-wa-restart"
+          >
+            <Power size={16} className={"mr-2 " + (restartMut.isPending ? "animate-pulse" : "")} />
+            {restartMut.isPending ? "Reiniciando..." : "Reiniciar serviço"}
           </Button>
           {ready && (
             <Button variant="outline" className="border-[#FF3B30]/30 text-[#FF3B30] hover:bg-[#FF3B30]/10" onClick={() => logoutMut.mutate()} data-testid="btn-wa-logout">

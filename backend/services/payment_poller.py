@@ -25,7 +25,12 @@ from services import infinitepay
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECONDS = 20   # every 20s — snappy but respectful
-MAX_AGE_HOURS = 48           # ignore payments older than 2 days
+MAX_AGE_HOURS = 168          # 7 days — poll pending payments long enough to
+                             # catch late payers (pix at 3rd/5th day, etc).
+                             # Raised from 48h after clients reported that
+                             # pending payments were "disappearing" — actually
+                             # the row was there, but the poller stopped
+                             # reconciling with InfinitePay after 2 days.
 _poller_task: asyncio.Task | None = None
 _stop_event: asyncio.Event | None = None
 

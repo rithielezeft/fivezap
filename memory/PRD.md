@@ -21,6 +21,16 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 
+- **[FEATURE 2026-02-22]** 4 melhorias solicitadas pelo usuário:
+  1. **Admin alert com login do painel** — mensagem `💰 *Pagamento confirmado*` agora inclui linha `👥 Login: <painel_username>` para facilitar identificar o cliente no painel.
+  2. **Dedup do scheduler robusto** — `set_setting(daily_key, "1")` agora acontece ANTES de `send_notification`, garantindo no máximo 1 tentativa por (user, threshold, dia). Também checagem extra via `notification_deliveries` (busca de entregas hoje) para bloquear duplicatas mesmo se o daily_key for perdido. Resolve o "duplicando templates de notificação de vencimento" reportado pelo usuário.
+  3. **Botão "Reiniciar serviço" WhatsApp** — endpoint `POST /api/whatsapp/restart` derruba o processo Node e respawna (kill → sleep 2s → spawn → sleep 5s). Botão na página WhatsApp com confirmação. Resolve erros como "All connection attempts failed" e session zombies do Puppeteer.
+  4. **Payment poller estendido para 7 dias** — `MAX_AGE_HOURS` de 48h → 168h em `services/payment_poller.py` + `routers/payments.py` (endpoint pay-page-return). Late payers (pix no 3º/5º dia) agora reconciliam. Resolve "pagamento pendente depois de 24h some".
+
+  Testes: `test_2026_02_22_fixes.py` (6 novos testes).
+
+
+
 - **[FEATURE 2026-02-22]** **Controle de intervalo de refresh do painel (economiza créditos 2Captcha)**. Nova setting `painel_refresh_interval_seconds` (default 300) em Configurações → Painel.fun. Aumentar (ex: 600, 1800) reduz frequência com que a página Clientes puxa do painel.fun. Impacto: (1) background loop em `server.py` — lê a config a cada tick, mudança tem efeito imediato; (2) endpoint `/api/painel/users` — só dispara refresh em background quando cache > TTL configurado; (3) removido `force: true` no mount de `Customers.jsx` — botão "Atualizar do painel" ainda existe para refresh manual. Mínimo protegido em 30s. Testes: `test_painel_refresh_ttl.py` (5 novos testes).
 
 

@@ -78,6 +78,7 @@ export const whatsappApi = {
   qr: () => api.get("/whatsapp/qr").then((r) => r.data),
   send: (data) => api.post("/whatsapp/send", data).then((r) => r.data),
   logout: () => api.post("/whatsapp/logout").then((r) => r.data),
+  restart: () => api.post("/whatsapp/restart", null, { timeout: 30000 }).then((r) => r.data),
 };
 
 export const messagesApi = {

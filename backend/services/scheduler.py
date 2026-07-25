@@ -104,11 +104,45 @@ async def _check_and_notify():
             if not phone or not user_id:
                 continue
 
-            # Idempotency: only send once per day per threshold per user
+            # Idempotency (STRICT): mark BEFORE sending. This guarantees
+            # at most 1 attempt per day per (user, threshold). If the
+            # attempt succeeds → great. If it fails → the delivery_queue
+            # already handles retries with backoff, so we don't need the
+            # hourly scheduler to also re-fire (that used to cause
+            # duplicate messages when clients set dedup_window_minutes
+            # to a small value).
             key = f"notified_{user_id}_{diff_days}_{now.date().isoformat()}"
             already = await get_setting(key, "")
             if already:
                 continue
+
+            # ALSO: extra safety net — check if we already delivered this
+            # exact event_key to this phone today (via /api/notifications
+            # deliveries table). Prevents duplicates even if the daily
+            # setting-key somehow got wiped (Mongo re-seed etc.).
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    today_start = now.replace(hour=0, minute=0, second=0,
+                                              microsecond=0).isoformat()
+                    cur = await db.execute(
+                        "SELECT 1 FROM notification_deliveries "
+                        "WHERE phone = ? AND event_key = ? "
+                        "  AND created_at >= ? LIMIT 1",
+                        (str(phone), _event_for_days(diff_days) or "",
+                         today_start),
+                    )
+                    existing_today = await cur.fetchone()
+                    if existing_today:
+                        logger.info(
+                            "Skipping %s for %s — already delivered today "
+                            "(protects against duplicate scheduler runs).",
+                            _event_for_days(diff_days), phone,
+                        )
+                        # Mark daily-key too so next hourly cycle skips fast.
+                        await set_setting(key, "1")
+                        continue
+            except Exception:
+                logger.debug("delivery_history dedup check skipped")
 
             # Resolve real name — never send "cliente" if we can help it.
             name = _pick(u, ["full_name", "name", "customer_name", "display_name",
@@ -172,14 +206,22 @@ async def _check_and_notify():
                 await asyncio.sleep(pacing_seconds)
             first_send = False
 
+            # Mark daily-key FIRST so we never re-attempt this today, even
+            # if send_notification raises or gets queued.
+            await set_setting(key, "1")
+
             sent = await send_notification(
                 event, str(phone), ctx, customer_id=user_id,
                 typing_ms=typing_ms,
             )
             if sent:
-                await set_setting(key, "1")
                 sent_count += 1
                 logger.info("Sent %s reminder to %s (%s)", event, name, phone)
+            else:
+                logger.info(
+                    "Queued %s for %s (%s) — delivery_queue will retry",
+                    event, name, phone,
+                )
         except Exception:
             logger.exception("Failed to process user for notification")
 

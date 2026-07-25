@@ -250,8 +250,11 @@ class TestPainelFailureNoPayLinkAttempted:
         # Client receives an error message via whatsapp_client
         assert len(sent) == 1
         _, msg = sent[0]
-        assert "❌" in msg or "erro" in msg.lower() or "Não conseguimos" in msg, msg
-        assert "painel.fun 502" in msg or "502" in msg  # detail surfaced
+        assert "❌" in msg or "erro" in msg.lower() or "não consegui" in msg.lower(), msg
+        # Post-fix: the message must NOT leak raw painel error details anymore.
+        # It should ask the client to retry the command in a friendly tone.
+        assert "502" not in msg, f"Raw error 502 leaked to client: {msg}"
+        assert "um dos comandos" in msg.lower() or "envie um dos" in msg.lower()
 
 
 # ---------------------------------------------------------------------------

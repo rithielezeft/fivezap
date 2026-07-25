@@ -861,6 +861,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 admin_msg = (
                     "💰 *Pagamento confirmado*\n\n"
                     f"👤 Cliente: {customer['name']}\n"
+                    f"👥 Login: {painel_user or '-'}\n"
                     f"📱 WhatsApp: {phone or '-'}\n"
                     f"📦 Plano: {payment['plan_months']} mês(es)  |  {amount_brl}\n"
                     f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
@@ -1195,7 +1196,7 @@ async def check_status_by_customer(customer_id: str, request: Request):
     except Exception: pass
     provided_token = str(body.get("token") or body.get("t") or "").strip()
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=168)).isoformat()  # 7 days
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

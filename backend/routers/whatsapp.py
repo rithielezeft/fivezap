@@ -55,6 +55,38 @@ async def logout():
     return await whatsapp_client.logout()
 
 
+@router.post("/restart")
+async def restart():
+    """Kill the Node WhatsApp child process and respawn it.
+
+    Use this when Puppeteer/whatsapp-web.js gets stuck in a bad state
+    (`All connection attempts failed`, protocol errors, session zombies).
+    The service starts fresh; if it was authenticated, the local session
+    files persist so no QR re-scan is needed most of the time.
+    """
+    import server as _srv
+    try:
+        _srv._stop_whatsapp_service()
+    except Exception as e:
+        logger.exception("stop_whatsapp_service failed during restart")
+        raise HTTPException(500, f"stop failed: {e}")
+    # Small pause so the OS releases the port + puppeteer chrome fully exits.
+    await asyncio.sleep(2)
+    try:
+        _srv._start_whatsapp_service()
+    except Exception as e:
+        logger.exception("start_whatsapp_service failed during restart")
+        raise HTTPException(500, f"start failed: {e}")
+    # Give the Node service ~5s to boot before returning so the frontend
+    # doesn't immediately show "disconnected".
+    await asyncio.sleep(5)
+    return {
+        "success": True,
+        "pid": _srv._wa_process.pid if _srv._wa_process else None,
+        "message": "WhatsApp Node service reiniciado. Aguarde alguns segundos e verifique o status.",
+    }
+
+
 @router.post("/incoming")
 async def incoming(payload: IncomingPayload):
     """Called by Node.js service when a message arrives on WhatsApp."""
