@@ -21,6 +21,10 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 
+- **[FIX 2026-02-22]** **Suporte internacional a números de WhatsApp**. Antes o sistema forçava `+55` em qualquer número — quebrava clientes do Espanha (+34), EUA (+1), Portugal (+351), UK (+44), Argentina (+54), etc. Agora `services/phone_extractor._clean()` respeita o `+` sign quando presente (E.164 padrão) e só prepende `55` em números bare de 10-11 dígitos (BR local). Números bare de 12-15 dígitos são preservados como-está (assume que já tem country code). Testes: `test_international_phones.py` (12 novos testes cobrindo ES/PT/US/UK/AR + BR).
+
+
+
 - **[FEATURE 2026-02-22]** 4 melhorias solicitadas pelo usuário:
   1. **Admin alert com login do painel** — mensagem `💰 *Pagamento confirmado*` agora inclui linha `👥 Login: <painel_username>` para facilitar identificar o cliente no painel.
   2. **Dedup do scheduler robusto** — `set_setting(daily_key, "1")` agora acontece ANTES de `send_notification`, garantindo no máximo 1 tentativa por (user, threshold, dia). Também checagem extra via `notification_deliveries` (busca de entregas hoje) para bloquear duplicatas mesmo se o daily_key for perdido. Resolve o "duplicando templates de notificação de vencimento" reportado pelo usuário.
