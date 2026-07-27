@@ -288,6 +288,7 @@ export default function Customers() {
       }
       actions={
         <>
+          <ColumnPicker cols={cols} columns={CUSTOMER_COLUMNS} defaults={CUSTOMER_DEFAULTS} mobileDefaults={CUSTOMER_MOBILE_DEFAULTS} />
           <Button
             variant="outline"
             className="border-white/10 hover:bg-white/[0.05] text-white/70"
@@ -319,7 +320,6 @@ export default function Customers() {
           >
             {notifyMut.isPending ? "Enviando..." : "Notificar vencendo"}
           </Button>
-          <ColumnPicker cols={cols} columns={CUSTOMER_COLUMNS} defaults={CUSTOMER_DEFAULTS} mobileDefaults={CUSTOMER_MOBILE_DEFAULTS} />
           <Button
             variant="outline"
             className="border-white/10 hover:bg-white/[0.05]"

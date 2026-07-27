@@ -55,10 +55,11 @@ export default function Payments() {
   const visibleCount = PAYMENT_COLUMNS.filter((c) => cols.isVisible(c.key)).length;
 
   return (
-    <Layout title="Pagamentos" subtitle="Renovações via InfinitePay">
-      <div className="flex justify-end mb-3">
-        <ColumnPicker cols={cols} columns={PAYMENT_COLUMNS} defaults={PAYMENT_DEFAULTS} mobileDefaults={PAYMENT_MOBILE_DEFAULTS} />
-      </div>
+    <Layout
+      title="Pagamentos"
+      subtitle="Renovações via InfinitePay"
+      actions={<ColumnPicker cols={cols} columns={PAYMENT_COLUMNS} defaults={PAYMENT_DEFAULTS} mobileDefaults={PAYMENT_MOBILE_DEFAULTS} />}
+    >
       <div className="surface rounded-xl overflow-x-auto overflow-y-hidden">
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-white/[0.02] text-left text-white/50 text-xs uppercase tracking-widest">
