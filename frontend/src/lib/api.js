@@ -109,6 +109,19 @@ export const publicApi = {
   requestTrial: (data) => api.post("/public/trial", data).then((r) => r.data),
 };
 
+export const couponsApi = {
+  list: () => api.get("/coupons").then((r) => r.data),
+  create: (data) => api.post("/coupons", data).then((r) => r.data),
+  update: (id, data) => api.put(`/coupons/${id}`, data).then((r) => r.data),
+  remove: (id) => api.delete(`/coupons/${id}`).then((r) => r.data),
+  usages: (id) => api.get(`/coupons/${id}/usages`).then((r) => r.data),
+  recentUsages: (limit = 50) =>
+    api.get("/coupons/usages/recent", { params: { limit } }).then((r) => r.data),
+  // PUBLIC — no auth needed (endpoint is whitelisted server-side).
+  validate: (code, customer_id) =>
+    api.post("/coupons/validate", { code, customer_id }).then((r) => r.data),
+};
+
 export const notificationsApi = {
   list: () => api.get("/notifications").then((r) => r.data),
   get: (event_key) => api.get(`/notifications/${event_key}`).then((r) => r.data),

@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { paymentsApi, formatMoney, formatDateBR } from "@/lib/api";
+import { paymentsApi, couponsApi, formatMoney, formatDateBR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, WarningCircle, CreditCard, ArrowRight, Lock } from "@phosphor-icons/react";
+import { Input } from "@/components/ui/input";
+import { CheckCircle, WarningCircle, CreditCard, ArrowRight, Lock, Tag, X } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
 const PLANS = [
@@ -24,6 +25,13 @@ export default function PublicPay() {
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(returnedFromPay);
   const [renewalStatus, setRenewalStatus] = useState(null);
+
+  // Coupon state — validated on-demand via /api/coupons/validate.
+  // When applied, `couponApplied` holds {code, discount_percent}.
+  const [couponInput, setCouponInput] = useState("");
+  const [couponApplied, setCouponApplied] = useState(null);
+  const [couponError, setCouponError] = useState("");
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
 
   // When customer returns from InfinitePay with ?ok=1, actively poll our
   // backend which in turn asks InfinitePay whether the payment cleared.
@@ -92,10 +100,44 @@ export default function PublicPay() {
 
   const customer = data?.customer;
   const prices = data?.prices_cents || {};
-  const discount = data?.active_discount;
-  const discountPct = discount?.percent || 0;
+  const autoDiscount = data?.active_discount;
+  const autoPct = autoDiscount?.percent || 0;
+  const couponPct = couponApplied?.discount_percent || 0;
+  // Whichever discount is bigger wins — matches backend logic.
+  const effectivePct = Math.max(autoPct, couponPct);
+  const discountSource = couponPct >= autoPct && couponPct > 0 ? "coupon" : autoPct > 0 ? "auto" : null;
   const rawPrice = prices[selected] ?? 0;
-  const discountedPrice = discountPct > 0 ? Math.floor((rawPrice * (100 - discountPct)) / 100) : rawPrice;
+  const discountedPrice = effectivePct > 0 ? Math.floor((rawPrice * (100 - effectivePct)) / 100) : rawPrice;
+
+  async function handleApplyCoupon() {
+    const code = couponInput.trim();
+    if (!code) {
+      setCouponError("Digite um código");
+      return;
+    }
+    setValidatingCoupon(true);
+    setCouponError("");
+    try {
+      const res = await couponsApi.validate(code, customerId);
+      if (res.valid) {
+        setCouponApplied({ code: res.code, discount_percent: res.discount_percent });
+        toast.success(`Cupom ${res.code} aplicado — ${res.discount_percent}% off`);
+      } else {
+        setCouponError(res.reason || "Cupom inválido");
+        setCouponApplied(null);
+      }
+    } catch (e) {
+      setCouponError(e.response?.data?.detail || e.message || "Erro ao validar cupom");
+    } finally {
+      setValidatingCoupon(false);
+    }
+  }
+
+  function handleRemoveCoupon() {
+    setCouponApplied(null);
+    setCouponInput("");
+    setCouponError("");
+  }
 
   return (
     <div className="min-h-screen bg-[#050505] text-white relative overflow-hidden">
@@ -205,7 +247,68 @@ export default function PublicPay() {
         </div>
 
         <div className="surface rounded-2xl p-6">
-          {discountPct > 0 && (
+          {/* Cupom de desconto */}
+          <div className="mb-4" data-testid="coupon-section">
+            {!couponApplied ? (
+              <div>
+                <div className="flex gap-2">
+                  <Input
+                    data-testid="input-coupon"
+                    placeholder="Tem um cupom? Digite aqui"
+                    className="flex-1 bg-white/[0.03] border-white/10 uppercase"
+                    value={couponInput}
+                    onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(""); }}
+                    onKeyDown={(e) => e.key === "Enter" && handleApplyCoupon()}
+                    disabled={validatingCoupon}
+                    maxLength={40}
+                  />
+                  <Button
+                    onClick={handleApplyCoupon}
+                    disabled={validatingCoupon || !couponInput.trim()}
+                    variant="outline"
+                    className="border-white/10 hover:bg-white/5"
+                    data-testid="btn-apply-coupon"
+                  >
+                    <Tag size={14} className="mr-1.5" />
+                    {validatingCoupon ? "..." : "Aplicar"}
+                  </Button>
+                </div>
+                {couponError && (
+                  <div className="mt-2 text-xs text-[#FF3B30]" data-testid="coupon-error">
+                    {couponError}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                data-testid="coupon-applied"
+                className="p-3 rounded-xl border border-[#34C759]/40 bg-[#34C759]/5 flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-2">
+                  <Tag size={16} className="text-[#34C759]" />
+                  <div>
+                    <div className="text-xs uppercase tracking-widest text-[#34C759]">
+                      Cupom aplicado
+                    </div>
+                    <div className="text-sm mt-0.5">
+                      <span className="font-mono font-bold">{couponApplied.code}</span> —{" "}
+                      <span className="font-bold">{couponApplied.discount_percent}% off</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={handleRemoveCoupon}
+                  className="text-white/50 hover:text-white p-1"
+                  aria-label="Remover cupom"
+                  data-testid="btn-remove-coupon"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {autoPct > 0 && discountSource === "auto" && (
             <div
               data-testid="discount-banner"
               className="mb-4 p-3 rounded-xl border border-[#34C759]/40 bg-[#34C759]/5"
@@ -215,14 +318,14 @@ export default function PublicPay() {
               </div>
               <div className="text-sm mt-1">
                 Pague <span className="font-bold">hoje</span> e ganhe{" "}
-                <span className="font-bold">{discountPct}% off</span> — válido até o fim do dia.
+                <span className="font-bold">{autoPct}% off</span> — válido até o fim do dia.
               </div>
             </div>
           )}
           <div className="flex items-center justify-between mb-4">
             <div>
               <div className="text-xs uppercase tracking-widest text-white/40">Total a pagar</div>
-              {discountPct > 0 ? (
+              {effectivePct > 0 ? (
                 <div className="flex items-baseline gap-3 mt-1">
                   <div className="font-display text-4xl font-bold text-[#34C759]" data-testid="discounted-price">
                     {formatMoney(discountedPrice)}
@@ -243,7 +346,12 @@ export default function PublicPay() {
 
           <Button
             className="w-full h-12 bg-[#007AFF] hover:bg-[#005BB5] font-semibold"
-            onClick={() => createPayMut.mutate({ customer_id: customerId, plan_months: selected, ref: refBucket || undefined })}
+            onClick={() => createPayMut.mutate({
+              customer_id: customerId,
+              plan_months: selected,
+              ref: refBucket || undefined,
+              coupon_code: couponApplied?.code || undefined,
+            })}
             disabled={createPayMut.isPending}
             data-testid="btn-checkout"
           >
@@ -312,18 +420,26 @@ export default function PublicPay() {
                     data-testid={`history-payment-${p.id}`}
                     className="flex items-center justify-between p-3 rounded-lg border border-white/[0.05] bg-white/[0.02]"
                   >
-                    <div>
-                      <div className="text-sm font-medium">
-                        {p.plan_months} mês{p.plan_months > 1 ? "es" : ""} — {formatMoney(p.amount_cents)}
-                      </div>
-                      <div className="text-xs text-white/40 mt-0.5">
-                        {p.status === "paid"
-                          ? `Pago em ${formatDateBR(p.paid_at || p.created_at)}`
-                          : p.status === "pending"
-                          ? "Aguardando pagamento"
-                          : p.status}
-                      </div>
+                  <div>
+                    <div className="text-sm font-medium">
+                      {p.plan_months} mês{p.plan_months > 1 ? "es" : ""} — {formatMoney(p.amount_cents)}
                     </div>
+                    <div className="text-xs text-white/40 mt-0.5">
+                      {p.status === "paid"
+                        ? `Pago em ${formatDateBR(p.paid_at || p.created_at)}`
+                        : p.status === "pending"
+                        ? "Aguardando pagamento"
+                        : p.status}
+                      {p.coupon_code && (
+                        <span
+                          className="ml-2 inline-flex items-center gap-1 text-[#34C759]"
+                          data-testid={`history-coupon-${p.id}`}
+                        >
+                          · <Tag size={10} /> {p.coupon_code} (-{p.discount_percent}%)
+                        </span>
+                      )}
+                    </div>
+                  </div>
                     <div className="flex items-center gap-2">
                       <span
                         className={

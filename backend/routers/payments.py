@@ -227,17 +227,57 @@ async def create_payment(payload: PaymentCreate):
         amount = 3500
     original_amount = amount
 
-    # Apply same-day 7d discount if active.
+    # Coupon (optional) — validates + applies discount. Cap 50%. Enforces
+    # the "one coupon per customer per 28 days" rule via services/coupon.py.
+    # We validate here at link creation to fail fast; the usage row is only
+    # recorded on payment confirmation (services/coupon.record_usage).
+    coupon_code_norm = ""
+    coupon_id_final = ""
+    coupon_percent = 0
+    if getattr(payload, "coupon_code", None):
+        from services.coupon import validate_coupon
+        v = await validate_coupon(payload.coupon_code, str(payload.customer_id))
+        if not v.get("valid"):
+            raise HTTPException(400, v.get("reason") or "Cupom inválido")
+        coupon_code_norm = v["code"]
+        coupon_id_final = v["coupon_id"]
+        coupon_percent = int(v["discount_percent"])
+
+    # Apply same-day 7d discount if active. Coupon (when present) REPLACES
+    # the 7d discount when it offers a bigger %. Simpler UX than stacking.
     from services.discount import get_active_discount, apply_discount
     discount = await get_active_discount(str(payload.customer_id))
-    discount_percent = int(discount["percent"]) if discount else 0
-    if discount_percent > 0:
+    d7_percent = int(discount["percent"]) if discount else 0
+
+    if coupon_percent >= d7_percent and coupon_percent > 0:
+        discount_percent = coupon_percent
+        amount = apply_discount(amount, discount_percent)
+        logger.info(
+            "Applied coupon %s for %s: %d%% (R$%.2f → R$%.2f)",
+            coupon_code_norm, payload.customer_id, discount_percent,
+            original_amount / 100, amount / 100,
+        )
+    elif d7_percent > 0:
+        discount_percent = d7_percent
         amount = apply_discount(amount, discount_percent)
         logger.info(
             "Applied 7d same-day discount for %s: %d%% (R$%.2f → R$%.2f)",
             payload.customer_id, discount_percent,
             original_amount / 100, amount / 100,
         )
+        # Coupon requested but its % was lower than the active auto-discount
+        # → drop coupon so we don't record its usage on payment. Keeps the
+        # 28-day cooldown fair (client didn't actually spend their coupon).
+        if coupon_code_norm:
+            logger.info(
+                "Coupon %s ignored (7d discount %d%% > coupon %d%%)",
+                coupon_code_norm, d7_percent, coupon_percent,
+            )
+            coupon_code_norm = ""
+            coupon_id_final = ""
+            coupon_percent = 0
+    else:
+        discount_percent = 0
 
     package_id = painel.get_package_id(customer["system_type"], payload.plan_months)
 
@@ -290,10 +330,11 @@ async def create_payment(payload: PaymentCreate):
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, ref_bucket, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, ref_bucket, coupon_code, coupon_id, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (payment_id, payload.customer_id, payload.plan_months, amount, package_id,
              link_data.get("url"), order_nsu, confirmation_token,
-             discount_percent, original_amount, ref_bucket, now_iso()),
+             discount_percent, original_amount, ref_bucket,
+             coupon_code_norm or None, coupon_id_final or None, now_iso()),
         )
         await db.commit()
 
@@ -323,6 +364,9 @@ async def create_payment(payload: PaymentCreate):
         "payment_id": payment_id,
         "url": link_data.get("url"),
         "amount_cents": amount,
+        "original_amount_cents": original_amount,
+        "discount_percent": discount_percent,
+        "coupon_code": coupon_code_norm or None,
         "order_nsu": order_nsu,
     }
 
@@ -591,6 +635,30 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             await db.commit()
         payment["transaction_nsu"] = transaction_nsu or payment.get("transaction_nsu")
         payment["receipt_url"] = receipt_url or payment.get("receipt_url")
+
+    # Record coupon usage (once) if this payment had a coupon applied.
+    # Idempotent: `already_recorded_for_payment` guards against duplicate
+    # inserts across webhook retries / poller re-runs.
+    if payment.get("coupon_id") and payment.get("coupon_code"):
+        try:
+            from services.coupon import record_usage, already_recorded_for_payment
+            if not await already_recorded_for_payment(payment["id"]):
+                await record_usage(
+                    coupon_id=payment["coupon_id"],
+                    coupon_code=payment["coupon_code"],
+                    customer_id=str(payment["customer_id"]),
+                    payment_id=payment["id"],
+                    phone="",  # filled below once we resolve customer
+                    discount_percent=int(payment.get("discount_percent") or 0),
+                    receipt_url=payment.get("receipt_url") or "",
+                    painel_username="",
+                )
+                logger.info(
+                    "Coupon usage recorded: coupon=%s customer=%s payment=%s",
+                    payment["coupon_code"], payment["customer_id"], payment["id"],
+                )
+        except Exception:
+            logger.exception("record_usage failed (non-fatal)")
 
     # Resolve customer info + painel_id
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1410,7 +1478,8 @@ async def get_customer_payment_info(customer_id: str):
             db.row_factory = aiosqlite.Row
             cur = await db.execute(
                 "SELECT id, plan_months, amount_cents, status, paid_at, created_at,"
-                " receipt_url, infinitepay_url, order_nsu, transaction_nsu"
+                " receipt_url, infinitepay_url, order_nsu, transaction_nsu,"
+                " coupon_code, discount_percent, original_amount_cents"
                 " FROM payments WHERE customer_id = ?"
                 " ORDER BY created_at DESC LIMIT 10",
                 (customer["id"],),

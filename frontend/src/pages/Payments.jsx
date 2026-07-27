@@ -99,7 +99,14 @@ export default function Payments() {
                   )}
                 </td>}
                 {cols.isVisible("plan") && <td className="px-4 py-3">{p.plan_months} mês(es)</td>}
-                {cols.isVisible("amount") && <td className="px-4 py-3 text-right font-mono">{formatMoney(p.amount_cents)}</td>}
+                {cols.isVisible("amount") && <td className="px-4 py-3 text-right font-mono">
+                  {formatMoney(p.amount_cents)}
+                  {p.coupon_code && (
+                    <div className="text-[10px] font-sans text-[#34C759] mt-0.5" data-testid={`payment-coupon-${p.id}`}>
+                      🏷️ {p.coupon_code} (-{p.discount_percent}%)
+                    </div>
+                  )}
+                </td>}
                 {cols.isVisible("status") && <td className="px-4 py-3">
                   <span className={"text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " + (STATUS_STYLES[p.status] || STATUS_STYLES.pending)}>
                     {p.status}

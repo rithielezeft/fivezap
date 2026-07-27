@@ -162,6 +162,33 @@ async def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_deliveries_status ON notification_deliveries(status, next_retry_at);
             CREATE INDEX IF NOT EXISTS idx_deliveries_customer ON notification_deliveries(customer_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS coupons (
+                id TEXT PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                discount_percent INTEGER NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code);
+
+            CREATE TABLE IF NOT EXISTS coupon_usages (
+                id TEXT PRIMARY KEY,
+                coupon_id TEXT NOT NULL,
+                coupon_code TEXT NOT NULL,
+                customer_id TEXT NOT NULL,
+                payment_id TEXT,
+                phone TEXT,
+                discount_percent INTEGER NOT NULL,
+                receipt_url TEXT,
+                painel_username TEXT,
+                used_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_coupon_usages_customer ON coupon_usages(customer_id, used_at);
+            CREATE INDEX IF NOT EXISTS idx_coupon_usages_coupon ON coupon_usages(coupon_id, used_at);
             """
         )
         await db.commit()
@@ -293,6 +320,17 @@ async def init_db():
             pass
         try:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_txn_nsu ON payments(transaction_nsu)")
+        except Exception:
+            pass
+        # Coupon applied at checkout (nullable). Stored on the payment row so
+        # the admin history + PublicPay page can show it (and so the webhook
+        # can record `coupon_usages` on confirmation).
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN coupon_code TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN coupon_id TEXT")
         except Exception:
             pass
         # Image URL for command templates (optional image sent with the
