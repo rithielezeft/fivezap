@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
+import { useColumnVisibility, ColumnPicker } from "@/components/ColumnPicker";
 import { painelApi, trialsApi, formatDateBR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,22 @@ export default function Customers() {
   const [trialFor, setTrialFor] = useState(null);
   const [systemFilter, setSystemFilter] = useState("all"); // all | iptv | p2p | hybrid | unknown
   const [statusFilter, setStatusFilter] = useState("all"); // all | active | expiring_soon | expired
+
+  // Column visibility: user picks which grid columns to show. Persisted in
+  // localStorage. On first mobile visit, only essential columns shown.
+  const CUSTOMER_COLUMNS = [
+    { key: "username", label: "Usuário" },
+    { key: "name", label: "Nome" },
+    { key: "whatsapp", label: "WhatsApp" },
+    { key: "system", label: "Sistema" },
+    { key: "expires", label: "Expira" },
+    { key: "status", label: "Status" },
+    { key: "paylink", label: "Link de pagamento" },
+    { key: "actions", label: "Ações" },
+  ];
+  const CUSTOMER_DEFAULTS = { username: true, name: true, whatsapp: true, system: true, expires: true, status: true, paylink: true, actions: true };
+  const CUSTOMER_MOBILE_DEFAULTS = { username: true, name: false, whatsapp: true, system: false, expires: true, status: true, paylink: false, actions: true };
+  const cols = useColumnVisibility("customers-cols", CUSTOMER_DEFAULTS, CUSTOMER_MOBILE_DEFAULTS);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugData, setDebugData] = useState(null);
   const [expiredOpen, setExpiredOpen] = useState(false);
@@ -302,6 +319,7 @@ export default function Customers() {
           >
             {notifyMut.isPending ? "Enviando..." : "Notificar vencendo"}
           </Button>
+          <ColumnPicker cols={cols} columns={CUSTOMER_COLUMNS} defaults={CUSTOMER_DEFAULTS} mobileDefaults={CUSTOMER_MOBILE_DEFAULTS} />
           <Button
             variant="outline"
             className="border-white/10 hover:bg-white/[0.05]"
@@ -431,18 +449,18 @@ export default function Customers() {
         </div>
       )}
 
-      <div className="surface rounded-xl overflow-hidden" data-testid="users-table">
-        <table className="w-full text-sm">
+      <div className="surface rounded-xl overflow-x-auto overflow-y-hidden" data-testid="users-table">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-white/[0.02] text-left text-white/50 text-xs uppercase tracking-widest">
             <tr>
-              <th className="px-4 py-3">Usuário</th>
-              <th className="px-4 py-3">Nome</th>
-              <th className="px-4 py-3">WhatsApp</th>
-              <th className="px-4 py-3">Sistema</th>
-              <th className="px-4 py-3">Expira</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Link de pagamento</th>
-              <th className="px-4 py-3 text-right">Ações</th>
+              {cols.isVisible("username") && <th className="px-4 py-3">Usuário</th>}
+              {cols.isVisible("name") && <th className="px-4 py-3">Nome</th>}
+              {cols.isVisible("whatsapp") && <th className="px-4 py-3">WhatsApp</th>}
+              {cols.isVisible("system") && <th className="px-4 py-3">Sistema</th>}
+              {cols.isVisible("expires") && <th className="px-4 py-3">Expira</th>}
+              {cols.isVisible("status") && <th className="px-4 py-3">Status</th>}
+              {cols.isVisible("paylink") && <th className="px-4 py-3">Link de pagamento</th>}
+              {cols.isVisible("actions") && <th className="px-4 py-3 text-right">Ações</th>}
             </tr>
           </thead>
           <tbody>
@@ -464,9 +482,9 @@ export default function Customers() {
               const payLink = u._pay_link;
               return (
                 <tr key={uid} className="border-t border-white/[0.05] hover:bg-white/[0.02] transition-colors" data-testid={`user-row-${uid}`}>
-                  <td className="px-4 py-3 font-mono text-xs">{username}</td>
-                  <td className="px-4 py-3">{name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-white/70">
+                  {cols.isVisible("username") && <td className="px-4 py-3 font-mono text-xs">{username}</td>}
+                  {cols.isVisible("name") && <td className="px-4 py-3">{name}</td>}
+                  {cols.isVisible("whatsapp") && <td className="px-4 py-3 font-mono text-xs text-white/70">
                     {whatsapp}
                     {waFromNotes && (
                       <span
@@ -477,8 +495,8 @@ export default function Customers() {
                         notas
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-3">
+                  </td>}
+                  {cols.isVisible("system") && <td className="px-4 py-3">
                     {(() => {
                       const st = SYSTEM_STYLES[system];
                       return st ? (
@@ -493,10 +511,10 @@ export default function Customers() {
                       );
                     })()}
                     {mac && <div className="font-mono text-[9px] text-white/40 mt-0.5">{mac}</div>}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-white/60">{expires ? formatDateBR(expires) : "—"}</td>
-                  <td className="px-4 py-3"><StatusBadge user={u} /></td>
-                  <td className="px-4 py-3">
+                  </td>}
+                  {cols.isVisible("expires") && <td className="px-4 py-3 text-xs text-white/60">{expires ? formatDateBR(expires) : "—"}</td>}
+                  {cols.isVisible("status") && <td className="px-4 py-3"><StatusBadge user={u} /></td>}
+                  {cols.isVisible("paylink") && <td className="px-4 py-3">
                     {payLink ? (
                       <div className="flex items-center gap-1">
                         <a
@@ -519,8 +537,8 @@ export default function Customers() {
                         </button>
                       </div>
                     ) : <span className="text-white/30 text-xs">—</span>}
-                  </td>
-                  <td className="px-4 py-3">
+                  </td>}
+                  {cols.isVisible("actions") && <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
                       <Button
                         size="sm"
@@ -539,7 +557,7 @@ export default function Customers() {
                         Renovar
                       </Button>
                     </div>
-                  </td>
+                  </td>}
                 </tr>
               );
             })}

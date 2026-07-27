@@ -239,12 +239,13 @@ export default function Settings() {
                     <select
                       value={form[f.key] ?? ""}
                       onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-                      className="mt-1 w-full h-10 px-3 rounded-md bg-white/[0.03] border border-white/10 text-white text-sm"
+                      className="mt-1 w-full h-10 px-3 rounded-md bg-[#1a1a1a] border border-white/10 text-white text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                      style={{ colorScheme: "dark" }}
                       data-testid={`setting-${f.key}`}
                     >
-                      <option value="">— selecione —</option>
+                      <option value="" className="bg-[#1a1a1a] text-white/60">— selecione —</option>
                       {f.options.map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
+                        <option key={opt} value={opt} className="bg-[#1a1a1a] text-white">{opt}</option>
                       ))}
                     </select>
                   ) : (

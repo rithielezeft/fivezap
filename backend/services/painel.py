@@ -244,15 +244,11 @@ async def create_trial(
     if whatsapp:
         payload["whatsapp"] = whatsapp
         # Persist the client's WhatsApp in the painel `reseller_notes` free-text
-        # field so the admin can easily see who the trial belongs to when
-        # scrolling the painel UI (painel doesn't have a dedicated WhatsApp
-        # column — notes is the closest thing). This is how the notify-expired
-        # flow later re-extracts the phone number.
-        note_line = f"WhatsApp: +{whatsapp}"
-        if name:
-            note_line = f"{name} — WhatsApp: +{whatsapp}"
-        payload["reseller_notes"] = note_line
-        payload["notes"] = note_line  # some panel versions use `notes`
+        # field so the admin can easily lookup who the trial belongs to.
+        # Notes = ONLY the phone number (raw digits, no name) so the notify-expired
+        # regex extracts it cleanly. The client name stays in the `name` field.
+        payload["reseller_notes"] = f"+{whatsapp}"
+        payload["notes"] = f"+{whatsapp}"  # some panel versions use `notes`
     # MAC goes in the initial payload for IPTV+MAC and for Hybrid
     if mac and system_type in ("iptv", "hybrid"):
         payload["mac"] = mac
