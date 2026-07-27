@@ -21,6 +21,14 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 
+- **[FIX 2026-02-22 P0]** **Mobile responsivo completo** (validado 100% pelo testing agent em viewport 375×812):
+  - **Sidebar hamburger**: em mobile (<768px) a sidebar vira drawer overlay. Top-bar preta fixa com ícone hamburger (`btn-open-menu`). Drawer abre da esquerda, X no cabeçalho fecha, clicar fora do drawer fecha, navegar fecha automaticamente. Desktop mantém sidebar fixa de 256px.
+  - **Layout header responsivo**: title/subtitle empilha em coluna no mobile, buttons usam `flex-wrap` para não sair da tela. `pt-14 md:pt-0` evita conteúdo atrás do top-bar mobile.
+  - **ColumnPicker sempre visível**: movido para PRIMEIRA posição no `actions` de Customers.jsx (antes ficava soterrado). Payments.jsx passa `actions={<ColumnPicker />}` direto.
+  - **Tabelas com scroll horizontal**: `overflow-x-auto` + `min-w-[640px]` — sem quebrar layout em mobile.
+
+
+
 - **[FIX + FEATURE 2026-02-22]** 3 melhorias verificadas pelo testing agent (100% success):
   1. **`reseller_notes` no painel só com o número** — antes gravava `"João — WhatsApp: +5511999998888"`, agora só `"+5511999998888"`. Nome continua no campo `name` normal.
   2. **Dropdown de timezone legível** — `<select>` com bg dark (#1a1a1a), colorScheme dark forçado, options com fundo dark. Opções: São Paulo, Fortaleza, Manaus, Rio Branco, NY, LA, Mexico City, Buenos Aires, Santiago, Bogotá, Lisboa, Madrid, Londres, Paris, Berlim, UTC (16 total).
