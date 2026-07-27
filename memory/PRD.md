@@ -21,6 +21,15 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 
+- **[FIX + FEATURE 2026-02-22]** 3 melhorias verificadas pelo testing agent (100% success):
+  1. **`reseller_notes` no painel só com o número** — antes gravava `"João — WhatsApp: +5511999998888"`, agora só `"+5511999998888"`. Nome continua no campo `name` normal.
+  2. **Dropdown de timezone legível** — `<select>` com bg dark (#1a1a1a), colorScheme dark forçado, options com fundo dark. Opções: São Paulo, Fortaleza, Manaus, Rio Branco, NY, LA, Mexico City, Buenos Aires, Santiago, Bogotá, Lisboa, Madrid, Londres, Paris, Berlim, UTC (16 total).
+  3. **Column selector + mobile responsive** nas páginas Clientes e Pagamentos — novo componente `components/ColumnPicker.jsx` com `useColumnVisibility` hook. Persist em localStorage (`customers-cols`, `payments-cols`). Presets "Padrão desktop" e "Padrão mobile (mínimo)". Em mobile (<768px) usa defaults reduzidos automaticamente. Tabelas ganharam `overflow-x-auto` + `min-w-[640px]` para scroll horizontal em mobile sem quebrar layout.
+
+  Testes validados pelo testing agent: 8 data-testids em Customers, 9 em Payments, localStorage persiste após reload, timezone PUT/GET funciona (America/Sao_Paulo → Europe/Madrid → UTC).
+
+
+
 - **[BATCH 2026-02-22]** 6 melhorias solicitadas:
   1. **Imagem opcional nos comandos** — nova coluna `image_url` em `command_templates` (com migration ALTER TABLE). UI de upload em Templates.jsx (usa endpoint `/api/uploads` existente). Bot envia imagem+caption quando o comando tem `image_url`.
   2. **Nome do cliente extraído da mensagem** — helper `_extract_name_from_message()` em `services/bot.py` parseia padrões "meu nome é X", "sou o X", "me chamo X", etc. Se encontrar → atualiza `customers.name`.
