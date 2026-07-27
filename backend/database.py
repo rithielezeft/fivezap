@@ -69,6 +69,7 @@ async def init_db():
                 requires_mac INTEGER DEFAULT 0,
                 package_id INTEGER,
                 response_template TEXT,
+                image_url TEXT,
                 enabled INTEGER DEFAULT 1,
                 trigger_source TEXT DEFAULT 'both',
                 created_at TEXT NOT NULL
@@ -234,6 +235,10 @@ async def init_db():
             # Applied to both the background loop AND the cache-staleness
             # threshold used by the /api/painel/users endpoint.
             "painel_refresh_interval_seconds": "300",
+            # Timezone for date display in the UI (dashboard, receipts,
+            # customer page, etc.). Default = Brasília. Change here → the
+            # frontend re-renders all dates in the selected TZ.
+            "display_timezone": "America/Sao_Paulo",
         }
         for key, value in defaults.items():
             await db.execute(
@@ -288,6 +293,12 @@ async def init_db():
             pass
         try:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_payments_txn_nsu ON payments(transaction_nsu)")
+        except Exception:
+            pass
+        # Image URL for command templates (optional image sent with the
+        # command's response — trial_ready, welcome messages, etc.)
+        try:
+            await db.execute("ALTER TABLE command_templates ADD COLUMN image_url TEXT")
         except Exception:
             pass
         # Cleanup: remove old *_cents price keys (kept if you rely on them)

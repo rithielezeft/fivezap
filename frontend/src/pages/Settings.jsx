@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
-import { settingsApi, painelApi, paymentsApi } from "@/lib/api";
+import { settingsApi, painelApi, paymentsApi, setDisplayTimezone } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,6 +31,14 @@ const FIELDS = [
   { key: "dedup_enabled", label: "Anti-duplicata — Ativo? (true/false). Se true, não reenvia o mesmo template ao mesmo cliente antes da janela.", group: "notify", placeholder: "true" },
   { key: "dedup_window_minutes", label: "Anti-duplicata — Janela em minutos (padrão 60)", group: "notify", placeholder: "60" },
   { key: "painel_refresh_interval_seconds", label: "Auto-refresh do Painel — segundos (padrão 300 = 5min). Aumente para economizar créditos 2Captcha (ex: 600 = 10min, 1800 = 30min).", group: "painel", placeholder: "300" },
+  { key: "display_timezone", label: "Fuso horário do sistema (aplicado a todas as datas). Ex: America/Sao_Paulo, America/New_York, Europe/Lisbon, Europe/Madrid, UTC.", group: "notify", placeholder: "America/Sao_Paulo",
+    options: [
+      "America/Sao_Paulo", "America/Fortaleza", "America/Manaus", "America/Rio_Branco",
+      "America/New_York", "America/Los_Angeles", "America/Mexico_City",
+      "America/Buenos_Aires", "America/Santiago", "America/Bogota",
+      "Europe/Lisbon", "Europe/Madrid", "Europe/London", "Europe/Paris", "Europe/Berlin",
+      "UTC",
+    ] },
 ];
 
 const GROUPS = {
@@ -51,7 +59,12 @@ export default function Settings() {
 
   const saveMut = useMutation({
     mutationFn: settingsApi.update,
-    onSuccess: () => { toast.success("Configurações salvas"); refetch(); },
+    onSuccess: (_, vars) => {
+      toast.success("Configurações salvas");
+      // Apply timezone change instantly (no page reload).
+      if (vars?.display_timezone) setDisplayTimezone(vars.display_timezone);
+      refetch();
+    },
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
 
@@ -222,14 +235,28 @@ export default function Settings() {
               {FIELDS.filter((f) => f.group === groupKey).map((f) => (
                 <div key={f.key}>
                   <Label className="text-xs">{f.label}</Label>
-                  <Input
-                    type={f.type || "text"}
-                    placeholder={f.placeholder || ""}
-                    className={f.key.includes("mac") ? "font-mono" : ""}
-                    value={form[f.key] ?? ""}
-                    onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-                    data-testid={`setting-${f.key}`}
-                  />
+                  {f.options ? (
+                    <select
+                      value={form[f.key] ?? ""}
+                      onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                      className="mt-1 w-full h-10 px-3 rounded-md bg-white/[0.03] border border-white/10 text-white text-sm"
+                      data-testid={`setting-${f.key}`}
+                    >
+                      <option value="">— selecione —</option>
+                      {f.options.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      type={f.type || "text"}
+                      placeholder={f.placeholder || ""}
+                      className={f.key.includes("mac") ? "font-mono" : ""}
+                      value={form[f.key] ?? ""}
+                      onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                      data-testid={`setting-${f.key}`}
+                    />
+                  )}
                 </div>
               ))}
             </div>

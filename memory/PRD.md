@@ -21,6 +21,20 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 
 ## Implemented (2026-02)
 
+- **[BATCH 2026-02-22]** 6 melhorias solicitadas:
+  1. **Imagem opcional nos comandos** — nova coluna `image_url` em `command_templates` (com migration ALTER TABLE). UI de upload em Templates.jsx (usa endpoint `/api/uploads` existente). Bot envia imagem+caption quando o comando tem `image_url`.
+  2. **Nome do cliente extraído da mensagem** — helper `_extract_name_from_message()` em `services/bot.py` parseia padrões "meu nome é X", "sou o X", "me chamo X", etc. Se encontrar → atualiza `customers.name`.
+  3. **Perguntar nome antes do teste quando não temos** — se cliente não passa nome E o customer.name é placeholder (JID/telefone), bot pergunta "me diz seu primeiro nome" e aguarda resposta (state `_pending_name` com TTL 15min).
+  4. **WhatsApp salvo em `reseller_notes` do painel** — `services/painel.create_trial` agora inclui `reseller_notes: "Nome — WhatsApp: +XXX"` no payload. Facilita achar o cliente no painel.
+  5. **Auto-retry password format invalid** — `services/painel.create_trial` re-tenta até 3× com senha nova quando painel rejeita com "O campo password format is invalid".
+  6. **Fuso horário selecionável** — nova setting `display_timezone` (default `America/Sao_Paulo`). Dropdown em Settings com principais TZ (São Paulo, NY, LA, London, Lisbon, Madrid, UTC, etc.). `formatDateBR()` no frontend agora lê essa setting via `getDisplayTimezone()`. App.jsx carrega no mount.
+
+  Testes: `test_2026_02_22_batch2.py` (11 novos testes), `test_trial_error_messages.py` atualizado.
+
+  **Pendente**: mobile responsivo + column selector nas páginas Clientes e Pagamentos.
+
+
+
 - **[FIX 2026-02-22]** **Suporte internacional a números de WhatsApp**. Antes o sistema forçava `+55` em qualquer número — quebrava clientes do Espanha (+34), EUA (+1), Portugal (+351), UK (+44), Argentina (+54), etc. Agora `services/phone_extractor._clean()` respeita o `+` sign quando presente (E.164 padrão) e só prepende `55` em números bare de 10-11 dígitos (BR local). Números bare de 12-15 dígitos são preservados como-está (assume que já tem country code). Testes: `test_international_phones.py` (12 novos testes cobrindo ES/PT/US/UK/AR + BR).
 
 

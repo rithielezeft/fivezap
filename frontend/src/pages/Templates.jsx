@@ -20,9 +20,39 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
     requires_mac: initial?.requires_mac ?? false,
     package_id: initial?.package_id ?? 61,
     response_template: initial?.response_template || "✅ Teste {system_type} criado!\n👤 Usuário: {user}\n🔑 Senha: {pass}\n⏰ Expira: {expires}",
+    image_url: initial?.image_url || "",
     enabled: initial?.enabled ?? true,
     trigger_source: initial?.trigger_source || "both",
   });
+  const [uploading, setUploading] = useState(false);
+
+  async function handleImageUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const token = localStorage.getItem("token");
+      const base = process.env.REACT_APP_BACKEND_URL;
+      const res = await fetch(`${base}/api/uploads`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (data?.path) {
+        setF({ ...f, image_url: data.path });
+        toast.success("Imagem enviada");
+      } else {
+        toast.error("Falha ao enviar imagem");
+      }
+    } catch (err) {
+      toast.error("Erro: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -92,6 +122,45 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
             {"{pay_link}"} é o link mensal padrão. Os demais são gerados sob demanda pelos planos configurados.
           </div>
         </div>
+      </div>
+      <div className="col-span-2 p-3 rounded-md bg-white/[0.03] border border-white/10">
+        <Label className="text-sm">📷 Imagem opcional (enviada junto com a mensagem)</Label>
+        <div className="text-xs text-white/50 mt-1 mb-2">
+          Faça upload de uma imagem que será enviada junto com o texto da resposta ao cliente (ex: prévia do produto, banner promocional).
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            disabled={uploading}
+            data-testid="input-template-image-upload"
+            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:bg-white/10 file:text-white file:border-0 file:hover:bg-white/20 cursor-pointer"
+          />
+          {uploading && <span className="text-xs text-[#FF9F0A]">Enviando...</span>}
+          {f.image_url && (
+            <>
+              <a href={f.image_url.startsWith("http") ? f.image_url : `${process.env.REACT_APP_BACKEND_URL}${f.image_url}`} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-400 underline">
+                ver imagem atual
+              </a>
+              <button
+                type="button"
+                onClick={() => setF({ ...f, image_url: "" })}
+                className="text-xs text-[#FF3B30] hover:underline"
+                data-testid="btn-template-image-remove"
+              >
+                remover
+              </button>
+            </>
+          )}
+        </div>
+        {f.image_url && (
+          <img
+            src={f.image_url.startsWith("http") ? f.image_url : `${process.env.REACT_APP_BACKEND_URL}${f.image_url}`}
+            alt="preview"
+            className="mt-2 max-h-32 rounded-md border border-white/10"
+          />
+        )}
       </div>
       <div className="col-span-2 flex items-center justify-between p-3 rounded-md bg-white/[0.03] border border-white/10">
         <div className="text-sm font-medium">Ativo</div>

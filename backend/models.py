@@ -82,6 +82,7 @@ class TemplateCreate(BaseModel):
     requires_mac: bool = False
     package_id: Optional[int] = None
     response_template: Optional[str] = None
+    image_url: Optional[str] = None
     enabled: bool = True
     trigger_source: str = "both"  # client | admin | both
 
@@ -93,6 +94,7 @@ class TemplateUpdate(BaseModel):
     requires_mac: Optional[bool] = None
     package_id: Optional[int] = None
     response_template: Optional[str] = None
+    image_url: Optional[str] = None
     enabled: Optional[bool] = None
     trigger_source: Optional[str] = None
 
@@ -105,6 +107,7 @@ class Template(BaseModel):
     requires_mac: bool
     package_id: Optional[int] = None
     response_template: Optional[str] = None
+    image_url: Optional[str] = None
     enabled: bool
     trigger_source: str = "both"
     created_at: str
@@ -175,6 +178,7 @@ class SettingsUpdate(BaseModel):
     dedup_enabled: Optional[str] = None
     dedup_window_minutes: Optional[str] = None
     painel_refresh_interval_seconds: Optional[str] = None
+    display_timezone: Optional[str] = None
 
 
 # ---- Public trial request ----

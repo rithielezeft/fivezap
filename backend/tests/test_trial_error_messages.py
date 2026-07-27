@@ -66,6 +66,10 @@ def _run_bot_with_painel_error(error_msg, tmp_path):
         with patch.object(whatsapp_client, "send_message", new=fake_send_message), \
              patch.object(painel, "create_trial", new=fake_create_trial), \
              patch("services.notifier.send_admin_alert", new=AsyncMock(return_value=True)):
+            # Pre-seed the customer with a proper name so the bot doesn't
+            # divert to the "diga seu nome" pending-name flow before it
+            # attempts to create the trial (which is what this test checks).
+            await bot.find_or_create_customer("5511999998888", "João Teste")
             await bot.process_incoming_message(
                 phone="5511999998888",
                 body="!teste iptv",
@@ -157,6 +161,7 @@ def test_admin_gets_technical_details(tmp_path):
         with patch.object(whatsapp_client, "send_message", new=AsyncMock(return_value=True)), \
              patch.object(painel, "create_trial", new=fake_create_trial), \
              patch("services.notifier.send_admin_alert", new=fake_send_admin_alert):
+            await bot.find_or_create_customer("5511999998888", "João Teste")
             await bot.process_incoming_message(
                 phone="5511999998888",
                 body="!teste iptv",

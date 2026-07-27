@@ -158,6 +158,72 @@ async def find_or_create_customer(phone: str, name: str = None) -> dict:
         return {"id": cid, "name": display_name, "whatsapp": phone, "system_type": "unknown"}
 
 
+async def _update_customer_name(customer_id: str, name: str):
+    """Persist a real client name (typed by them or extracted from message).
+    Only updates when we actually got a proper name — never overwrite with
+    empty/placeholder values."""
+    if not customer_id or not name or not name.strip():
+        return
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE customers SET name = ?, updated_at = ? WHERE id = ?",
+            (name.strip(), now_iso(), customer_id),
+        )
+        await db.commit()
+
+
+# Client name extraction — many clients introduce themselves before/with the
+# trial command. Parse common Portuguese patterns so we don't have to ask.
+_NAME_PATTERNS = [
+    # "meu nome é João", "meu nome eh Ana", "nome: Pedro"
+    re.compile(r"(?:meu\s+nome\s+(?:é|eh|e)|nome[:\s]+)\s*([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,2})", re.IGNORECASE),
+    # "sou o Pedro", "sou a Maria", "eu sou Pedro", "aqui é o João"
+    re.compile(r"(?:sou\s+(?:o|a)?|eu\s+sou|aqui\s+(?:é|eh|e)\s+(?:o|a)?)\s+([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,2})", re.IGNORECASE),
+    # "chamo-me Pedro" / "me chamo Pedro"
+    re.compile(r"(?:me\s+chamo|chamo-me)\s+([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,2})", re.IGNORECASE),
+    # "boa tarde, Pedro aqui" — pattern needs the word "aqui" after
+    re.compile(r"[,\.]\s*([A-Za-zÀ-ÿ]{3,15})\s+aqui\b", re.IGNORECASE),
+]
+
+# Words that are NOT names (avoid false positives from greetings/etc.)
+_NOT_A_NAME = {
+    "amigo", "amiga", "cara", "brother", "mano", "cliente", "pessoal",
+    "bom dia", "boa tarde", "boa noite", "oi", "ola", "olá", "hey", "hi",
+    "eu", "aqui", "presente", "novo", "novato", "teste", "iptv", "p2p",
+    "dreamtv", "hybrid", "player", "sistema",
+}
+
+
+def _extract_name_from_message(text: str) -> Optional[str]:
+    """Try to pull a proper name from the client's WhatsApp message.
+
+    Returns a Title-Cased first name (max 2 words) if we find one, else None.
+    We're deliberately conservative — better to ask than to store the wrong
+    name (which then appears in every future template).
+    """
+    if not text:
+        return None
+    for pat in _NAME_PATTERNS:
+        m = pat.search(text)
+        if m:
+            candidate = m.group(1).strip()
+            # Reject obviously non-name words
+            first_word = candidate.split()[0].lower()
+            if first_word in _NOT_A_NAME:
+                continue
+            if len(first_word) < 2 or len(first_word) > 20:
+                continue
+            # Title Case, keep max 2 words (first + last)
+            words = candidate.split()[:2]
+            return " ".join(w.capitalize() for w in words)
+    return None
+
+
+# Awaiting-name state — set when we need a real name before creating a trial.
+_pending_name: dict[str, dict] = {}
+_NAME_STATE_TTL = 15 * 60  # 15 minutes to answer
+
+
 def normalize_phone(phone: str) -> str:
     """Normalize phone/JID.
 
@@ -213,6 +279,41 @@ async def process_incoming_message(
 
     if not text:
         return
+
+    # ---------- Pending NAME follow-up ----------
+    # We previously asked the client for their name (because we couldn't
+    # parse one from their prior message). Their next reply IS the name.
+    if not from_me and phone_clean in _pending_name:
+        state = _pending_name[phone_clean]
+        if now_ts - state["started_at"] > _NAME_STATE_TTL:
+            _pending_name.pop(phone_clean, None)
+        else:
+            # Accept first 1-2 words as the name; sanity-check length.
+            candidate = " ".join(text.strip().split()[:2])
+            if 2 <= len(candidate) <= 40 and candidate.split()[0].lower() not in _NOT_A_NAME:
+                proper = " ".join(w.capitalize() for w in candidate.split())
+                await _update_customer_name(state["customer_id"], proper)
+                customer["name"] = proper
+                # Re-load the template and fire the trial.
+                async with aiosqlite.connect(DB_PATH) as db:
+                    db.row_factory = aiosqlite.Row
+                    cur = await db.execute(
+                        "SELECT * FROM command_templates WHERE id = ? AND enabled = 1",
+                        (state["template_id"],),
+                    )
+                    row = await cur.fetchone()
+                _pending_name.pop(phone_clean, None)
+                if row:
+                    await _run_trial_creation(customer, dict(row), state.get("mac"), phone_clean)
+                return
+            # Not a plausible name — ask once more, then give up.
+            await whatsapp_client.send_message(
+                phone_clean,
+                "Não entendi. Me diz seu *primeiro nome* por gentileza, "
+                "só o nome (ex: *João*). 🙏",
+            )
+            await save_message(phone_clean, "AWAITING_NAME_RETRY", "out", customer["id"])
+            return
 
     # ---------- Pending MAC follow-up ----------
     # If we're waiting for a MAC from this phone (previous trigger asked for it),
@@ -350,6 +451,40 @@ async def process_incoming_message(
             await save_message(phone_clean, "AWAITING_MAC", "out", customer["id"])
             return
 
+    # ---- Client name resolution ----
+    # 1) Try to pull a name from THIS message ("meu nome é João", "sou o Pedro", etc.)
+    # 2) Fall back to the WhatsApp profile name (customer["name"] from `name`).
+    # 3) If we still have nothing (or only the phone number), ask before
+    #    firing the trial. Never store the raw phone/JID as the client name.
+    parsed_name = _extract_name_from_message(text)
+    stored_name = (customer.get("name") or "").strip()
+    stored_is_placeholder = (
+        not stored_name
+        or stored_name == phone_clean
+        or stored_name.replace("+", "").replace(" ", "").isdigit()
+    )
+    if parsed_name:
+        # Prefer what the client just typed — most accurate signal.
+        await _update_customer_name(customer["id"], parsed_name)
+        customer["name"] = parsed_name
+    elif stored_is_placeholder:
+        # Ask for the name before creating a trial (only for client messages,
+        # not admin-triggered creations).
+        if not from_me:
+            _pending_name[phone_clean] = {
+                "template_id": matched["id"],
+                "mac": mac,
+                "customer_id": customer["id"],
+                "started_at": now_ts,
+            }
+            await whatsapp_client.send_message(
+                phone_clean,
+                "Olá! 👋 Antes de criar seu teste, me diz seu *primeiro nome* "
+                "por gentileza? 😊",
+            )
+            await save_message(phone_clean, "AWAITING_NAME", "out", customer["id"])
+            return
+
     await _run_trial_creation(customer, matched, mac, phone_clean)
 
 
@@ -471,7 +606,17 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
                     .replace("{pay_link_6m}", pay_links_by_plan.get(6, "") or "")
                     .replace("{pay_link_12m}", pay_links_by_plan.get(12, "") or ""))
 
-        await whatsapp_client.send_message(phone_clean, response)
+        # If the command template has an attached image, send it as media
+        # with the response as caption. Otherwise plain text.
+        image_url = matched.get("image_url") or None
+        if image_url:
+            # Convert relative /api/uploads/... to absolute URL so the
+            # WhatsApp service can fetch it.
+            if image_url.startswith("/"):
+                pub = await _get_setting("public_base_url", "")
+                if pub:
+                    image_url = pub.rstrip("/") + image_url
+        await whatsapp_client.send_message(phone_clean, response, image_url=image_url)
         await save_message(phone_clean, response, "out", customer["id"])
         await log_activity("trial_created", f"Teste {system_type} criado para {phone_clean}", customer["id"], "success", result)
 

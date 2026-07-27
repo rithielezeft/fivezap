@@ -243,6 +243,16 @@ async def create_trial(
         payload["name"] = name
     if whatsapp:
         payload["whatsapp"] = whatsapp
+        # Persist the client's WhatsApp in the painel `reseller_notes` free-text
+        # field so the admin can easily see who the trial belongs to when
+        # scrolling the painel UI (painel doesn't have a dedicated WhatsApp
+        # column — notes is the closest thing). This is how the notify-expired
+        # flow later re-extracts the phone number.
+        note_line = f"WhatsApp: +{whatsapp}"
+        if name:
+            note_line = f"{name} — WhatsApp: +{whatsapp}"
+        payload["reseller_notes"] = note_line
+        payload["notes"] = note_line  # some panel versions use `notes`
     # MAC goes in the initial payload for IPTV+MAC and for Hybrid
     if mac and system_type in ("iptv", "hybrid"):
         payload["mac"] = mac
@@ -284,6 +294,23 @@ async def create_trial(
         resp = await asyncio.to_thread(_post_trial, token)
         if resp.status_code < 400:
             username = username_retry  # store the new one for response
+
+    # If painel rejects the password format ("O campo password format is
+    # invalid."), auto-retry up to 3 times with a fresh random password.
+    # This is 100% transient — the auto-generated password sometimes has
+    # a character sequence painel's validator doesn't like.
+    if not is_hybrid and resp.status_code >= 400 and "password" in resp.text.lower() and ("invalid" in resp.text.lower() or "format" in resp.text.lower()):
+        for attempt in range(3):
+            new_password = _rand(10)  # longer + fresh charset
+            payload["password"] = new_password
+            logger.warning(
+                "Trial password rejected (attempt %d) — retrying with fresh password",
+                attempt + 1,
+            )
+            resp = await asyncio.to_thread(_post_trial, token)
+            if resp.status_code < 400:
+                password = new_password  # store the accepted one
+                break
 
     if resp.status_code >= 400:
         logger.error("Create trial failed %s: %s", resp.status_code, resp.text[:400])

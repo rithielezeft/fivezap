@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
+import { useEffect } from "react";
 import "@/App.css";
+import { settingsApi, setDisplayTimezone } from "@/lib/api";
 
 import Dashboard from "@/pages/Dashboard";
 import Customers from "@/pages/Customers";
@@ -19,6 +21,15 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 const P = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
 
 export default function App() {
+  // Load the admin's timezone preference once at startup so ALL formatted
+  // dates on the app reflect it (formatDateBR reads this value).
+  useEffect(() => {
+    settingsApi
+      .get()
+      .then((s) => setDisplayTimezone(s?.display_timezone || "America/Sao_Paulo"))
+      .catch(() => {});
+  }, []);
+
   return (
     <>
       <BrowserRouter>

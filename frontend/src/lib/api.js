@@ -134,10 +134,22 @@ export function formatMoney(cents) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// In-memory cache of the admin-selected timezone. Populated once at startup
+// by App.jsx via `setDisplayTimezone`. Defaults to Brasília.
+let _displayTz = "America/Sao_Paulo";
+
+export function setDisplayTimezone(tz) {
+  if (tz && typeof tz === "string") _displayTz = tz;
+}
+
+export function getDisplayTimezone() {
+  return _displayTz;
+}
+
 export function formatDateBR(iso) {
   if (!iso) return "-";
   try {
-    return new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    return new Date(iso).toLocaleString("pt-BR", { timeZone: _displayTz });
   } catch {
     return iso;
   }
