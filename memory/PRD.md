@@ -19,6 +19,37 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **WhatsApp Service**: Node.js + whatsapp-web.js na porta 3001 (localhost), spawn pelo backend
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
+
+## [FEATURE 2026-02-27] Sistema de Cupons de Desconto (P0 — CONCLUÍDO)
+
+Nova funcionalidade para incentivar renovações com códigos de desconto rastreáveis.
+
+**Regras (confirmadas com produto):**
+- Desconto máximo: **50%** (valores acima são limitados automaticamente).
+- Cupom só "conta como usado" quando o pagamento é **CONFIRMADO** pela InfinitePay.
+- Cada cliente pode usar **1 cupom a cada 28 dias** (regra por cliente, independente do código).
+- Cliente identificado pelo `customer_id` da URL `/pay/{id}` (que é o `painel_username`).
+- Cupom tem apenas estado ativo/inativo (sem data de expiração).
+- Se o cliente já tem desconto automático de 7 dias ativo, o **maior** desconto vence — se o cupom perder, ele é ignorado (não conta o uso).
+
+**Backend:**
+- `services/coupon.py` — validate_coupon, record_usage, normalize_code, clamp_percent (50%), has_recent_usage (28d).
+- `routers/coupons.py` — CRUD + `POST /api/coupons/validate` (público, sem auth).
+- `routers/payments.py` — `create_payment` aceita `coupon_code`; usage registrado em `_process_payment_confirmation` (idempotente).
+- Tabelas `coupons` e `coupon_usages` + colunas `coupon_code`/`coupon_id` em `payments`.
+
+**Frontend:**
+- `pages/Coupons.jsx` — página CRUD (cards, editar, remover, ver usos).
+- `pages/PublicPay.jsx` — input "Cupom" + botão "Aplicar" no checkout, preço original riscado + preço com desconto.
+- `pages/Payments.jsx` — badge do cupom aplicado no histórico admin.
+- `components/Sidebar.jsx` — link "Cupons" (nav-coupons).
+
+**Testes (100% passing):**
+- 10 unit tests em `tests/test_coupons.py` (validação, cooldown, clamp).
+- 13 HTTP integration tests em `tests/test_coupons_integration.py` (adicionado pelo testing agent).
+- 45 testes de regressão continuam verdes.
+
+
 ## Implemented (2026-02)
 
 - **[FIX 2026-02-22 P0]** **Mobile responsivo completo** (validado 100% pelo testing agent em viewport 375×812):

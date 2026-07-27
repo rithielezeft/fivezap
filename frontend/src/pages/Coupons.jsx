@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Plus, Trash, PencilSimple, Tag, Clock } from "@phosphor-icons/react";
 
@@ -90,6 +90,9 @@ function UsagesDialog({ coupon, open, onOpenChange }) {
           <DialogTitle className="font-display">
             Usos do cupom <span className="text-[#007AFF]">{coupon?.code}</span>
           </DialogTitle>
+          <DialogDescription className="text-white/50">
+            Lista dos clientes que já aplicaram este cupom em pagamentos confirmados.
+          </DialogDescription>
         </DialogHeader>
         {!usages || usages.length === 0 ? (
           <div className="text-center py-8 text-white/40 text-sm">
@@ -192,6 +195,9 @@ export default function Coupons() {
           <DialogContent className="bg-[#121212] border-white/10 text-white max-w-lg">
             <DialogHeader>
               <DialogTitle className="font-display">Novo cupom</DialogTitle>
+              <DialogDescription className="text-white/50">
+                Crie um código de desconto para renovações. Máximo 50% off.
+              </DialogDescription>
             </DialogHeader>
             <CouponForm
               onCancel={() => setCreating(false)}
@@ -289,6 +295,9 @@ export default function Coupons() {
         <DialogContent className="bg-[#121212] border-white/10 text-white max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-display">Editar cupom</DialogTitle>
+            <DialogDescription className="text-white/50">
+              Altere código, desconto ou status. Cupons inativos não podem ser aplicados no checkout.
+            </DialogDescription>
           </DialogHeader>
           {editing && (
             <CouponForm

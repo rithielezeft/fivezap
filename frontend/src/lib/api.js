@@ -162,7 +162,9 @@ export function getDisplayTimezone() {
 export function formatDateBR(iso) {
   if (!iso) return "-";
   try {
-    return new Date(iso).toLocaleString("pt-BR", { timeZone: _displayTz });
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "-";
+    return d.toLocaleString("pt-BR", { timeZone: _displayTz });
   } catch {
     return iso;
   }
