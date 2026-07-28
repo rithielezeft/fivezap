@@ -251,9 +251,18 @@ async def process_incoming_message(
     body: str,
     from_me: bool = False,
     name: Optional[str] = None,
+    real_phone: Optional[str] = None,
 ):
     """Handle a message from Node service."""
     phone_clean = normalize_phone(phone)
+    # Real phone extracted from Contact by Node service — critical for @lid
+    # chats where phone_clean = "12345@lid" carries no real number. We use
+    # this to (a) send to painel as `whatsapp` on trial creation so
+    # `reseller_notes` gets set, and (b) fill customers.whatsapp so admins
+    # can identify LID users.
+    real_phone_clean = ""
+    if real_phone:
+        real_phone_clean = "".join(c for c in str(real_phone) if c.isdigit())
 
     # Backend-side dedup: if the exact same phone+body+direction was processed
     # in the last 30 seconds, skip. Prevents the bot from creating a trial twice
@@ -270,6 +279,27 @@ async def process_incoming_message(
     direction = "out" if from_me else "in"
     customer = await find_or_create_customer(phone_clean, name)
     await save_message(phone_clean, body, direction, customer["id"])
+
+    # If Node resolved a real phone for this LID chat, backfill it onto the
+    # customer row so admins see the actual number in the UI + so we can send
+    # it to painel `reseller_notes` on trial creation.
+    if real_phone_clean and phone_clean.endswith("@lid"):
+        existing_wa = (customer.get("whatsapp") or "").strip()
+        if existing_wa != real_phone_clean:
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute(
+                        "UPDATE customers SET whatsapp = ?, updated_at = ? WHERE id = ?",
+                        (real_phone_clean, now_iso(), customer["id"]),
+                    )
+                    await db.commit()
+                customer["whatsapp"] = real_phone_clean
+                logger.info(
+                    "Backfilled real phone %s onto LID customer %s (was %r)",
+                    real_phone_clean, customer["id"], existing_wa,
+                )
+            except Exception:
+                logger.exception("Failed to backfill real phone for %s", customer["id"])
 
     text = (body or "").strip()
     logger.info(
@@ -520,13 +550,26 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
     )
 
     try:
+        # For LID chats phone_clean has no real digits. Prefer the real phone
+        # we backfilled onto customer.whatsapp earlier (from msg.getContact()).
+        # For non-LID chats phone_clean IS the number so use it as-is.
+        whatsapp_for_painel = phone_clean
+        if phone_clean.endswith("@lid"):
+            stored = (customer.get("whatsapp") or "").strip()
+            # `stored` may still be the raw LID (`123@lid`) if we never got a
+            # real number — treat that as "no phone" so painel doesn't receive
+            # a fake LID-suffix number.
+            if stored.endswith("@lid") or not stored:
+                whatsapp_for_painel = ""
+            else:
+                whatsapp_for_painel = "".join(c for c in stored if c.isdigit())
+
         # Call painel.fun to create trial
         result = await painel.create_trial(
             system_type=system_type,
             mac=mac,
             name=customer.get("name") or phone_clean,
-            # For LID chats we can't send a real phone to painel.fun — send only if plain
-            whatsapp=phone_clean if not phone_clean.endswith("@lid") else "",
+            whatsapp=whatsapp_for_painel,
         )
 
         # Store trial

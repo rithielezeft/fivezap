@@ -20,6 +20,27 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28 P0] Número do cliente LID não registrado no painel.fun
+
+**Bug reportado pelo usuário**: "Colega enviou o comando de teste e o número dele NÃO foi registrado automaticamente".
+
+**Root cause**: para usuários no protocolo de privacidade LID do WhatsApp (comunidades, contas Business, alguns celulares novos), o JID chega como `123456789@lid` — sem o número real. O `bot.py:_run_trial_creation` fazia `whatsapp=phone_clean if not phone_clean.endswith("@lid") else ""` → mandava **string vazia** para `painel.create_trial` → `reseller_notes` nunca era setado.
+
+**Correções:**
+
+- **`whatsapp-service/index.js`**: para cada mensagem recebida, extrai o telefone real via `contact.number` (fallback: `msg._data?.senderPn`, `contact.id.user`) e envia como campo `real_phone` no webhook para o backend.
+- **`routers/whatsapp.py`**: `IncomingPayload` aceita `real_phone: Optional[str]`.
+- **`services/bot.py::process_incoming_message`**: se `phone_clean.endswith("@lid")` e `real_phone` foi resolvido, faz backfill em `customers.whatsapp` (só a primeira vez ou quando muda) — assim o admin vê o número real na UI também.
+- **`services/bot.py::_run_trial_creation`**: reconstroi `whatsapp_for_painel` — para LID, usa `customer.whatsapp` (que agora tem o número real) e ignora se ainda for LID puro. Manda para `painel.create_trial` → `reseller_notes = "+{whatsapp}"` ✅.
+
+**Testes de regressão** (`tests/test_lid_real_phone.py`, 4 casos, todos passando):
+1. `test_incoming_lid_backfills_real_phone_on_customer` — Node manda `real_phone`, customer row acaba com o telefone real em `whatsapp`.
+2. `test_incoming_non_lid_does_not_overwrite_whatsapp` — para chats normais (não-LID), o `real_phone` não sobrescreve o número que já é o próprio JID.
+3. `test_run_trial_creation_sends_real_phone_to_painel_for_lid` — assert-chave: `painel.create_trial(whatsapp="5511911223344")` para LID com telefone real resolvido.
+4. `test_run_trial_creation_lid_without_real_phone_sends_empty` — degradação graciosa: se Node não conseguir resolver, manda `whatsapp=""` (sem crash, sem LID falso).
+
+
+
 ## [FIX 2026-02-27 P0] Duplicação de mensagem de confirmação de pagamento (recorrência)
 
 **Bug reportado pelo usuário**: mensagens de "Renovação confirmada" chegavam **em duplicidade** ao cliente.

@@ -254,20 +254,46 @@ client.on('message_create', async (msg) => {
       phone = rawJid;
     }
 
-    // Try to extract a display name for the customer
+    // Try to extract a display name for the customer + real phone number.
+    // WhatsApp's LID privacy protocol hides the phone in the JID, but the
+    // Contact object frequently still exposes the real number via
+    // `contact.number` (E.164 without +). We also probe `msg._data.senderPn`
+    // which some WA clients leak. This lets us persist the real phone in
+    // painel.fun `reseller_notes` even for LID chats.
     let displayName = null;
+    let realPhone = null;
     try {
       displayName = msg._data?.notifyName || msg.notifyName || null;
-      if (!displayName) {
+      // senderPn is present on some LID/community messages
+      const senderPn = msg._data?.senderPn || null;
+      if (senderPn && /^\+?\d{6,}$/.test(String(senderPn))) {
+        realPhone = String(senderPn).replace(/[^\d]/g, '');
+      }
+      if (!displayName || !realPhone) {
         const contact = await msg.getContact();
-        displayName = contact?.pushname || contact?.name || contact?.shortName || null;
+        if (!displayName) {
+          displayName = contact?.pushname || contact?.name || contact?.shortName || null;
+        }
+        if (!realPhone) {
+          // contact.number is the E.164 digits (no + prefix)
+          const num = contact?.number || contact?.id?.user || null;
+          if (num && /^\d{6,}$/.test(String(num))) {
+            realPhone = String(num);
+          }
+        }
+      }
+      // Don't emit realPhone if it's the same as the raw jid digits
+      // (avoids noise for non-LID chats where phone already IS the number).
+      if (realPhone && !rawJid.endsWith('@lid') && phone === realPhone) {
+        realPhone = null;
       }
     } catch (e) {
       // Non-fatal
     }
 
     console.log('[WA] message_create', {
-      from_me: fromMe, phone, name: displayName, body: body.slice(0, 80),
+      from_me: fromMe, phone, real_phone: realPhone,
+      name: displayName, body: body.slice(0, 80),
     });
 
     await axios.post(BACKEND_WEBHOOK_URL, {
@@ -275,12 +301,7 @@ client.on('message_create', async (msg) => {
       message: body,
       from_me: fromMe,
       name: displayName,
-    }, { timeout: 8000 });
-
-    await axios.post(BACKEND_WEBHOOK_URL, {
-      phone,
-      message: body,
-      from_me: fromMe,
+      real_phone: realPhone,
     }, { timeout: 8000 });
   } catch (e) {
     console.error('[WA] Webhook error', e.message);

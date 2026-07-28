@@ -23,6 +23,9 @@ class IncomingPayload(BaseModel):
     message: str
     from_me: bool = False
     name: Optional[str] = None
+    # Real phone number extracted from Contact — critical for LID users
+    # (WhatsApp privacy protocol) so we can persist it in painel reseller_notes.
+    real_phone: Optional[str] = None
 
 
 @router.get("/status")
@@ -93,5 +96,6 @@ async def incoming(payload: IncomingPayload):
     # Process asynchronously so we can return 200 immediately
     asyncio.create_task(process_incoming_message(
         payload.phone, payload.message, payload.from_me, payload.name,
+        real_phone=payload.real_phone,
     ))
     return {"ok": True}
