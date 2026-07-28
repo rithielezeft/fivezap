@@ -591,8 +591,17 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
     # transaction_nsu, this is a subsequent capture on the same checkout link.
     # Clone the payment row so we track each capture independently and can
     # renew the client again.
+    #
+    # IMPORTANT: only clone when the existing row ALREADY has a stored
+    # `transaction_nsu` different from the incoming one. If the stored value
+    # is empty, this is not a new capture — it just means the previous
+    # confirmation came through a non-webhook path (poller / pay-page return
+    # / signed-redirect) which doesn't carry a transaction_nsu. In that case
+    # we simply backfill the transaction_nsu on the existing row and return
+    # idempotent, so we DO NOT re-notify the client or re-renew the plan.
     if payment["status"] == "paid":
-        if transaction_nsu and transaction_nsu != (payment.get("transaction_nsu") or ""):
+        existing_txn = (payment.get("transaction_nsu") or "").strip()
+        if transaction_nsu and existing_txn and transaction_nsu != existing_txn:
             new_id_val = new_id()
             receipt_url = str(raw.get("receipt_url") or "").strip()
             async with aiosqlite.connect(DB_PATH) as db:
@@ -618,21 +627,52 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 order_nsu, new_id_val, transaction_nsu,
             )
         else:
-            # Same transaction (or no transaction_nsu at all) → already handled.
+            # Same transaction, no incoming transaction_nsu, or existing row
+            # has no stored transaction_nsu yet → already handled. Backfill
+            # missing fields silently so future webhooks stay idempotent, but
+            # DO NOT re-notify or re-renew.
+            if transaction_nsu and not existing_txn:
+                receipt_url = str(raw.get("receipt_url") or "").strip()
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute(
+                        "UPDATE payments SET "
+                        "transaction_nsu = ?, "
+                        "receipt_url = COALESCE(NULLIF(?, ''), receipt_url) "
+                        "WHERE id = ?",
+                        (transaction_nsu, receipt_url, payment["id"]),
+                    )
+                    await db.commit()
+                logger.info(
+                    "Backfilled transaction_nsu=%s onto already-paid payment=%s "
+                    "(previous confirmation via non-webhook path, no re-notify)",
+                    transaction_nsu, payment["id"],
+                )
             return {"ok": True, "status": "already_processed",
                     "payment_id": payment["id"], "idempotent_by": "order_nsu"}
     else:
         # First-time confirmation for this pending payment: mark paid + store txn.
+        # Concurrency guard: use WHERE status='pending' so only ONE concurrent
+        # caller flips the row. rowcount==0 means someone else already flipped
+        # it → treat as already_processed and return without re-notifying.
         receipt_url = str(raw.get("receipt_url") or "").strip()
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
+            cur = await db.execute(
                 "UPDATE payments SET status = 'paid', paid_at = ?, "
                 "transaction_nsu = COALESCE(NULLIF(?, ''), transaction_nsu), "
                 "receipt_url = COALESCE(NULLIF(?, ''), receipt_url) "
-                "WHERE id = ?",
+                "WHERE id = ? AND status = 'pending'",
                 (now_iso(), transaction_nsu, receipt_url, payment["id"]),
             )
             await db.commit()
+            if cur.rowcount == 0:
+                logger.info(
+                    "Race lost on payment=%s — another caller already flipped "
+                    "status to paid. Returning idempotent (no re-notify).",
+                    payment["id"],
+                )
+                return {"ok": True, "status": "already_processed",
+                        "payment_id": payment["id"], "idempotent_by": "race_guard"}
+        payment["status"] = "paid"
         payment["transaction_nsu"] = transaction_nsu or payment.get("transaction_nsu")
         payment["receipt_url"] = receipt_url or payment.get("receipt_url")
 

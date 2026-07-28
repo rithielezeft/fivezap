@@ -20,6 +20,36 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-27 P0] Duplicação de mensagem de confirmação de pagamento (recorrência)
+
+**Bug reportado pelo usuário**: mensagens de "Renovação confirmada" chegavam **em duplicidade** ao cliente.
+
+**Root cause encontrado em `routers/payments.py::_process_payment_confirmation`:**
+
+1. **Confirmação sem `transaction_nsu` seguida do webhook oficial** (fluxo mais comum):
+   - Cliente volta do InfinitePay → `/pay/{id}?ok=1` → frontend chama `/check-status`.
+   - A estratégia 1 (`check_payment`) confirma o pagamento — mas a API `/payment_check` da InfinitePay **NÃO retorna `transaction_nsu`**.
+   - O pagamento vira `status='paid'` com `transaction_nsu=""` e a mensagem é enviada. ✅
+   - Minutos depois o **webhook oficial** chega COM `transaction_nsu=XXXX`.
+   - A lógica antiga interpretava isso como "nova captura no mesmo link" (linha 595: `if transaction_nsu != (payment.get("transaction_nsu") or "")` → `"XXXX" != ""` → TRUE), clonava o pagamento e **reprocessava tudo**: `painel.renew_user` + envio de `renewal_success`. 🐛
+   - **Impacto**: cliente recebia 2 mensagens + ganhava 1 mês extra sem pagar.
+
+2. **Race condition** entre webhook + poller processando o mesmo pagamento em paralelo — sem guard atômico, ambos podiam flippar `pending → paid` e disparar `renewal_success`.
+
+**Correções aplicadas:**
+
+- **Clone só quando o `transaction_nsu` já armazenado ≠ do novo E o armazenado NÃO é vazio.** Se o pagamento estava marcado pago mas sem `transaction_nsu`, o webhook agora apenas **backfilla** o campo silenciosamente e retorna `already_processed` — sem re-notificar nem re-renovar.
+- **Guard de race no UPDATE `pending → paid`**: adicionado `WHERE status = 'pending'` no UPDATE. Se `rowcount == 0`, significa que outro caller já flipou — retorna `already_processed` (idempotent_by=`race_guard`) sem re-enviar mensagem.
+
+**Testes de regressão** (`tests/test_dedup_confirmation.py`, 3 casos):
+1. `test_pay_return_then_webhook_does_not_reclone` — cenário exato do bug: check-status confirma sem txn_nsu, webhook depois com txn_nsu. Verifica que renewal + notificação disparam **exatamente 1x** e nenhum clone é criado.
+2. `test_second_webhook_with_new_txn_still_clones` — sanity: cliente que legitimamente paga 2x no mesmo link (2 txn_nsu distintos) ainda dispara 2 renovações.
+3. `test_concurrent_pending_confirmation_only_notifies_once` — `asyncio.gather` de 2 chamadas simultâneas, valida que apenas 1 renovação dispara.
+
+Todos os 3 novos testes + 54 testes de regressão passando.
+
+
+
 ## [FEATURE 2026-02-27] Sistema de Cupons de Desconto (P0 — CONCLUÍDO)
 
 Nova funcionalidade para incentivar renovações com códigos de desconto rastreáveis.
