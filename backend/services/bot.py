@@ -260,9 +260,22 @@ async def process_incoming_message(
     # this to (a) send to painel as `whatsapp` on trial creation so
     # `reseller_notes` gets set, and (b) fill customers.whatsapp so admins
     # can identify LID users.
+    #
+    # Defensive validation: LID identifiers are typically 15-18+ digits and
+    # look like phones but aren't. E.164 real phones cap at 15 digits and
+    # in practice WhatsApp phones are 10-13 (BR: 12-13). Reject anything
+    # outside 8-14 digits to avoid registering an LID as a phone.
     real_phone_clean = ""
     if real_phone:
-        real_phone_clean = "".join(c for c in str(real_phone) if c.isdigit())
+        digits = "".join(c for c in str(real_phone) if c.isdigit())
+        if 8 <= len(digits) <= 14:
+            real_phone_clean = digits
+        else:
+            logger.warning(
+                "Rejecting suspect real_phone=%r (digits=%d) — likely an "
+                "LID leaking through, not a real phone",
+                real_phone, len(digits),
+            )
 
     # Backend-side dedup: if the exact same phone+body+direction was processed
     # in the last 30 seconds, skip. Prevents the bot from creating a trial twice

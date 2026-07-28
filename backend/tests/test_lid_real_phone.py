@@ -67,6 +67,42 @@ def test_incoming_lid_backfills_real_phone_on_customer(tmp_path, monkeypatch):
     assert rows[0]["name"] == "Colega Teste"
 
 
+def test_incoming_lid_rejects_lid_shaped_real_phone(tmp_path, monkeypatch):
+    """Regression for the +191134936608840 bug: if Node accidentally
+    forwards the LID digits themselves as `real_phone` (15-18 digits), the
+    backend MUST reject it and NOT store as customer.whatsapp — otherwise
+    the painel would end up with a fake number in reseller_notes."""
+    database, bot = _fresh_env(tmp_path)
+
+    from services import whatsapp_client
+    async def _noop_send(*a, **k): return {"ok": True}
+    monkeypatch.setattr(whatsapp_client, "send_message", _noop_send)
+
+    async def go():
+        await database.init_db()
+        # Simulate Node leaking the LID as real_phone (the exact bug user hit)
+        await bot.process_incoming_message(
+            phone="191134936608840@lid",
+            body="ola",
+            from_me=False,
+            name="Cliente LID Suspeito",
+            real_phone="191134936608840",  # 15-digit LID, NOT a phone
+        )
+        import aiosqlite
+        async with aiosqlite.connect(database.DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT whatsapp FROM customers")
+            row = dict(await cur.fetchone())
+        return row
+
+    row = _run(go())
+    # whatsapp must NOT be the LID digits — should stay as the original LID JID
+    # (which find_or_create_customer stored on first insert)
+    assert row["whatsapp"] != "191134936608840", (
+        f"LID digits leaked into customers.whatsapp: {row}"
+    )
+
+
 def test_incoming_non_lid_does_not_overwrite_whatsapp(tmp_path, monkeypatch):
     """For non-LID chats we already had the real phone — don't clobber it
     with any `real_phone` field."""

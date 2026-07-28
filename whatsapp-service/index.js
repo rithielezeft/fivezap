@@ -257,35 +257,63 @@ client.on('message_create', async (msg) => {
     // Try to extract a display name for the customer + real phone number.
     // WhatsApp's LID privacy protocol hides the phone in the JID, but the
     // Contact object frequently still exposes the real number via
-    // `contact.number` (E.164 without +). We also probe `msg._data.senderPn`
-    // which some WA clients leak. This lets us persist the real phone in
-    // painel.fun `reseller_notes` even for LID chats.
+    // `contact.number` (E.164 without +) when privacy allows. We ALSO try
+    // `client.getContactLidAndPhone([lid])` — the documented batch API that
+    // sometimes maps LID→phone even when contact.number is null.
+    // We EXPLICITLY do NOT fall back to `contact.id.user` for LID contacts:
+    // for @lid, id.user IS the LID digits (15-18+ digits) which look like a
+    // phone but are NOT. Sending them to painel.fun as reseller_notes would
+    // register garbage numbers like +191134936608840.
     let displayName = null;
     let realPhone = null;
+
+    const _isPlausiblePhone = (s) => {
+      // E.164 allows up to 15 digits. Real WhatsApp phone numbers are
+      // typically 10-13 digits (BR: 12-13). LID identifiers are usually
+      // 15-18+ digits. Cap conservatively at 14 to avoid LID false-positives.
+      const d = String(s || '').replace(/\D/g, '');
+      return d.length >= 8 && d.length <= 14;
+    };
+
     try {
       displayName = msg._data?.notifyName || msg.notifyName || null;
-      // senderPn is present on some LID/community messages
+
+      // senderPn is present on some LID/community messages and IS the
+      // real phone number when exposed by WhatsApp
       const senderPn = msg._data?.senderPn || null;
-      if (senderPn && /^\+?\d{6,}$/.test(String(senderPn))) {
-        realPhone = String(senderPn).replace(/[^\d]/g, '');
+      if (senderPn && _isPlausiblePhone(senderPn)) {
+        realPhone = String(senderPn).replace(/\D/g, '');
       }
+
       if (!displayName || !realPhone) {
         const contact = await msg.getContact();
         if (!displayName) {
           displayName = contact?.pushname || contact?.name || contact?.shortName || null;
         }
-        if (!realPhone) {
-          // contact.number is the E.164 digits (no + prefix)
-          const num = contact?.number || contact?.id?.user || null;
-          if (num && /^\d{6,}$/.test(String(num))) {
-            realPhone = String(num);
+        // ONLY use contact.number (the real phone digits). Skip
+        // contact.id.user because for LID it's the LID itself, not a phone.
+        if (!realPhone && contact?.number && _isPlausiblePhone(contact.number)) {
+          realPhone = String(contact.number).replace(/\D/g, '');
+        }
+        // Last resort for LID chats: try the batch mapping API.
+        // client.getContactLidAndPhone accepts an array of ids and returns
+        // objects with .pn (phone number) filled when WhatsApp exposes it.
+        if (!realPhone && rawJid.endsWith('@lid')) {
+          try {
+            if (typeof client.getContactLidAndPhone === 'function') {
+              const mapping = await client.getContactLidAndPhone([rawJid]);
+              const entry = Array.isArray(mapping) ? mapping[0] : mapping;
+              const pn = entry?.pn || entry?.phone || entry?.number || null;
+              if (pn && _isPlausiblePhone(pn)) {
+                realPhone = String(pn).replace(/\D/g, '');
+                console.log('[WA] LID resolved via getContactLidAndPhone:',
+                  rawJid, '→', realPhone);
+              }
+            }
+          } catch (lidErr) {
+            // Non-fatal: some builds don't have this method yet.
           }
         }
-      }
-      // Don't emit realPhone if it's the same as the raw jid digits
-      // (avoids noise for non-LID chats where phone already IS the number).
-      if (realPhone && !rawJid.endsWith('@lid') && phone === realPhone) {
-        realPhone = null;
       }
     } catch (e) {
       // Non-fatal

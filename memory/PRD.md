@@ -20,6 +20,30 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28 P0 (v2)] Correção da correção — LID sendo salvo como telefone falso
+
+**Bug reportado pelo usuário**: o cliente foi registrado com o número `+191134936608840` — que é o próprio LID (15 dígitos, não é telefone real).
+
+**Root cause da regressão**: minha correção anterior fazia fallback para `contact.id.user` quando `contact.number` era null. Mas para chats LID, o `contact.id.user` **É** o LID em si (não um telefone). Resultado: `real_phone = "191134936608840"` foi salvo como o telefone do cliente e enviado ao painel.
+
+**Pesquisa (web search)**: a documentação do whatsapp-web.js confirma que `contact.number === null` é o comportamento esperado para contatos LID-only por design de privacidade — **não é possível resolver LID→telefone de forma garantida**. Existe uma API mais nova (`client.getContactLidAndPhone`) que às vezes traz o telefone quando o WhatsApp permite.
+
+**Correções aplicadas:**
+
+- **Node service (`whatsapp-service/index.js`)**:
+  - Aceita apenas `contact.number` (o telefone real). Removido o fallback para `contact.id.user`.
+  - Adiciona validação de formato: só aceita se tiver **8-14 dígitos** (E.164 real é até 15, mas LIDs geralmente têm 15-18+ dígitos, então 14 é um teto conservador).
+  - Tenta `client.getContactLidAndPhone([lid])` como último recurso — a API documentada que às vezes mapeia LID→telefone.
+
+- **Backend (`services/bot.py`)**: validação defensiva idêntica — se o `real_phone` recebido tiver <8 ou >14 dígitos, rejeita silenciosamente (log de warning) e NÃO faz backfill em `customers.whatsapp`.
+
+**Resultado**: para clientes com LID estrito onde o WhatsApp não expõe o telefone, o painel não recebe mais um número falso — apenas fica sem o número no `reseller_notes` (que é a degradação correta). Para clientes onde `contact.number` retorna o telefone real, o fluxo continua funcionando.
+
+**Testes de regressão** (`tests/test_lid_real_phone.py`, agora 5 casos, todos passando):
+- Adicionado: `test_incoming_lid_rejects_lid_shaped_real_phone` — simula exatamente o cenário do usuário (LID de 15 dígitos vindo como `real_phone`). Assert que o customer.whatsapp **NÃO** fica com o LID.
+
+
+
 ## [FIX 2026-02-28 P0] Número do cliente LID não registrado no painel.fun
 
 **Bug reportado pelo usuário**: "Colega enviou o comando de teste e o número dele NÃO foi registrado automaticamente".
