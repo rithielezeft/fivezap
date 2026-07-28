@@ -8,6 +8,7 @@ image support and per-user personalization (name, expires, pay_link).
 import asyncio
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 
@@ -18,6 +19,21 @@ from services.phone_extractor import extract_whatsapp
 from services.expiration import compute_expiration_info
 
 logger = logging.getLogger(__name__)
+
+
+async def _get_display_tz():
+    """Load admin's display timezone from settings, fallback to SP.
+
+    Used for scheduling day boundaries: reminders fire based on the
+    admin's calendar day, NOT UTC. Otherwise reminders fire ~3h early
+    every night between 21:00-23:59 SP.
+    """
+    tz_name = (await get_setting("display_timezone", "America/Sao_Paulo")) or "America/Sao_Paulo"
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        logger.warning("Invalid display_timezone %r, falling back to SP", tz_name)
+        return ZoneInfo("America/Sao_Paulo")
 
 
 def _pick(d, keys, default=None):
@@ -74,6 +90,10 @@ async def _check_and_notify():
     except Exception:
         typing_ms = 4000
 
+    # Load admin's display timezone once. Used for BOTH the days-until-expiry
+    # calculation AND the dedup key so both use the admin's calendar day.
+    display_tz = await _get_display_tz()
+
     # Try to fetch ALL users from painel.fun (paginated)
     try:
         users = await painel.list_users(limit=10000)
@@ -81,17 +101,21 @@ async def _check_and_notify():
         logger.warning("Skipping expiration check — painel.fun unreachable: %s", e)
         return
 
-    now = datetime.now(timezone.utc)
+    now_utc = datetime.now(timezone.utc)
+    now_local = now_utc.astimezone(display_tz)
     logger.info(
-        "Notification check: %d users, thresholds=%s, pacing=%ds, typing=%dms",
+        "Notification check: %d users, thresholds=%s, pacing=%ds, typing=%dms, "
+        "tz=%s (today=%s)",
         len(users), days, pacing_seconds, typing_ms,
+        display_tz.key if hasattr(display_tz, "key") else str(display_tz),
+        now_local.date().isoformat(),
     )
 
     sent_count = 0
     first_send = True
     for u in users:
         try:
-            info = compute_expiration_info(u)
+            info = compute_expiration_info(u, tz=display_tz)
             diff_days = info["days_until_expiry"]
             exp_iso = info["expires_at_iso"]
             if diff_days is None or not exp_iso:
@@ -105,13 +129,10 @@ async def _check_and_notify():
                 continue
 
             # Idempotency (STRICT): mark BEFORE sending. This guarantees
-            # at most 1 attempt per day per (user, threshold). If the
-            # attempt succeeds → great. If it fails → the delivery_queue
-            # already handles retries with backoff, so we don't need the
-            # hourly scheduler to also re-fire (that used to cause
-            # duplicate messages when clients set dedup_window_minutes
-            # to a small value).
-            key = f"notified_{user_id}_{diff_days}_{now.date().isoformat()}"
+            # at most 1 attempt per day per (user, threshold). Uses the
+            # admin's calendar day (NOT UTC) — otherwise the key rolls at
+            # 21:00 SP and a reminder can fire twice on the same local day.
+            key = f"notified_{user_id}_{diff_days}_{now_local.date().isoformat()}"
             already = await get_setting(key, "")
             if already:
                 continue
@@ -122,8 +143,12 @@ async def _check_and_notify():
             # setting-key somehow got wiped (Mongo re-seed etc.).
             try:
                 async with aiosqlite.connect(DB_PATH) as db:
-                    today_start = now.replace(hour=0, minute=0, second=0,
-                                              microsecond=0).isoformat()
+                    # Start of day IN THE ADMIN'S TZ, converted back to UTC
+                    # for the stored ISO comparison.
+                    today_start_local = now_local.replace(
+                        hour=0, minute=0, second=0, microsecond=0,
+                    )
+                    today_start = today_start_local.astimezone(timezone.utc).isoformat()
                     cur = await db.execute(
                         "SELECT 1 FROM notification_deliveries "
                         "WHERE phone = ? AND event_key = ? "
@@ -172,7 +197,9 @@ async def _check_and_notify():
                 "name": name,
                 "user": painel_login,  # painel.fun login/username
                 "user_id": user_id,
-                "expires_at": exp_dt.astimezone(timezone.utc).strftime("%d/%m/%Y"),
+                # Format in the admin's display timezone so "Expira em 03/03"
+                # matches the client's actual local calendar day.
+                "expires_at": exp_dt.astimezone(display_tz).strftime("%d/%m/%Y"),
                 "pay_link": pay_link,
                 "days": abs(diff_days),
                 "discount_line": "",  # populated below only for the 7d reminder

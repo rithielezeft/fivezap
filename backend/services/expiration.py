@@ -1,6 +1,7 @@
 """Compute normalized expiration and status for a painel.fun user."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 
 EXPIRATION_KEYS = (
@@ -57,14 +58,24 @@ def _pick(user: dict, keys) -> Optional[str]:
     return None
 
 
-def compute_expiration_info(user: dict) -> dict:
+def compute_expiration_info(user: dict, tz: Optional[tzinfo] = None) -> dict:
     """Return dict with: expires_at_iso, days_until_expiry, status.
 
     status is one of: active | expiring_soon | expired | unknown
     days_until_expiry may be negative (past-due). None if no date.
+
+    IMPORTANT: `days_until_expiry` compares CALENDAR DATES in the admin's
+    display timezone (default America/Sao_Paulo). Using UTC dates caused
+    reminders to fire ~3h early every night between 21:00-23:59 SP, when
+    UTC already rolled to the next calendar day.
+
+    Pass `tz` to control the timezone; defaults to America/Sao_Paulo.
     """
     if not isinstance(user, dict):
         return {"expires_at_iso": None, "days_until_expiry": None, "status": "unknown"}
+
+    if tz is None:
+        tz = ZoneInfo("America/Sao_Paulo")
 
     raw = _pick(user, EXPIRATION_KEYS)
     exp_dt = _parse_dt(raw) if raw is not None else None
@@ -72,7 +83,9 @@ def compute_expiration_info(user: dict) -> dict:
     now = datetime.now(timezone.utc)
     days = None
     if exp_dt:
-        days = (exp_dt.date() - now.date()).days
+        # Compare dates in the ADMIN'S timezone, not UTC. Otherwise the day
+        # boundary rolls at 21:00 SP and reminders fire 3h too early.
+        days = (exp_dt.astimezone(tz).date() - now.astimezone(tz).date()).days
 
     # Determine status — painel.fun uses `enabled` as 0/1
     enabled_raw = user.get("enabled")

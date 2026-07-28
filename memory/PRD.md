@@ -20,6 +20,36 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28 P0] Lembretes disparando no dia errado (bug de fuso)
+
+**Bug reportado**: "Agendamento dos lembretes ainda não foi arrumado".
+
+**Root cause** em `services/expiration.py:75`:
+```python
+days = (exp_dt.date() - now.date()).days
+```
+Ambos `exp_dt` e `now` são UTC. Como São Paulo é UTC-3, todo dia entre **21:00 e 23:59 SP** o UTC já rolou pro dia seguinte. Resultado: quando o plano vence em data cuja hora UTC está no dia SEGUINTE (ex: `22:00 SP dia X` = `01:00 UTC dia X+1`), o cálculo faz `(X+1) - Y` em vez de `X - Y` → produz **1 dia a mais**. Lembretes de "3 dias antes" acabavam disparando no que ainda era o "4º dia antes" pro cliente no fuso SP → mensagem chega **~24h antes** do horário certo.
+
+Além disso, o `dedup_key` (`notified_{user}_{days}_{now.date()}`) também usava `now.date()` em UTC — a chave rolava à meia-noite UTC (21:00 SP), então o mesmo lembrete podia disparar 2x no mesmo dia local.
+
+**Correções aplicadas:**
+
+- **`services/expiration.py`**: `compute_expiration_info(user, tz=None)` agora aceita fuso opcional (default `America/Sao_Paulo`). O cálculo faz `exp_dt.astimezone(tz).date() - now.astimezone(tz).date()`, comparando **datas locais do admin**.
+- **`services/scheduler.py`**:
+  - Nova função `_get_display_tz()` que lê `display_timezone` das settings.
+  - Passa o fuso para `compute_expiration_info(u, tz=display_tz)`.
+  - `dedup_key` agora usa `now_local.date().isoformat()` (dia SP), não UTC.
+  - `today_start` para checar deliveries do dia usa `today_start_local.astimezone(utc)`.
+  - `expires_at` no contexto do template formatado em SP: `exp_dt.astimezone(display_tz).strftime("%d/%m/%Y")` — antes vinha em UTC (podia mostrar `03/03` para um plano que vence `02/03 22:00 SP`).
+
+**Testes de regressão** (`tests/test_scheduler_timezone.py`, 4 casos, todos passando):
+- `test_days_at_late_evening_sp_uses_local_calendar_day` — 23:00 SP, plano expira SP-tz vs UTC-tz, valida que o cálculo usa dia SP.
+- `test_days_at_early_morning_sp_is_same_as_utc_day` — sanity: caso normal (10:00 SP) continua funcionando.
+- `test_days_exactly_at_midnight_utc_before_midnight_sp` — o cenário exato do bug: expiração `22:00 SP` vs current `20:00 SP` 3 dias antes → SP retorna 3d (correto), UTC retornaria 4d (bug antigo).
+- `test_days_calculation_symmetric_across_utc_dst_free_zones` — passando `tz=timezone.utc` explicitamente reproduz o bug antigo, provando que o parâmetro funciona.
+
+
+
 ## [FIX 2026-02-28 P0 (v2)] Correção da correção — LID sendo salvo como telefone falso
 
 **Bug reportado pelo usuário**: o cliente foi registrado com o número `+191134936608840` — que é o próprio LID (15 dígitos, não é telefone real).
