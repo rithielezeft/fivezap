@@ -20,6 +20,38 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FEATURE 2026-02-28] Mapa 3D — Geografia dos Clientes (P0 — CONCLUÍDO)
+
+Nova página `/geografia` que mostra a distribuição geográfica dos clientes num **globo 3D interativo** com marcadores por país e drill-down para o Brasil (por DDD).
+
+**Backend:**
+- `services/geography.py` — mapeamentos:
+  - **DDI → país** com longest-prefix match (351 vence 3, 55 vence 5). Cobre 30+ países comuns em bases brasileiras (Américas, Europa, África, Ásia/Oceania)
+  - **DDD (BR) → estado/região** com todas as 66 áreas de DDD válidas + lat/lng aproximados das capitais
+- Novo `routers/analytics.py` — `GET /api/analytics/geography?scope=all|active|expired`:
+  - Fonte primária: cache do painel (source of truth), fallback pra tabela `customers` local
+  - Filtro `scope` respeita status calculado (`compute_expiration_info`)
+  - Retorna `by_country`, `by_br_state`, `total`, `top_country`, `unresolved`, `no_phone`
+
+**Frontend:**
+- Instalado `react-globe.gl` + `three` (via yarn)
+- Nova página `/geografia` (`pages/Geography.jsx`):
+  - Globo 3D com textura earth-dark, atmosfera azul, marcadores dimensionados por count
+  - **Auto-focus** e pulsing ring no `top_country` (Brasil no caso)
+  - Auto-rotate suave (`autoRotateSpeed=0.4`)
+  - **Tooltip com bandeira + contagem** ao passar o mouse
+  - Painel lateral com 2 seções: "Por país" (ordenado) e "Brasil por DDD" (colapsável, com scroll até 420px)
+  - Toggle de scope (Todos / Ativos / Expirados) no header
+  - Aviso de "não mapeados" quando há clientes sem telefone ou com DDI desconhecido
+- `App.js` — rota `/geografia`
+- `Sidebar.jsx` — novo link "Geografia" com ícone `Globe`
+
+**Testes:** 12 casos em `tests/test_geography.py`, todos passando (resolução BR/ES/PT/US, longest-prefix, retornos None para inválidos, formato das constantes)
+
+**Smoke-test end-to-end**: página renderizou 164 clientes → 4 países + 43 regiões BR. Top: BR (161) · Espanha, UK, PT (1 cada). Top BR: SP-Capital (27), Campinas (15), Juiz de Fora (12), Porto Alegre (8), RJ (7), Curitiba (6), Joinville (6).
+
+
+
 ## [FIX 2026-02-28 P0] Upload de imagem "Token inválido"
 
 **Bug reportado**: "na pagina de comando apareceu erro novamente ao tentar fazer upload de imagem Falha ao enviar imagem: Token inválido"

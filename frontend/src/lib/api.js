@@ -105,6 +105,11 @@ export const settingsApi = {
   update: (data) => api.put("/settings", data).then((r) => r.data),
 };
 
+export const analyticsApi = {
+  geography: (scope = "all") =>
+    api.get("/analytics/geography", { params: { scope } }).then((r) => r.data),
+};
+
 export const publicApi = {
   requestTrial: (data) => api.post("/public/trial", data).then((r) => r.data),
 };
