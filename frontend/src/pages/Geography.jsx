@@ -41,15 +41,25 @@ export default function Geography() {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  // Auto-rotate to the top country when data arrives
+  // Auto-rotate to the top region (top BR DDD if BR is the biggest,
+  // else the top country center) when data arrives
   useEffect(() => {
-    if (!globeRef.current || !data?.top_country) return;
+    if (!globeRef.current || !data) return;
     const g = globeRef.current;
-    // pointOfView expects {lat, lng, altitude}
-    g.pointOfView(
-      { lat: data.top_country.lat, lng: data.top_country.lng, altitude: 1.9 },
-      1400,
-    );
+    // Prefer the top BR state if BR is dominant, so São Paulo gets the
+    // spotlight instead of the empty geographic center of Brazil.
+    let focus = null;
+    if (data.by_br_state?.length && data.top_country?.code === "BR") {
+      focus = data.by_br_state[0];  // {lat, lng, ...}
+    } else if (data.top_country) {
+      focus = data.top_country;
+    }
+    if (focus) {
+      g.pointOfView(
+        { lat: focus.lat, lng: focus.lng, altitude: 1.9 },
+        1400,
+      );
+    }
     // Gentle auto-rotate
     const controls = g.controls?.();
     if (controls) {
@@ -59,26 +69,54 @@ export default function Geography() {
   }, [data]);
 
   const points = useMemo(() => {
-    if (!data?.by_country) return [];
-    const max = Math.max(...data.by_country.map((c) => c.count), 1);
-    return data.by_country.map((c) => ({
-      lat: c.lat,
-      lng: c.lng,
-      count: c.count,
+    if (!data) return [];
+    // Compose ALL markers: non-BR countries at their center, BR broken down
+    // by DDD (each region as its own marker) — this way SP clients show in
+    // São Paulo, RJ clients in Rio, etc. instead of piling up on the
+    // country center.
+    const nonBr = (data.by_country || []).filter((c) => c.code !== "BR");
+    const brStates = data.by_br_state || [];
+
+    // Scale marker size by the max across ALL markers so BR/state and non-BR
+    // countries are visually comparable.
+    const allCounts = [...nonBr.map((c) => c.count), ...brStates.map((s) => s.count)];
+    const max = Math.max(...allCounts, 1);
+
+    const nonBrPoints = nonBr.map((c) => ({
+      lat: c.lat, lng: c.lng, count: c.count,
       label: `${c.flag} ${c.name} — ${c.count} cliente${c.count > 1 ? "s" : ""}`,
-      // Marker size proportional to log(count) for readability
       radius: 0.35 + 0.9 * Math.sqrt(c.count / max),
-      color: c.code === "BR" ? "#34C759" : "#007AFF",
+      color: "#007AFF",
     }));
+
+    const brPoints = brStates.map((s) => ({
+      lat: s.lat, lng: s.lng, count: s.count,
+      label: `🇧🇷 ${s.region} (${s.uf}, DDD ${s.ddd}) — ${s.count} cliente${s.count > 1 ? "s" : ""}`,
+      radius: 0.28 + 0.9 * Math.sqrt(s.count / max),
+      color: "#34C759",
+    }));
+
+    return [...brPoints, ...nonBrPoints];
   }, [data]);
 
   const rings = useMemo(() => {
-    // A pulsing ring on the top country to draw the eye
-    if (!data?.top_country) return [];
-    return [{
-      lat: data.top_country.lat, lng: data.top_country.lng,
-      maxR: 4, propagationSpeed: 3, repeatPeriod: 1500,
-    }];
+    // Pulsing rings on the TOP 3 BR states (or top country if BR has no
+    // clients) — visual cue for where the density is concentrated.
+    if (!data) return [];
+    const brTop = (data.by_br_state || []).slice(0, 3);
+    if (brTop.length) {
+      return brTop.map((s) => ({
+        lat: s.lat, lng: s.lng,
+        maxR: 3, propagationSpeed: 2.5, repeatPeriod: 1600,
+      }));
+    }
+    if (data.top_country) {
+      return [{
+        lat: data.top_country.lat, lng: data.top_country.lng,
+        maxR: 4, propagationSpeed: 3, repeatPeriod: 1500,
+      }];
+    }
+    return [];
   }, [data]);
 
   return (
