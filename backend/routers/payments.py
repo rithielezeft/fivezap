@@ -1014,24 +1014,108 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         return {"ok": True, "status": "renewed", "payment_id": payment["id"], "painel_id": painel_id, "result": result}
     except Exception as e:
         logger.exception("Renewal painel call failed for payment %s", payment["id"])
+        err_str = str(e)
+        err_upper = err_str.upper()
+        # Classify — some painel.fun errors are transient (slot temporarily
+        # unavailable, network hiccup) and should be RETRIED automatically.
+        is_transient = any(k in err_upper for k in (
+            "NO_SLOT_AVAILABLE", "TIMEOUT", "TIMED OUT", "TEMPORARY", "TRY AGAIN",
+            "GATEWAY", "503", "502", "504", "CONNECTION",
+        ))
+
         await log_activity(
             "renewal_error",
-            f"{customer['name']}: {e}",
+            f"{customer['name']}: {err_str}",
             customer["id"], "error",
         )
+
+        # Schedule automatic retry (backoff: 5min, 15min, 30min, 1h, 4h, 12h)
+        # The retry loop in services/renewal_retry.py picks these up.
+        BACKOFF_MINUTES = [5, 15, 30, 60, 240, 720]
+        attempts = 0
+        if is_transient:
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    db.row_factory = aiosqlite.Row
+                    cur = await db.execute(
+                        "SELECT renewal_attempts FROM payments WHERE id = ?",
+                        (payment["id"],),
+                    )
+                    row = await cur.fetchone()
+                    attempts = int((row["renewal_attempts"] if row else 0) or 0)
+                    if attempts < len(BACKOFF_MINUTES):
+                        delay_min = BACKOFF_MINUTES[attempts]
+                        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                        next_at = (_dt.now(_tz.utc) + _td(minutes=delay_min)).isoformat()
+                        await db.execute(
+                            "UPDATE payments SET status = 'paid_renewal_failed', "
+                            "renewal_attempts = ?, renewal_next_retry_at = ?, "
+                            "renewal_last_error = ? WHERE id = ?",
+                            (attempts + 1, next_at, err_str[:400], payment["id"]),
+                        )
+                        await db.commit()
+                        logger.info(
+                            "Scheduled auto-retry #%d for payment=%s at %s (%s)",
+                            attempts + 1, payment["id"], next_at, err_str[:80],
+                        )
+            except Exception:
+                logger.exception("Failed to schedule renewal retry")
+
+        # Notify the CLIENT so they don't feel abandoned — pagamento chegou,
+        # ativação está sendo processada. Only on FIRST failure to avoid spam.
+        try:
+            first_failure = (attempts == 0) if is_transient else True
+            if first_failure and phone:
+                from services.notifier import send_hardcoded
+                friendly = (
+                    f"✅ Recebemos seu pagamento, {customer['name']}!\n\n"
+                    "Estamos ativando sua renovação — pode levar alguns minutos "
+                    "por instabilidade no servidor. Você receberá uma nova "
+                    "mensagem assim que ficar pronto. 💙\n\n"
+                    "Se preferir falar com um atendente, é só responder aqui."
+                )
+                await send_hardcoded(
+                    phone, friendly,
+                    event_key="renewal_processing",
+                    customer_id=customer["id"],
+                )
+        except Exception:
+            logger.exception("Failed to send 'processing' client message")
+
         # Alert admin — the customer paid but painel.fun refused/errored on renewal.
         try:
             from services.notifier import send_admin_alert
             amount_brl = f"R$ {payment['amount_cents']/100:.2f}".replace(".", ",")
+            # Friendly guidance depending on the error type
+            if "NO_SLOT_AVAILABLE" in err_upper:
+                guidance = (
+                    "⚠️ *Painel sem vaga disponível.* Tentaremos renovar "
+                    "automaticamente nos próximos minutos. Verifique seu "
+                    "estoque de vagas no painel.fun se persistir."
+                )
+            elif is_transient:
+                guidance = (
+                    "⏳ Erro transitório do painel — retry automático agendado. "
+                    "Nenhuma ação necessária por enquanto."
+                )
+            else:
+                guidance = (
+                    "❌ Erro persistente. Renove esse cliente manualmente no painel."
+                )
+            retry_line = (
+                f"\n🔁 Tentativa {attempts + 1} — próximo retry em {BACKOFF_MINUTES[min(attempts, len(BACKOFF_MINUTES)-1)]} min"
+                if is_transient else ""
+            )
             await send_admin_alert(
-                "❌ *Renovação FALHOU no painel.fun*\n\n"
+                f"❌ *Renovação FALHOU no painel.fun*{retry_line}\n\n"
                 f"👤 Cliente: {customer['name']}\n"
-                f"📱 WhatsApp: {customer.get('whatsapp') or '-'}\n"
+                f"📱 WhatsApp: {phone or customer.get('whatsapp') or '-'}\n"
+                f"👥 Login: {painel_user or '-'}\n"
                 f"📦 {payment['plan_months']} mês(es) | {amount_brl}\n"
                 f"🔗 Painel ID: {painel_id}\n"
                 f"🛰️ Origem: {source}\n\n"
-                f"Erro: {str(e)[:200]}\n\n"
-                "O pagamento foi recebido — renove esse cliente manualmente no painel."
+                f"Erro: {err_str[:200]}\n\n"
+                f"{guidance}"
             )
         except Exception:
             logger.exception("Admin alert (renewal_failed) failed")
@@ -1042,12 +1126,12 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 "_id": payment["id"],
                 "status": "paid_renewal_failed",
                 "paid_at": now_iso(),
-                "renewal_error": str(e),
+                "renewal_error": err_str,
                 "painel_id": painel_id,
             })
         except Exception:
             pass
-        return {"ok": False, "status": "renewal_failed", "payment_id": payment["id"], "error": str(e)}
+        return {"ok": False, "status": "renewal_failed", "payment_id": payment["id"], "error": err_str}
 
 
 @router.post("/resend-notification/{payment_id}")

@@ -19,16 +19,46 @@ logger = logging.getLogger(__name__)
 
 
 async def schedule(event_key: str, phone: str, delay_seconds: int, context: dict):
-    """Schedule a notification to be sent after `delay_seconds`."""
+    """Schedule a notification to be sent after `delay_seconds`.
+
+    Dedup: if there's ALREADY a pending (sent=0) reminder for the same
+    (phone, event_key), we UPDATE its send_at + context in place instead
+    of inserting a new row. This prevents duplicate messages when the same
+    trial gets created twice (e.g., client sent the command again, or
+    both the bot flow and the public /teste form fired for the same phone).
+    """
     send_at = (datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)).isoformat()
+    ctx_json = json.dumps(context)
     async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT id FROM scheduled_reminders "
+            "WHERE phone = ? AND event_key = ? AND sent = 0 "
+            "ORDER BY created_at DESC LIMIT 1",
+            (phone, event_key),
+        )
+        existing = await cur.fetchone()
+        if existing:
+            await db.execute(
+                "UPDATE scheduled_reminders SET send_at = ?, context = ? "
+                "WHERE id = ?",
+                (send_at, ctx_json, existing["id"]),
+            )
+            await db.commit()
+            logger.info(
+                "Reminder dedup: updating existing pending %s for %s (id=%s) "
+                "instead of inserting duplicate",
+                event_key, phone, existing["id"],
+            )
+            return
+
         await db.execute(
             "INSERT INTO scheduled_reminders (id, event_key, phone, context, send_at, sent, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)",
             (
                 str(uuid.uuid4()),
                 event_key,
                 phone,
-                json.dumps(context),
+                ctx_json,
                 send_at,
                 datetime.now(timezone.utc).isoformat(),
             ),

@@ -130,11 +130,18 @@ async def lifespan(app: FastAPI):
     from services.delivery_queue import retry_loop as _delivery_retry_loop, stop_retry_loop as _stop_delivery
     task_delivery_retry = asyncio.create_task(_delivery_retry_loop())
 
+    # Renewal retry loop: automatically re-attempts painel.fun renewals
+    # that failed with transient errors (e.g. ERROR_NO_SLOT_AVAILABLE).
+    # Backoff: 5min, 15min, 30min, 1h, 4h, 12h — 6 attempts over ~19h.
+    from services.renewal_retry import renewal_retry_loop as _renewal_retry_loop
+    task_renewal_retry = asyncio.create_task(_renewal_retry_loop())
+
     yield
     task_exp.cancel()
     task_rem.cancel()
     task_painel_refresh.cancel()
     task_delivery_retry.cancel()
+    task_renewal_retry.cancel()
     try:
         _stop_delivery()
     except Exception:

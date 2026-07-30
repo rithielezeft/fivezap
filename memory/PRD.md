@@ -20,6 +20,49 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28 P0] Duplicação de lembretes 1h/3h + ERROR_NO_SLOT_AVAILABLE
+
+**Bugs reportados**:
+1. "Duplicação nas mensagens de teste vencendo 1h e 3h e em notificações de vencimento"
+2. `ERROR_NO_SLOT_AVAILABLE` — cliente paga mas painel.fun rejeita renovação, admin precisa renovar manualmente
+
+**Root cause #1** — `services/reminders.py::schedule()`: fazia `INSERT` cego, sem checar se já existia um pendente `(phone, event_key, sent=0)`. Se o cliente enviasse o comando de teste 2x (dedup do bot é só 30s) OU se o trial fosse criado por 2 fluxos diferentes (bot + form público), agendava 2 lembretes por evento → 4 mensagens totais.
+
+**Root cause #2** — `_process_payment_confirmation`: ao falhar `painel.renew_user`, apenas marcava `paid_renewal_failed` e alertava admin. Não retry. Cliente ficava sem renovar mesmo tendo pago.
+
+**Correções:**
+
+- **`services/reminders.py::schedule()`**: agora faz **upsert por `(phone, event_key, sent=0)`**. Se já existe pendente, atualiza `send_at` + `context` em vez de inserir duplicata. Isso resolve automaticamente para AMBOS os call sites (bot.py e trial_flow.py).
+
+- **`routers/payments.py`** (bloco de exception da renovação):
+  - Classifica erro como **transitório** (`NO_SLOT_AVAILABLE`, `TIMEOUT`, `502/503/504`, `CONNECTION`) ou permanente.
+  - Se transitório: agenda auto-retry usando campos novos em `payments`: `renewal_attempts`, `renewal_next_retry_at`, `renewal_last_error`. Backoff: **5min, 15min, 30min, 1h, 4h, 12h** (6 tentativas em ~19h).
+  - Envia **mensagem amigável ao cliente** no primeiro erro: "Recebemos seu pagamento, estamos ativando..." — antes o cliente ficava no escuro.
+  - Alerta ao admin agora mostra **guidance específica** por tipo de erro (sem vaga, transitório, permanente) e o número da tentativa.
+
+- **Novo `services/renewal_retry.py`** — background loop (60s) que:
+  1. Busca pagamentos `paid_renewal_failed` com `renewal_next_retry_at <= now`
+  2. Chama `painel.renew_user` novamente
+  3. **Sucesso**: marca `paid`, envia `renewal_success` (que falhou originalmente) + fallback hardcoded se template desabilitado, alerta admin de sucesso, atualiza Mongo
+  4. **Falha persistente**: bumpa attempts, reagenda próximo retry
+  5. **Após 6 falhas**: para de tentar, alerta admin critical "🛑 Renovação desistida"
+
+- **Migrações em `database.py`**: adicionadas 3 colunas nulas em `payments` (`renewal_attempts`, `renewal_next_retry_at`, `renewal_last_error`).
+
+- **`server.py`**: registrado `renewal_retry_loop` no lifespan (com `task_renewal_retry.cancel()` no shutdown).
+
+**Testes de regressão** (`tests/test_reminders_and_retry.py`, 7 casos, todos passando):
+- 4 casos de reminder dedup: mesmo (phone, event_key) dedupe, event_keys diferentes não dedup, phones diferentes não dedup, após `sent=1` cria novo row.
+- 3 casos de retry loop: recuperação com sucesso (status→paid + notificação), reagenda em falha continuada com backoff correto (~15min), desiste após 6 tentativas com alerta admin de "DESISTIDA".
+
+**Efeito prático**:
+- Cliente não recebe mais lembrete duplicado de teste.
+- `ERROR_NO_SLOT_AVAILABLE` agora auto-recupera na maioria dos casos (retry em 5min geralmente resolve).
+- Admin só precisa agir manualmente após 19h de tentativas falhando.
+- Cliente recebe mensagem amigável ("pagamento recebido, estamos ativando") em vez de silêncio.
+
+
+
 ## [FIX 2026-02-28 P0] Lembretes disparando no dia errado (bug de fuso)
 
 **Bug reportado**: "Agendamento dos lembretes ainda não foi arrumado".

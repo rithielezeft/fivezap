@@ -333,6 +333,21 @@ async def init_db():
             await db.execute("ALTER TABLE payments ADD COLUMN coupon_id TEXT")
         except Exception:
             pass
+        # Track failed renewal attempts so a background retry loop can
+        # auto-recover from transient painel.fun errors like
+        # ERROR_NO_SLOT_AVAILABLE (reseller ran out of slots temporarily).
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN renewal_attempts INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN renewal_next_retry_at TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE payments ADD COLUMN renewal_last_error TEXT")
+        except Exception:
+            pass
         # Image URL for command templates (optional image sent with the
         # command's response — trial_ready, welcome messages, etc.)
         try:
