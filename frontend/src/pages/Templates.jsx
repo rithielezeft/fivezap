@@ -40,15 +40,23 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       });
-      const data = await res.json();
-      if (data?.path) {
+      // Try to parse JSON either way — server may respond with {detail: "..."}
+      // on HTTP errors, and we want to surface that specific message so the
+      // admin knows WHY the upload failed (file too big, wrong extension, etc.)
+      let data = null;
+      try { data = await res.json(); } catch { /* non-JSON response */ }
+
+      if (!res.ok) {
+        const msg = data?.detail || `HTTP ${res.status}`;
+        toast.error(`Falha ao enviar imagem: ${msg}`);
+      } else if (data?.path) {
         setF({ ...f, image_url: data.path });
         toast.success("Imagem enviada");
       } else {
-        toast.error("Falha ao enviar imagem");
+        toast.error("Resposta inesperada do servidor");
       }
     } catch (err) {
-      toast.error("Erro: " + err.message);
+      toast.error("Erro de rede: " + err.message);
     } finally {
       setUploading(false);
     }

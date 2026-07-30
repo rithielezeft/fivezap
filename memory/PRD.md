@@ -20,6 +20,38 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28 P0] Trials recebiam notificação de vencimento + upload de imagem falhando
+
+**Bugs reportados:**
+1. "notificações de vencimento começou a ser enviado para os clientes trial de testes"
+2. "quando tento adicionar imagem para upload nos comandos aparece Falha ao enviar imagem"
+
+**Root cause #1** — `services/scheduler.py::_check_and_notify()` iterava TODOS os `painel.list_users()` sem filtrar. Clientes com `package_id=61` (trial) recebiam mensagens `expiration_3d/1d/0d` além do fluxo próprio deles (`trial_1h_reminder`, `trial_expired`). Resultado: cliente em teste recebia "Seu plano vence em 3 dias!" enquanto o trial ainda estava rodando.
+
+**Root cause #2** — dois fatores combinados:
+- Backend: `MAX_SIZE_MB=5` era muito baixo (fotos de celular passam disso), e extensões HEIC/HEIF (iPhone default) não estavam permitidas.
+- Frontend: `Templates.jsx::handleImageUpload` fazia `res.json()` sem checar `res.ok`. Se o servidor retornava 413/400 com `{"detail": "..."}`, o `data?.path` era undefined → mostrava toast genérico "Falha ao enviar imagem" sem revelar o motivo real.
+
+**Correções:**
+
+- **`services/scheduler.py`**: novo filtro no início do loop — lê `trial_package_id` das settings (default 61) e pula qualquer painel user cujo `package_id`/`current_package_id` == trial_pkg, OU `is_trial=True`, OU `type`/`group` contém "trial".
+
+- **`routers/painel_users.py::notify_expired`**: mesmo filtro adicionado. Quando admin clica "Notificar Vencidos" sem selecionar IDs específicos, trials são pulados automaticamente (`skipped_trial` no retorno). Se selecionar um trial explicitamente pelo checkbox, ainda é enviado (controle do admin preserved).
+
+- **`routers/uploads.py`**:
+  - `MAX_SIZE_MB` **5 → 15** (aceita fotos raw de celular)
+  - `ALLOWED_EXT` agora inclui **heic, heif, bmp** (além de jpg/jpeg/png/gif/webp)
+  - Mensagens de erro amigáveis: `"Imagem tem X.XMB — o limite é 15MB"` e `"Extensão .heic não permitida. Use: ..."` em vez de mensagens genéricas
+
+- **`frontend/pages/Templates.jsx`**: `handleImageUpload` agora checa `res.ok` e mostra o `data.detail` do servidor no toast — o admin vê a razão real ("Imagem tem 8.3MB — limite é 15MB") em vez de "Falha ao enviar imagem".
+
+**Testes de regressão** (`tests/test_scheduler_trial_skip_and_uploads.py`, 3 casos, todos passando):
+- `test_scheduler_skips_trial_package` — sistema com 3 painel users (trial + regular + far-future); apenas o regular expirando em 3 dias recebe notificação.
+- `test_scheduler_skips_is_trial_flag` — quando painel expõe `is_trial=true` em vez de `package_id`, também é pulado.
+- `test_upload_extension_and_size` — trava heic/heif/bmp aceitos + limite >=10MB.
+
+
+
 ## [FIX 2026-02-28 P0] Duplicação de lembretes 1h/3h + ERROR_NO_SLOT_AVAILABLE
 
 **Bugs reportados**:

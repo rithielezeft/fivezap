@@ -506,7 +506,15 @@ async def notify_expired(payload: NotifyExpiredPayload):
     targets = []
     skipped_no_wa = 0
     skipped_not_expired = 0
+    skipped_trial = 0
     count_active_skips = bool(selected_ids)
+
+    # Trial package_id — skip trial users when NOT explicitly selected by admin
+    # (they get their own trial_expired flow at trial creation time).
+    try:
+        trial_pkg_id = int(await get_setting("trial_package_id", "61"))
+    except (TypeError, ValueError):
+        trial_pkg_id = 61
 
     for u in users:
         uid = u.get("id") or u.get("user_id") or u.get("username")
@@ -515,6 +523,19 @@ async def notify_expired(payload: NotifyExpiredPayload):
         uid_str = str(uid)
         if selected_ids and uid_str not in selected_ids:
             continue
+
+        # Skip trials unless admin explicitly picked this ID.
+        if not selected_ids:
+            u_pkg = u.get("package_id") or u.get("current_package_id")
+            is_trial = (
+                (u_pkg is not None and str(u_pkg).isdigit() and int(u_pkg) == trial_pkg_id)
+                or bool(u.get("is_trial"))
+                or "trial" in str(u.get("type") or "").lower()
+                or "trial" in str(u.get("group") or "").lower()
+            )
+            if is_trial:
+                skipped_trial += 1
+                continue
 
         exp = compute_expiration_info(u)
         if exp["status"] != "expired":
@@ -634,5 +655,6 @@ async def notify_expired(payload: NotifyExpiredPayload):
         "resent": resent,
         "skipped_no_whatsapp": skipped_no_wa,
         "skipped_not_expired": skipped_not_expired,
+        "skipped_trial": skipped_trial,
         "errors": errors,
     }

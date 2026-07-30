@@ -111,10 +111,34 @@ async def _check_and_notify():
         now_local.date().isoformat(),
     )
 
+    # Trial package_id — clients on this package get their own trial_1h_reminder /
+    # trial_expired flow scheduled at creation time. We MUST NOT include them
+    # in the expiration_*d reminder sweep (they'd receive duplicate scary
+    # "seu plano vence em X dias" messages while their trial is still active).
+    try:
+        trial_pkg_id = int(await get_setting("trial_package_id", "61"))
+    except (TypeError, ValueError):
+        trial_pkg_id = 61
+
     sent_count = 0
     first_send = True
     for u in users:
         try:
+            # Skip trial users — they have their own 1h/3h reminder flow.
+            # Painel.fun exposes multiple hints depending on the version:
+            #   - `package_id` (int) — the current package assigned
+            #   - `is_trial` (bool)
+            #   - `type` string containing "trial"
+            u_pkg = u.get("package_id") or u.get("current_package_id")
+            is_trial = (
+                (u_pkg is not None and int(u_pkg) == trial_pkg_id)
+                or bool(u.get("is_trial"))
+                or "trial" in str(u.get("type") or "").lower()
+                or "trial" in str(u.get("group") or "").lower()
+            )
+            if is_trial:
+                continue
+
             info = compute_expiration_info(u, tz=display_tz)
             diff_days = info["days_until_expiry"]
             exp_iso = info["expires_at_iso"]

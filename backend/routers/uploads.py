@@ -15,18 +15,20 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-ALLOWED_EXT = {"jpg", "jpeg", "png", "gif", "webp"}
-MAX_SIZE_MB = 5
+ALLOWED_EXT = {"jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp"}
+MAX_SIZE_MB = 15
 
 
 @router.post("")
 async def upload_image(request: Request, file: UploadFile = File(...), _=Depends(require_admin)):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_EXT:
-        raise HTTPException(400, f"Extensão não permitida. Use: {', '.join(ALLOWED_EXT)}")
+        raise HTTPException(400, f"Extensão .{ext} não permitida. Use: {', '.join(sorted(ALLOWED_EXT))}")
     data = await file.read()
     if len(data) > MAX_SIZE_MB * 1024 * 1024:
-        raise HTTPException(413, f"Arquivo maior que {MAX_SIZE_MB}MB")
+        raise HTTPException(413, f"Imagem tem {len(data)/1024/1024:.1f}MB — o limite é {MAX_SIZE_MB}MB. Reduza o tamanho e tente de novo.")
+    if len(data) == 0:
+        raise HTTPException(400, "Arquivo vazio")
 
     fname = f"{uuid.uuid4().hex}.{ext}"
     fpath = UPLOAD_DIR / fname
