@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
-import { templatesApi } from "@/lib/api";
+import { templatesApi, uploadsApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,32 +31,18 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
     if (!file) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const token = localStorage.getItem("token");
-      const base = process.env.REACT_APP_BACKEND_URL;
-      const res = await fetch(`${base}/api/uploads`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-      // Try to parse JSON either way — server may respond with {detail: "..."}
-      // on HTTP errors, and we want to surface that specific message so the
-      // admin knows WHY the upload failed (file too big, wrong extension, etc.)
-      let data = null;
-      try { data = await res.json(); } catch { /* non-JSON response */ }
-
-      if (!res.ok) {
-        const msg = data?.detail || `HTTP ${res.status}`;
-        toast.error(`Falha ao enviar imagem: ${msg}`);
-      } else if (data?.path) {
+      // Uses the shared axios instance which auto-injects the Bearer token
+      // from localStorage("wf_token") — same key used everywhere else.
+      const data = await uploadsApi.upload(file);
+      if (data?.path) {
         setF({ ...f, image_url: data.path });
         toast.success("Imagem enviada");
       } else {
         toast.error("Resposta inesperada do servidor");
       }
     } catch (err) {
-      toast.error("Erro de rede: " + err.message);
+      const msg = err.response?.data?.detail || err.message || "erro desconhecido";
+      toast.error(`Falha ao enviar imagem: ${msg}`);
     } finally {
       setUploading(false);
     }

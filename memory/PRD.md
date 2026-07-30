@@ -20,6 +20,18 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28 P0] Upload de imagem "Token inválido"
+
+**Bug reportado**: "na pagina de comando apareceu erro novamente ao tentar fazer upload de imagem Falha ao enviar imagem: Token inválido"
+
+**Root cause**: em `frontend/src/pages/Templates.jsx::handleImageUpload`, eu chamava `localStorage.getItem("token")` — mas o token JWT é armazenado como **`wf_token`** (ver `lib/api.js:13` e `Login.jsx:28`). Chave errada → token era `null` → backend rejeitava com `Token inválido`.
+
+**Correção**: `Templates.jsx` agora usa o helper `uploadsApi.upload()` de `lib/api.js`, que passa pela mesma instância axios usada em toda a app (com interceptor que injeta o `Bearer wf_token` automaticamente). Um único source-of-truth para autenticação.
+
+- Removido o `fetch()` manual + montagem de header customizado.
+- Grep confirmou que não há outros locais no frontend usando `localStorage.getItem("token")` incorretamente.
+
+
 ## [FIX 2026-02-28 P0] Trials recebiam notificação de vencimento + upload de imagem falhando
 
 **Bugs reportados:**
