@@ -6,7 +6,7 @@ import { settingsApi, painelApi, paymentsApi, setDisplayTimezone } from "@/lib/a
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin } from "@phosphor-icons/react";
+import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin, MapTrifold, Lightning, Bell, Ticket, ArrowsClockwise, CreditCard, Tag } from "@phosphor-icons/react";
 
 const FIELDS = [
   { key: "painel_username", label: "Painel.fun — Usuário", group: "painel" },
@@ -47,6 +47,84 @@ const GROUPS = {
   pay: "InfinitePay & Preços",
   notify: "Notificações & Público",
 };
+
+// Visual "playbook": maps each app flow → the settings that feed it. Clicking
+// a chip scrolls to and highlights that field so admins can find it fast.
+// Purpose: prevent accidental changes ("I bumped discount_7d_percent thinking
+// it was just for the reminder, but the auto-coupon uses it too").
+const FLOWS = [
+  {
+    icon: Bell, color: "#FF9500",
+    title: "Lembretes de vencimento",
+    desc: "Rotina horária que envia lembretes X dias antes/depois do vencimento (usa fuso local do admin).",
+    settings: [
+      { key: "notification_days", note: "quais dias disparam" },
+      { key: "display_timezone", note: "define o dia local" },
+      { key: "admin_whatsapp", note: "recebe alertas + cópia" },
+      { key: "dedup_window_minutes", note: "evita repetição" },
+    ],
+  },
+  {
+    icon: Tag, color: "#34C759",
+    title: "Desconto 7d & Cupom VOLTA automático",
+    desc: "O MESMO % é usado no lembrete de 7d (só no mesmo dia) e no cupom VOLTA que sai pra clientes vencidos há 3+ dias.",
+    settings: [
+      { key: "discount_7d_enabled", note: "liga/desliga o 7d" },
+      { key: "discount_7d_percent", note: "⚡ COMPARTILHADO com VOLTA" },
+    ],
+  },
+  {
+    icon: Lightning, color: "#007AFF",
+    title: "Anti-duplicação de mensagens",
+    desc: "3 redes de segurança: dedup por (telefone+evento), por conteúdo (body_hash) e pacer global entre sends.",
+    settings: [
+      { key: "dedup_enabled", note: "camada 1" },
+      { key: "dedup_window_minutes", note: "janela da camada 1" },
+    ],
+  },
+  {
+    icon: Ticket, color: "#AF52DE",
+    title: "Testes (trials)",
+    desc: "Package ID que identifica testes no painel.fun — usado pra pular trials nos lembretes de vencimento e no auto-cupom.",
+    settings: [
+      { key: "trial_package_id", note: "identifica trials" },
+    ],
+  },
+  {
+    icon: ArrowsClockwise, color: "#5AC8FA",
+    title: "Sincronia com painel.fun",
+    desc: "Intervalo de refresh do cache painel + credenciais de bypass do Turnstile (2Captcha).",
+    settings: [
+      { key: "painel_refresh_interval_seconds", note: "impacta créditos 2Captcha" },
+      { key: "twocaptcha_key", note: "API 2Captcha" },
+      { key: "painel_username", note: "login painel.fun" },
+      { key: "painel_password", note: "senha painel.fun" },
+    ],
+  },
+  {
+    icon: CreditCard, color: "#FF3B30",
+    title: "Pagamentos & Preços",
+    desc: "Preços por plano + integração InfinitePay (checkout + webhook). Retry automático nos erros transitórios.",
+    settings: [
+      { key: "infinitepay_handle", note: "InfiniteTag do checkout" },
+      { key: "plan_price_1m", note: "" },
+      { key: "plan_price_3m", note: "" },
+      { key: "plan_price_6m", note: "" },
+      { key: "plan_price_12m", note: "" },
+      { key: "infinitepay_webhook_secret", note: "valida webhook" },
+    ],
+  },
+];
+
+function scrollToSetting(key) {
+  const el = document.querySelector(`[data-testid="setting-${key}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Add a temporary highlight ring
+  el.classList.add("setting-highlight");
+  el.focus?.();
+  setTimeout(() => el.classList.remove("setting-highlight"), 2000);
+}
 
 export default function Settings() {
   const { data, refetch } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
@@ -121,6 +199,56 @@ export default function Settings() {
       }
     >
       <div className="space-y-6">
+        {/* PLAYBOOK — visual map of settings → app flows */}
+        <div className="surface rounded-xl p-6" data-testid="settings-playbook">
+          <div className="flex items-center gap-2 mb-2">
+            <MapTrifold size={18} className="text-[#34C759]" weight="duotone" />
+            <h2 className="font-display text-lg font-bold">Como cada configuração é usada</h2>
+          </div>
+          <p className="text-xs text-white/50 mb-4">
+            Ajuste em um lugar, o efeito se propaga pelas rotinas abaixo. Clique num chip pra pular direto ao campo.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {FLOWS.map((flow) => {
+              const Icon = flow.icon;
+              return (
+                <div
+                  key={flow.title}
+                  data-testid={`flow-${flow.title}`}
+                  className="rounded-lg p-4 bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors"
+                >
+                  <div className="flex items-start gap-2 mb-2">
+                    <div
+                      className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: `${flow.color}22`, color: flow.color }}
+                    >
+                      <Icon size={14} weight="bold" />
+                    </div>
+                    <div className="text-sm font-semibold leading-tight">{flow.title}</div>
+                  </div>
+                  <p className="text-[11px] text-white/50 mb-2 leading-snug">{flow.desc}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {flow.settings.map((s) => (
+                      <button
+                        key={s.key}
+                        onClick={() => scrollToSetting(s.key)}
+                        data-testid={`flow-chip-${s.key}`}
+                        title={s.note || s.key}
+                        className="text-[10px] font-mono px-2 py-1 rounded-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-colors"
+                      >
+                        {s.key}
+                        {s.note.startsWith("⚡") && (
+                          <span className="ml-1 text-[#FF9F0A]">{s.note.slice(0, 2)}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {Object.entries(GROUPS).map(([groupKey, groupTitle]) => (
           <div key={groupKey} className="surface rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">

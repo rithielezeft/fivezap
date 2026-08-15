@@ -105,3 +105,12 @@ html, body, #root {
 }
 
 .pulse-dot { animation: pulseDot 1.8s ease-in-out infinite; }
+
+/* Playbook chip → scroll-to-field highlight (settings page). Uses a soft
+   ring + slight scale to grab attention without shifting layout. */
+.setting-highlight {
+  box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.6);
+  transition: box-shadow 0.3s ease;
+  border-color: rgba(52, 199, 89, 0.8) !important;
+}
+

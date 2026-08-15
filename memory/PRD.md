@@ -20,6 +20,32 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FEATURE 2026-02-28] Playbook visual em Configurações
+
+Novo card no topo da tela de Configurações que **mapeia cada rotina do app pras settings que a alimentam**. Objetivo: evitar mudanças acidentais (ex: "mexi no `discount_7d_percent` sem saber que o cupom VOLTA também usa").
+
+**Como funciona:**
+- Card "🗺️ Como cada configuração é usada" com 6 fluxos, cada um com ícone colorido, título, descrição curta e chips clicáveis com os keys das settings envolvidas.
+- Clicar num chip **rola a página até o campo** e ativa uma classe CSS `.setting-highlight` que adiciona um anel verde por 2 segundos.
+- Chip com marcação `⚡` (ex: `discount_7d_percent`) sinaliza settings **compartilhadas** entre múltiplos fluxos.
+
+**Fluxos mapeados:**
+1. 🔔 **Lembretes de vencimento** — `notification_days`, `display_timezone`, `admin_whatsapp`, `dedup_window_minutes`
+2. 🏷️ **Desconto 7d & Cupom VOLTA automático** — `discount_7d_enabled`, `discount_7d_percent` (⚡ compartilhado)
+3. ⚡ **Anti-duplicação de mensagens** — `dedup_enabled`, `dedup_window_minutes`
+4. 🎫 **Testes (trials)** — `trial_package_id`
+5. 🔄 **Sincronia com painel.fun** — `painel_refresh_interval_seconds`, `twocaptcha_key`, `painel_username`, `painel_password`
+6. 💳 **Pagamentos & Preços** — `infinitepay_handle`, `plan_price_1m/3m/6m/12m`, `infinitepay_webhook_secret`
+
+**Implementação técnica:**
+- `pages/Settings.jsx`: array `FLOWS` + função `scrollToSetting(key)` que faz `scrollIntoView({behavior: "smooth", block: "center"})` + adiciona `.setting-highlight` por 2s.
+- `index.css`: nova classe com `box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.6)` + `border-color` verde.
+- Ícones do Phosphor: MapTrifold (título), Bell, Tag, Lightning, Ticket, ArrowsClockwise, CreditCard.
+
+**Smoke-test**: playbook renderizou 6 fluxos com 19 chips totais; clicar em `discount_7d_percent` scrollou até o campo InfinitePay & Preços com anel verde visível. Zero lint errors.
+
+
+
 ## [FIX 2026-02-28] Auto-cupom usa a mesma % do desconto 7d
 
 **Pedido do usuário**: "a porcentagem dos cupom de volta tem que ser o mesmo que é o Desconto no lembrete 7d — % que já está configurado só deve usar o mesmo".
