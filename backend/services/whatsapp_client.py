@@ -56,3 +56,13 @@ async def logout() -> dict:
             return resp.json()
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+async def list_chats(chat_type: str = "group") -> dict:
+    """List chats of a given type. `chat_type` in {"group","newsletter"}."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{WA_SERVICE_URL}/chats",
+                                params={"type": chat_type})
+        if resp.status_code >= 400:
+            raise RuntimeError(f"WA list_chats failed: {resp.status_code} {resp.text[:200]}")
+        return resp.json()

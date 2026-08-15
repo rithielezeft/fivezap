@@ -58,6 +58,92 @@ async def logout():
     return await whatsapp_client.logout()
 
 
+# ---------- Groups & Channels ----------
+
+class GroupSendPayload(BaseModel):
+    chat_id: str  # full JID (`123@g.us` for groups, `123@newsletter` for channels)
+    message: str = ""
+    image_url: Optional[str] = None
+
+
+async def _list_chats_typed(chat_type: str):
+    try:
+        return await whatsapp_client.list_chats(chat_type)
+    except RuntimeError as e:
+        # Node returned an error status. If it's "not ready" (503), return a
+        # clean empty list + a hint so the frontend can render a friendly
+        # empty state without triggering the Cloudflare 502 error page.
+        msg = str(e)
+        if "503" in msg or "not ready" in msg.lower():
+            return {"chats": [], "count": 0,
+                    "not_ready": True,
+                    "message": "WhatsApp não conectado. Escaneie o QR primeiro."}
+        raise HTTPException(502, f"Falha ao listar {chat_type}s: {e}")
+    except Exception as e:
+        raise HTTPException(502, f"Falha ao listar {chat_type}s: {e}")
+
+
+async def _send_to_chat(payload: GroupSendPayload, expected_suffix: tuple):
+    if not any(payload.chat_id.endswith(s) for s in expected_suffix):
+        raise HTTPException(400, f"chat_id inválido — deve terminar em {' ou '.join(expected_suffix)}")
+    if not payload.message and not payload.image_url:
+        raise HTTPException(400, "message ou image_url obrigatório")
+    try:
+        result = await whatsapp_client.send_message(
+            payload.chat_id, payload.message,
+            image_url=payload.image_url,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/groups")
+async def list_groups():
+    """List all WhatsApp groups the bot participates in."""
+    return await _list_chats_typed("group")
+
+
+@router.get("/channels")
+async def list_channels():
+    """List all WhatsApp channels (newsletters) the bot follows/owns."""
+    return await _list_chats_typed("newsletter")
+
+
+@router.post("/groups/send")
+async def send_to_group(payload: GroupSendPayload):
+    """Send a text (and/or image_url) message to a WhatsApp group.
+    chat_id must be a full group JID ending in `@g.us`.
+    """
+    return await _send_to_chat(payload, ("@g.us",))
+
+
+@router.post("/channels/send")
+async def send_to_channel(payload: GroupSendPayload):
+    """Send a text (and/or image_url) message to a WhatsApp channel.
+    chat_id must be a full channel JID ending in `@newsletter`.
+    """
+    return await _send_to_chat(payload, ("@newsletter",))
+
+
+@router.post("/groups/send-image")
+async def send_image_to_group(payload: GroupSendPayload):
+    """Explicit image-send convenience alias — same behavior as `/groups/send`
+    with image_url set (kept as a separate endpoint per client spec).
+    """
+    if not payload.image_url:
+        raise HTTPException(400, "image_url é obrigatório neste endpoint")
+    return await _send_to_chat(payload, ("@g.us",))
+
+
+@router.post("/channels/send-image")
+async def send_image_to_channel(payload: GroupSendPayload):
+    """Explicit image-send convenience alias for channels."""
+    if not payload.image_url:
+        raise HTTPException(400, "image_url é obrigatório neste endpoint")
+    return await _send_to_chat(payload, ("@newsletter",))
+
+
 @router.post("/restart")
 async def restart():
     """Kill the Node WhatsApp child process and respawn it.

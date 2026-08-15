@@ -10,9 +10,22 @@ Design principles:
 - Persistent: survives backend restarts (unlike in-memory queues).
 - Observable: each delivery has a status + attempts + last_error visible via
   the /api/notifications/deliveries endpoint.
+
+Dedup strategy (in order of check):
+1. `(phone, event_key)` within `dedup_window_minutes` (setting) — catches
+   the same notification type being fired multiple times.
+2. **`body_hash`** (sha256 of phone+body+image_url) within `body_dedup_window_minutes`
+   (setting, default 15) — catches DIFFERENT event_keys that render to the
+   SAME message body (bulk-send hitting the same client twice under a
+   different code path, scheduler + manual click, etc).
+
+Between any two actual WhatsApp sends we wait `send_min_gap_seconds`
+(setting, default 3) so we don't burst-send and get throttled by WA anti-spam.
 """
 import asyncio
+import hashlib
 import logging
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -30,6 +43,71 @@ DEFAULT_MAX_ATTEMPTS = 5
 
 # Sentinel so callers can distinguish "use the setting" from "explicit 0".
 _USE_SETTING = -1
+
+# Monotonic timestamp of the last successful WA send. Enforces
+# `send_min_gap_seconds` between any two actual sends to avoid WA anti-spam
+# throttling. Global on purpose — one queue means one pacer.
+_last_send_ts: float = 0.0
+_send_pace_lock: Optional[asyncio.Lock] = None
+
+
+def _hash_body(phone: str, body: str, image_url: Optional[str]) -> str:
+    """Stable hash for cross-event-key dedup — normalizes body to first 500
+    chars (safe against small template tail changes) + phone + image url."""
+    normalized = (body or "")[:500].strip()
+    payload = f"{phone or ''}\x1f{normalized}\x1f{image_url or ''}"
+    return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()
+
+
+async def _resolve_body_dedup_window() -> int:
+    """Read body_dedup_window_minutes (default 15) from settings.
+    Returns 0 → disabled, >0 → active."""
+    try:
+        raw = (await database.get_setting("body_dedup_window_minutes") or "15").strip()
+        return max(0, int(raw))
+    except Exception:
+        return 15
+
+
+async def _find_recent_by_body_hash(body_hash: str, window_minutes: int) -> Optional[dict]:
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    ).isoformat()
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM notification_deliveries "
+            "WHERE body_hash = ? "
+            "  AND ("
+            "    status = 'pending' "
+            "    OR (status = 'sent' AND sent_at IS NOT NULL AND sent_at >= ?)"
+            "  ) "
+            "ORDER BY created_at DESC LIMIT 1",
+            (body_hash, cutoff),
+        )
+        row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def _wait_for_pace_slot():
+    """Block until at least `send_min_gap_seconds` has passed since the
+    previous send. Uses a lock so concurrent callers are serialized (only
+    ONE actual `whatsapp_client.send_message` in flight per gap-window)."""
+    global _last_send_ts, _send_pace_lock
+    if _send_pace_lock is None:
+        _send_pace_lock = asyncio.Lock()
+    try:
+        raw = (await database.get_setting("send_min_gap_seconds") or "3").strip()
+        min_gap = max(0.0, float(raw))
+    except Exception:
+        min_gap = 3.0
+    if min_gap <= 0:
+        return
+    async with _send_pace_lock:
+        elapsed = time.monotonic() - _last_send_ts
+        if elapsed < min_gap:
+            await asyncio.sleep(min_gap - elapsed)
+        _last_send_ts = time.monotonic()
 
 
 async def _resolve_dedup_config(explicit_window: int) -> int:
@@ -126,15 +204,33 @@ async def enqueue(
             )
             if existing:
                 logger.info(
-                    "delivery dedup HIT event=%s phone=%s → reusing id=%s "
+                    "delivery dedup HIT (phone+event) event=%s phone=%s → reusing id=%s "
                     "(status=%s, window=%dmin)",
                     event_key, phone, existing["id"], existing["status"],
                     effective_window,
                 )
                 return existing["id"]
 
+        # Second net: same rendered BODY sent to same PHONE (any event_key).
+        # Catches the case where two code paths generate the same message and
+        # both try to enqueue it — a common source of "duplicated notification"
+        # bugs when the scheduler + a manual click fire nearly simultaneously.
+        body_hash_check = _hash_body(phone, body, image_url)
+        body_window = await _resolve_body_dedup_window()
+        if body_window > 0:
+            dup = await _find_recent_by_body_hash(body_hash_check, body_window)
+            if dup:
+                logger.info(
+                    "delivery dedup HIT (body_hash) event=%s phone=%s → reusing id=%s "
+                    "(status=%s, window=%dmin, prev_event=%s)",
+                    event_key, phone, dup["id"], dup["status"], body_window,
+                    dup["event_key"],
+                )
+                return dup["id"]
+
     did = new_id()
     created_at = now_iso()
+    body_hash = _hash_body(phone, body, image_url)
     # Encode typing_ms into a lightweight side-channel: we keep a "hint" in
     # last_error until first send happens; overwritten on real error.
     hint = f"__typing_ms__:{int(typing_ms)}" if typing_ms and typing_ms > 0 else None
@@ -142,10 +238,10 @@ async def enqueue(
         await db.execute(
             "INSERT INTO notification_deliveries "
             "(id, event_key, phone, body, image_url, customer_id, status, "
-            " attempts, max_attempts, next_retry_at, last_error, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)",
+            " attempts, max_attempts, next_retry_at, last_error, body_hash, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)",
             (did, event_key, phone, body, image_url, customer_id, max_attempts,
-             created_at, hint, created_at),
+             created_at, hint, body_hash, created_at),
         )
         await db.commit()
 
@@ -181,6 +277,9 @@ async def _attempt(delivery_id: str) -> bool:
         except Exception:
             typing_ms = 0
     try:
+        # Global pacer — enforce `send_min_gap_seconds` between any two
+        # actual WhatsApp sends. Callers into the queue don't burst.
+        await _wait_for_pace_slot()
         await whatsapp_client.send_message(
             d["phone"], d["body"], image_url=d["image_url"] or None,
             typing_ms=typing_ms,

@@ -20,6 +20,55 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FEATURE + FIX 2026-02-28] Grupos/Canais WhatsApp + Dedup por body_hash + Pacer global
+
+### Parte 1 — 6 novos endpoints para Grupos/Canais
+
+**Node service (`whatsapp-service/index.js`):**
+- Novo `GET /chats?type=group|newsletter` — lista todos os chats do tipo pedido com `id`, `name`, `is_group`, `is_newsletter`, `participants_count`, `unread_count`.
+- `/send` agora aceita JIDs `@newsletter` e `@broadcast` (além dos já existentes `@lid`, `@c.us`, `@g.us`).
+
+**Backend (`routers/whatsapp.py`):**
+- `GET /api/whatsapp/groups` — lista grupos
+- `GET /api/whatsapp/channels` — lista canais
+- `POST /api/whatsapp/groups/send` — envia texto/imagem para grupo (chat_id `@g.us` obrigatório)
+- `POST /api/whatsapp/channels/send` — envia texto/imagem para canal (chat_id `@newsletter` obrigatório)
+- `POST /api/whatsapp/groups/send-image` — send-image explícito (image_url obrigatório) para grupo
+- `POST /api/whatsapp/channels/send-image` — mesmo para canal
+- Tratamento gracioso quando WA não está pronto: retorna `{chats: [], count: 0, not_ready: true, message: "..."}` com HTTP 200 (evita 502 do Cloudflare)
+
+**Client (`services/whatsapp_client.py`):** adicionado `list_chats(chat_type)`.
+
+### Parte 2 — Fix definitivo da duplicação de notificações
+
+**Bug reportado**: "duplicação rápida de todas notificações e o disparo rápido da fila de vencimento e vencendo, precisa ter um tempo entre cada disparo".
+
+**Causa raiz**: o dedup atual só olhava `(phone, event_key)`. Se duas rotas diferentes (ex: scheduler + botão manual, ou dois event_keys distintos que renderizam a mesma mensagem) enfileiravam ao mesmo tempo, ambos passavam. E o loop de retry disparava até 50 mensagens seguidas sem pausa → burst → WA detecta anti-spam.
+
+**Correções em `services/delivery_queue.py`:**
+
+1. **Body-hash dedup (nova rede de segurança)**:
+   - Adicionada coluna `body_hash` em `notification_deliveries` (sha256 de `phone|body[:500]|image_url`).
+   - Nova setting `body_dedup_window_minutes` (default **15**).
+   - No `enqueue()`, se `dedup_enabled` estiver on: primeiro tenta `(phone, event_key)` (como antes), depois **body_hash** dentro da janela. Um hit no body_hash faz LOG explícito com `prev_event=...` pra debugar.
+   - Setando `body_dedup_window_minutes=0` desativa.
+
+2. **Pacer global entre sends**:
+   - Nova função `_wait_for_pace_slot()` — usa `asyncio.Lock` global + `time.monotonic()` pra garantir que nenhum WA send acontece sem esperar `send_min_gap_seconds` (default **3s**) desde o último.
+   - Chamada no `_attempt()` **imediatamente antes** do `whatsapp_client.send_message()`, então TODOS os caminhos (envio inicial + retry loop) respeitam o gap.
+   - Setando `send_min_gap_seconds=0` desativa.
+
+**Testes de regressão** (`tests/test_delivery_dedup_v2.py`, 5 casos, todos passando):
+- `test_hash_body_stable_and_normalized` — hash reproducível, sensível a phone/body/image
+- `test_dedup_by_body_hash_across_event_keys` — 2 enqueues com event_keys DIFERENTES mas body igual → só 1 send real
+- `test_dedup_body_hash_disabled_when_window_zero` — setting=0 desliga
+- `test_wait_for_pace_slot_enforces_min_gap` — 3 chamadas com gap=0.5s levam ≥0.9s totais
+- `test_wait_for_pace_slot_no_wait_when_gap_zero` — gap=0 é instantâneo
+
+**Configurações novas** (Settings): `body_dedup_window_minutes` (15), `send_min_gap_seconds` (3). Podem ser ajustadas via `set_setting` ou pela tela de Settings.
+
+
+
 ## [FEATURE 2026-02-28] Mapa 3D — Geografia dos Clientes (P0 — CONCLUÍDO)
 
 Nova página `/geografia` que mostra a distribuição geográfica dos clientes num **globo 3D interativo** com marcadores por país e drill-down para o Brasil (por DDD).

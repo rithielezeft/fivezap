@@ -382,7 +382,7 @@ app.post('/send', async (req, res) => {
     const input = String(phone).trim();
     let chatId;
 
-    if (input.endsWith('@lid') || input.endsWith('@c.us') || input.endsWith('@g.us')) {
+    if (input.endsWith('@lid') || input.endsWith('@c.us') || input.endsWith('@g.us') || input.endsWith('@newsletter') || input.endsWith('@broadcast')) {
       chatId = input;
     } else {
       const digits = input.replace(/\D/g, '');
@@ -444,8 +444,42 @@ app.post('/send', async (req, res) => {
   }
 });
 
-app.post('/logout', async (req, res) => {
+app.get('/chats', async (req, res) => {
+  // List chats filtered by type — "group" or "newsletter" (aka Channel).
+  // Used by /api/whatsapp/groups + /api/whatsapp/channels on the backend
+  // for the "send to group/channel" feature.
+  if (!ready) return res.status(503).json({ error: 'whatsapp not ready', state });
+  const type = String(req.query.type || 'group').toLowerCase();
   try {
+    const chats = await client.getChats();
+    const filtered = chats
+      .filter((c) => {
+        if (type === 'group') return c.isGroup === true;
+        if (type === 'newsletter' || type === 'channel') {
+          // Newsletters are the internal name for Channels. Detect via id
+          // suffix (`@newsletter`) and/or the `isNewsletter` flag.
+          const id = c.id?._serialized || '';
+          return c.isNewsletter === true || id.endsWith('@newsletter');
+        }
+        return false;
+      })
+      .map((c) => ({
+        id: c.id?._serialized || String(c.id),
+        name: c.name || c.formattedTitle || '(sem nome)',
+        is_group: c.isGroup === true,
+        is_newsletter: c.isNewsletter === true,
+        participants_count: c.groupMetadata?.participants?.length || 0,
+        unread_count: c.unreadCount || 0,
+      }));
+    res.json({ chats: filtered, count: filtered.length });
+  } catch (e) {
+    console.error('[WA] /chats error', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+app.post('/logout', async (req, res) => {  try {
     await client.logout();
     ready = false;
     state = 'disconnected';

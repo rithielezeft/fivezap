@@ -348,6 +348,17 @@ async def init_db():
             await db.execute("ALTER TABLE payments ADD COLUMN renewal_last_error TEXT")
         except Exception:
             pass
+        # Body-hash for cross-event-key dedup. Two different code paths may
+        # produce the same rendered message body (e.g. expiration_3d vs a
+        # manual bulk-send) — hashing the phone+body prevents sending twice.
+        try:
+            await db.execute("ALTER TABLE notification_deliveries ADD COLUMN body_hash TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_deliveries_hash ON notification_deliveries(body_hash, created_at)")
+        except Exception:
+            pass
         # Image URL for command templates (optional image sent with the
         # command's response — trial_ready, welcome messages, etc.)
         try:
