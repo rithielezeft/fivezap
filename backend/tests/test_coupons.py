@@ -35,8 +35,13 @@ def test_clamp_percent_caps_at_50():
 
 def test_clamp_percent_floors_at_1_for_valid_input():
     from services.coupon import clamp_percent
-    assert clamp_percent(0) == 1
-    assert clamp_percent(-5) == 1
+    # 0 and negatives now return 0.0 (caller decides whether to reject).
+    # This is a behavior change from the int version — decimals now allowed.
+    assert clamp_percent(0) == 0.0
+    assert clamp_percent(-5) == 0.0
+    # Decimals preserved
+    assert clamp_percent(12.3) == 12.3
+    assert clamp_percent(0.5) == 0.5
 
 
 def test_normalize_code_uppercases_and_strips():

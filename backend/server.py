@@ -136,12 +136,18 @@ async def lifespan(app: FastAPI):
     from services.renewal_retry import renewal_retry_loop as _renewal_retry_loop
     task_renewal_retry = asyncio.create_task(_renewal_retry_loop())
 
+    # Auto-coupon loop: sends personalized 15% (default) discount coupon to
+    # customers expired for 3+ days without renewing. Idempotent per user.
+    from services.auto_coupon import auto_coupon_loop as _auto_coupon_loop
+    task_auto_coupon = asyncio.create_task(_auto_coupon_loop())
+
     yield
     task_exp.cancel()
     task_rem.cancel()
     task_painel_refresh.cancel()
     task_delivery_retry.cancel()
     task_renewal_retry.cancel()
+    task_auto_coupon.cancel()
     try:
         _stop_delivery()
     except Exception:
@@ -154,7 +160,16 @@ async def lifespan(app: FastAPI):
     _stop_whatsapp_service()
 
 
-app = FastAPI(title="WhatsFlow", lifespan=lifespan)
+app = FastAPI(
+    title="WhatsFlow",
+    lifespan=lifespan,
+    # Ingress only routes /api/* to the backend — expose OpenAPI + Swagger
+    # UI under /api so they're reachable from the frontend and the /api-docs
+    # page can fetch the spec.
+    openapi_url="/api/openapi.json",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+)
 
 app.add_middleware(
     CORSMiddleware,

@@ -22,12 +22,19 @@ def normalize_code(code: str) -> str:
     return (code or "").strip().upper()
 
 
-def clamp_percent(percent) -> int:
+def clamp_percent(percent) -> float:
+    """Return the discount % as a float in [0.1, MAX_DISCOUNT_PERCENT].
+
+    Accepts int, float or numeric string. Values > MAX are capped, values
+    <= 0 become 0 (caller decides whether to reject 0).
+    """
     try:
-        p = int(percent)
+        p = float(percent)
     except (TypeError, ValueError):
-        return 0
-    return max(1, min(MAX_DISCOUNT_PERCENT, p))
+        return 0.0
+    if p <= 0:
+        return 0.0
+    return round(min(p, float(MAX_DISCOUNT_PERCENT)), 2)
 
 
 async def get_coupon_by_code(code: str) -> Optional[dict]:
@@ -62,8 +69,16 @@ async def validate_coupon(code: str, customer_id: str) -> dict:
     """Validate a coupon for a customer.
 
     Returns dict:
-      {valid: True, coupon: {...}, discount_percent: int}  OR
+      {valid: True, coupon: {...}, discount_percent: float}  OR
       {valid: False, reason: str, code: str}
+
+    Validation order (fail-fast, most-specific first):
+      1. Empty code
+      2. Not found
+      3. Inactive
+      4. Expired (expires_at)
+      5. Max uses reached
+      6. 28-day cooldown per-customer
     """
     code_norm = normalize_code(code)
     if not code_norm:
@@ -74,6 +89,32 @@ async def validate_coupon(code: str, customer_id: str) -> dict:
         return {"valid": False, "reason": "Cupom não encontrado", "code": code_norm}
     if not coupon.get("active"):
         return {"valid": False, "reason": "Cupom inativo", "code": code_norm}
+
+    # Expires_at (if set) — hard time cap on the coupon itself
+    exp = (coupon.get("expires_at") or "").strip()
+    if exp:
+        try:
+            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > exp_dt:
+                return {"valid": False, "reason": "Cupom expirado", "code": code_norm}
+        except Exception:
+            pass
+
+    # Max uses (if set) — cap on total redemptions across ALL customers
+    max_uses = coupon.get("max_uses")
+    if max_uses is not None and int(max_uses) > 0:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute(
+                "SELECT COUNT(*) AS c FROM coupon_usages WHERE coupon_id = ?",
+                (coupon["id"],),
+            )
+            row = await cur.fetchone()
+            used = int(row["c"] if row else 0)
+        if used >= int(max_uses):
+            return {"valid": False, "reason": f"Cupom esgotado (limite de {max_uses} usos atingido)", "code": code_norm}
 
     last_used = await has_recent_usage(str(customer_id))
     if last_used:

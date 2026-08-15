@@ -359,6 +359,17 @@ async def init_db():
             await db.execute("CREATE INDEX IF NOT EXISTS idx_deliveries_hash ON notification_deliveries(body_hash, created_at)")
         except Exception:
             pass
+        # Coupon extensions: expiration timestamp + max uses limit.
+        # discount_percent is stored as-is (SQLite REAL accepts float even
+        # if the column was declared INTEGER — no migration needed).
+        try:
+            await db.execute("ALTER TABLE coupons ADD COLUMN expires_at TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE coupons ADD COLUMN max_uses INTEGER")
+        except Exception:
+            pass
         # Image URL for command templates (optional image sent with the
         # command's response — trial_ready, welcome messages, etc.)
         try:

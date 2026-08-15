@@ -20,6 +20,57 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FEATURES 2026-02-28] API Docs Page + Auto-Coupon + Cupom v2
+
+### 1) Página de Documentação da API (`/documentacao`)
+
+- Nova página que consome `/api/openapi.json` da FastAPI e renderiza **80 endpoints organizados em 17 grupos** com:
+  - Badge de método colorido (GET verde, POST azul, PUT laranja, DELETE vermelho, PATCH roxo)
+  - Path com syntax highlighting monoespaçado
+  - Summary + description do endpoint
+  - Botão "copiar curl" (📋) com o Bearer token pré-preenchido
+  - Busca por método/path/summary
+  - Link "Abrir Swagger completo ↗" pra visão detalhada
+- FastAPI agora expõe `openapi_url="/api/openapi.json"`, `docs_url="/api/docs"`, `redoc_url="/api/redoc"` (mudança do default `/openapi.json` porque o ingress só roteia `/api/*` pro backend)
+- Auth: `/api/openapi.json`, `/api/docs`, `/api/redoc` marcados como públicos (spec não expõe dados sensíveis)
+- Sidebar: novo link "API" com ícone Code
+
+### 2) Auto-Cupom para clientes vencidos (3+ dias)
+
+Nova `services/auto_coupon.py` — loop de hora em hora:
+- Filtra painel users com `status='expired'` e `days_since_expiry >= 3` (config `auto_coupon_expired_days`)
+- Pula trials (`package_id == trial_package_id`)
+- Cria cupom personalizado `VOLTA{customer_id_last6}` com:
+  - **15% off** (config `auto_coupon_percent`, aceita decimais)
+  - **Expira em 24h** (config `auto_coupon_ttl_hours`)
+  - **1 uso máximo** (config `auto_coupon_max_uses`)
+- Envia via WhatsApp usando template `auto_recovery_coupon` com `{coupon_code}`, `{discount_percent}`, `{expires_in_hours}`, `{pay_link}`, `{days_expired}`, `{name}`
+- **Idempotente**: setting `auto_coupon_sent_{customer_id}` garante 1x por cliente pra sempre
+- Registrado no lifespan do `server.py` com cancel no shutdown
+- Toggle global: setting `auto_coupon_enabled` (default true)
+
+### 3) Cupom v2 — expiração + max_uses + decimais
+
+**Backend (`services/coupon.py` + `routers/coupons.py`):**
+- `discount_percent` agora é **float** (`REAL` em SQLite) — aceita **12.3%**, **7.5%**, etc. Cap ainda em 50%. `clamp_percent` retorna 0 para valores <= 0 (caller decide)
+- Novo campo `expires_at` (ISO datetime, nullable) — hard cap de tempo no cupom
+- Novo campo `max_uses` (int, nullable) — total de resgates permitidos (COUNT de `coupon_usages WHERE coupon_id = ?`)
+- `CouponCreate` novo campo `auto_expire_24h: bool` — se true e `expires_at` vazio, backend seta automaticamente para +24h
+- `validate_coupon` agora verifica em ordem: vazio → não encontrado → inativo → **expirado** → **esgotado** → cooldown 28d → OK
+
+**Frontend (`pages/Coupons.jsx`):**
+- Input `type="number"` com `step={0.1}` para % (aceita decimais)
+- Novo `datetime-local` input "Expira em"
+- Novo input "Máx. usos"
+- Switch "Expirar em 24h automaticamente" (só no create)
+- Cards mostram `⏱️ Expira: DD/MM/YYYY HH:mm` e `🎯 Usos: X / Y` quando aplicável
+
+**Migrações** em `database.py`: 2 novas colunas em `coupons` (`expires_at TEXT`, `max_uses INTEGER`).
+
+**Testes:** todos os 49 testes existentes de cupom/dedup/scheduler continuam passando. `clamp_percent` teste atualizado para novo comportamento float.
+
+
+
 ## [FEATURE + FIX 2026-02-28] Grupos/Canais WhatsApp + Dedup por body_hash + Pacer global
 
 ### Parte 1 — 6 novos endpoints para Grupos/Canais

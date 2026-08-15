@@ -17,7 +17,29 @@ function CouponForm({ initial, onSubmit, onCancel }) {
     code: initial?.code || "",
     discount_percent: initial?.discount_percent ?? 10,
     active: initial?.active ?? true,
+    expires_at: initial?.expires_at
+      ? new Date(initial.expires_at).toISOString().slice(0, 16)
+      : "",
+    max_uses: initial?.max_uses ?? "",
+    auto_expire_24h: !initial,  // NEW coupons get 24h default; editing keeps existing
   });
+
+  function submit() {
+    // Convert local datetime input to ISO with UTC. Empty = no expiration
+    // (but auto_expire_24h can set one server-side).
+    const payload = {
+      code: f.code,
+      discount_percent: parseFloat(f.discount_percent),
+      active: f.active,
+      expires_at: f.expires_at ? new Date(f.expires_at).toISOString() : null,
+      max_uses: f.max_uses === "" || f.max_uses === null
+        ? null : parseInt(f.max_uses, 10),
+    };
+    if (!initial && !f.expires_at && f.auto_expire_24h) {
+      payload.auto_expire_24h = true;
+    }
+    onSubmit(payload);
+  }
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -40,15 +62,53 @@ function CouponForm({ initial, onSubmit, onCancel }) {
         <Input
           data-testid="input-coupon-percent"
           type="number"
-          min={1}
+          min={0.1}
           max={50}
+          step={0.1}
           value={f.discount_percent}
-          onChange={(e) => setF({ ...f, discount_percent: parseInt(e.target.value, 10) || 0 })}
+          onChange={(e) => setF({ ...f, discount_percent: e.target.value })}
         />
         <p className="text-[11px] text-white/40 mt-1">
-          Máximo permitido: 50%. Valores maiores serão limitados automaticamente.
+          Aceita decimais (ex: 12,3%). Máximo 50%.
         </p>
       </div>
+      <div>
+        <Label>Expira em (opcional)</Label>
+        <Input
+          data-testid="input-coupon-expires"
+          type="datetime-local"
+          value={f.expires_at}
+          onChange={(e) => setF({ ...f, expires_at: e.target.value })}
+        />
+        <p className="text-[11px] text-white/40 mt-1">Vazio = sem expiração.</p>
+      </div>
+      <div>
+        <Label>Máx. usos (opcional)</Label>
+        <Input
+          data-testid="input-coupon-maxuses"
+          type="number"
+          min={1}
+          value={f.max_uses}
+          onChange={(e) => setF({ ...f, max_uses: e.target.value })}
+          placeholder="Ilimitado"
+        />
+        <p className="text-[11px] text-white/40 mt-1">Total de resgates permitidos.</p>
+      </div>
+      {!initial && (
+        <div className="col-span-2 flex items-center justify-between p-3 rounded-md bg-white/[0.03] border border-white/10">
+          <div>
+            <div className="text-sm font-medium">Expirar em 24h automaticamente</div>
+            <div className="text-[11px] text-white/40">
+              Se ativado (e &quot;Expira em&quot; vazio), o cupom vira inválido 24h após criação.
+            </div>
+          </div>
+          <Switch
+            data-testid="switch-auto-expire-24h"
+            checked={f.auto_expire_24h}
+            onCheckedChange={(v) => setF({ ...f, auto_expire_24h: v })}
+          />
+        </div>
+      )}
       <div className="col-span-2 flex items-center justify-between p-3 rounded-md bg-white/[0.03] border border-white/10">
         <div>
           <div className="text-sm font-medium">Cupom ativo</div>
@@ -66,7 +126,7 @@ function CouponForm({ initial, onSubmit, onCancel }) {
         <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
         <Button
           className="bg-[#007AFF] hover:bg-[#005BB5]"
-          onClick={() => onSubmit(f)}
+          onClick={submit}
           data-testid="btn-save-coupon"
         >
           Salvar
@@ -242,6 +302,19 @@ export default function Coupons() {
             <div className="font-display text-4xl font-bold text-[#34C759] mb-3">
               -{c.discount_percent}%
             </div>
+
+            {(c.expires_at || c.max_uses) && (
+              <div className="text-[11px] text-white/50 space-y-0.5 mb-3" data-testid={`coupon-limits-${c.id}`}>
+                {c.expires_at && (
+                  <div>⏱️ Expira: {formatDateBR(c.expires_at)}</div>
+                )}
+                {c.max_uses && (
+                  <div>
+                    🎯 Usos: {c.usage_count || 0} / {c.max_uses}
+                  </div>
+                )}
+              </div>
+            )}
 
             <button
               onClick={() => setViewingUsages(c)}

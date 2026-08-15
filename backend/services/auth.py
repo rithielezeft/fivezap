@@ -90,6 +90,10 @@ def is_public(path: str, method: str = "GET") -> bool:
     # before creating the checkout link.
     if path == "/api/coupons/validate" and method.upper() == "POST":
         return True
+    # OpenAPI spec + Swagger/Redoc UIs are public (no sensitive data leaks).
+    # Frontend /api-docs page fetches /api/openapi.json to render the list.
+    if path in ("/api/openapi.json", "/api/docs", "/api/redoc") or path.startswith("/api/docs/oauth2-redirect"):
+        return True
     if path == "/api/whatsapp/incoming":
         return True
     if path.startswith("/api/uploads/"):

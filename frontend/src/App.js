@@ -15,6 +15,7 @@ import Settings from "@/pages/Settings";
 import Notifications from "@/pages/Notifications";
 import Coupons from "@/pages/Coupons";
 import Geography from "@/pages/Geography";
+import ApiDocs from "@/pages/ApiDocs";
 import Login from "@/pages/Login";
 import PublicTest from "@/pages/PublicTest";
 import PublicPay from "@/pages/PublicPay";
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/notifications" element={<P><Notifications /></P>} />
           <Route path="/coupons" element={<P><Coupons /></P>} />
           <Route path="/geografia" element={<P><Geography /></P>} />
+          <Route path="/documentacao" element={<P><ApiDocs /></P>} />
           <Route path="/settings" element={<P><Settings /></P>} />
         </Routes>
       </BrowserRouter>

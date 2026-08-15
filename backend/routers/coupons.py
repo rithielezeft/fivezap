@@ -17,8 +17,10 @@ router = APIRouter(prefix="/api/coupons", tags=["coupons"])
 class Coupon(BaseModel):
     id: str
     code: str
-    discount_percent: int
+    discount_percent: float
     active: bool = True
+    expires_at: Optional[str] = None
+    max_uses: Optional[int] = None
     created_at: str
     updated_at: str
     usage_count: Optional[int] = 0
@@ -26,14 +28,21 @@ class Coupon(BaseModel):
 
 class CouponCreate(BaseModel):
     code: str
-    discount_percent: int
+    discount_percent: float
     active: bool = True
+    expires_at: Optional[str] = None  # ISO datetime — hard expiration cap
+    max_uses: Optional[int] = None    # total redemptions allowed (all users)
+    # If truthy, `expires_at` is auto-set to now + 24h (unless caller passed
+    # an explicit `expires_at`). Convenience flag for the UI.
+    auto_expire_24h: bool = False
 
 
 class CouponUpdate(BaseModel):
     code: Optional[str] = None
-    discount_percent: Optional[int] = None
+    discount_percent: Optional[float] = None
     active: Optional[bool] = None
+    expires_at: Optional[str] = None
+    max_uses: Optional[int] = None
 
 
 class CouponUsage(BaseModel):
@@ -78,17 +87,28 @@ async def create_coupon(payload: CouponCreate):
     if not code:
         raise HTTPException(400, "Código é obrigatório")
     percent = clamp_percent(payload.discount_percent)
-    if percent < 1:
-        raise HTTPException(400, f"Desconto deve ser entre 1 e {MAX_DISCOUNT_PERCENT}%")
+    if percent < 0.1:
+        raise HTTPException(400, f"Desconto deve ser entre 0.1 e {MAX_DISCOUNT_PERCENT}%")
+
+    # expires_at: if auto_expire_24h flag is set and no explicit value,
+    # default to now + 24h. Otherwise store the caller-provided ISO.
+    from datetime import datetime, timezone, timedelta
+    exp_at = (payload.expires_at or "").strip() or None
+    if not exp_at and payload.auto_expire_24h:
+        exp_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+
+    max_uses = int(payload.max_uses) if payload.max_uses and payload.max_uses > 0 else None
 
     coupon_id = new_id()
     ts = now_iso()
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
-                "INSERT INTO coupons (id, code, discount_percent, active, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (coupon_id, code, percent, 1 if payload.active else 0, ts, ts),
+                "INSERT INTO coupons (id, code, discount_percent, active, "
+                "expires_at, max_uses, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (coupon_id, code, percent, 1 if payload.active else 0,
+                 exp_at, max_uses, ts, ts),
             )
             await db.commit()
     except aiosqlite.IntegrityError:
@@ -96,7 +116,8 @@ async def create_coupon(payload: CouponCreate):
 
     return Coupon(
         id=coupon_id, code=code, discount_percent=percent,
-        active=payload.active, created_at=ts, updated_at=ts, usage_count=0,
+        active=payload.active, expires_at=exp_at, max_uses=max_uses,
+        created_at=ts, updated_at=ts, usage_count=0,
     )
 
 
@@ -117,11 +138,16 @@ async def update_coupon(coupon_id: str, payload: CouponUpdate):
             fields["code"] = new_code
         if payload.discount_percent is not None:
             percent = clamp_percent(payload.discount_percent)
-            if percent < 1:
-                raise HTTPException(400, f"Desconto deve ser entre 1 e {MAX_DISCOUNT_PERCENT}%")
+            if percent < 0.1:
+                raise HTTPException(400, f"Desconto deve ser entre 0.1 e {MAX_DISCOUNT_PERCENT}%")
             fields["discount_percent"] = percent
         if payload.active is not None:
             fields["active"] = 1 if payload.active else 0
+        if payload.expires_at is not None:
+            # Empty string clears the expiration; a valid ISO sets it.
+            fields["expires_at"] = payload.expires_at.strip() or None
+        if payload.max_uses is not None:
+            fields["max_uses"] = int(payload.max_uses) if payload.max_uses > 0 else None
         if not fields:
             raise HTTPException(400, "Nenhum campo para atualizar")
 
