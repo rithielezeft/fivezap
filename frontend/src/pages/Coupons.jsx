@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
-import { couponsApi, formatDateBR } from "@/lib/api";
+import { couponsApi, formatDateBR, formatDateShort } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -171,7 +171,7 @@ function UsagesDialog({ coupon, open, onOpenChange }) {
                     {u.painel_username || u.customer_id}
                   </div>
                   <div className="text-[11px] text-white/40 mt-0.5">
-                    {formatDateBR(u.used_at)}
+                    {formatDateShort(u.used_at)}
                     {u.phone ? ` · ${u.phone}` : ""}
                   </div>
                 </div>
@@ -282,7 +282,7 @@ export default function Coupons() {
                 <div>
                   <div className="font-mono font-bold tracking-wider">{c.code}</div>
                   <div className="text-[10px] uppercase tracking-widest text-white/40">
-                    {formatDateBR(c.created_at)}
+                    {formatDateShort(c.created_at)}
                   </div>
                 </div>
               </div>
@@ -306,7 +306,7 @@ export default function Coupons() {
             {(c.expires_at || c.max_uses) && (
               <div className="text-[11px] text-white/50 space-y-0.5 mb-3" data-testid={`coupon-limits-${c.id}`}>
                 {c.expires_at && (
-                  <div>⏱️ Expira: {formatDateBR(c.expires_at)}</div>
+                  <div>⏱️ Expira: {formatDateShort(c.expires_at)}</div>
                 )}
                 {c.max_uses && (
                   <div>

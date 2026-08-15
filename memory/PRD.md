@@ -20,6 +20,28 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28] Formato bonito de data + VOLTA aleatório + guia deploy
+
+### 1) `formatDateShort` — formato compacto para cards
+- Novo helper em `lib/api.js`: `formatDateShort(iso)` retorna `08-08-26 às 23:08h` (dia-mês-ano curto + hora com "às" e "h" no final)
+- Aplicado em `Coupons.jsx`: no `⏱️ Expira`, no `createdAt` do card, e nos `used_at` do dialog de usos
+- Fuso respeita `_displayTz` (América/São_Paulo default). `formatDateBR` continua existindo para lugares onde a granularidade completa faz sentido (histórico de pagamento, etc)
+
+### 2) Auto-Cupom com código aleatório (não mais derivado)
+- `services/auto_coupon.py::_create_personal_coupon` agora gera código no formato `VOLTA` + **6 chars aleatórios** do alfabeto `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (sem 0/O/1/I ambíguos)
+- 10 tentativas de retry contra colisão na constraint UNIQUE
+- Idempotência preservada via setting `auto_coupon_sent_{customer_id}` (já existia)
+- **Vantagem**: cliente não consegue deduzir o cupom do amigo pelo próprio ID; admins podem compartilhar códigos sem vazar informação de conta
+
+### 3) Guia de deploy pro Raspberry Pi
+- Já existe script `/app/update.sh` (304 linhas, idempotente, com backup + rollback automático). Fluxo do admin:
+  ```bash
+  cd ~/WhatsFlow && sudo bash update.sh
+  ```
+- O script faz: backup DB+.env → para backend → pull do GitHub → reinstala deps Python/Node → rebuild frontend se mudou → restart supervisor → health-check → rollback automático se falhar
+
+
+
 ## [FEATURES 2026-02-28] API Docs Page + Auto-Coupon + Cupom v2
 
 ### 1) Página de Documentação da API (`/documentacao`)

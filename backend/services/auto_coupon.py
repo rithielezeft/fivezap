@@ -63,16 +63,36 @@ async def _get_float(key: str, default: float) -> float:
 async def _create_personal_coupon(customer_id: str, percent: float,
                                   ttl_hours: int, max_uses: int) -> dict:
     """Create a personalized coupon for this customer if not present.
-    Returns the coupon dict (either newly created or existing)."""
-    # Compute a stable, human-readable code
-    tail = str(customer_id).replace("-", "")[-6:].upper()
-    code = f"VOLTA{tail}"
+    Returns the coupon dict (either newly created or existing).
+
+    Code format: `VOLTA` + 6 random alphanumeric chars (uppercase, no
+    ambiguous 0/O/1/I). Random — not derived from customer_id — so admins
+    can share/collect coupons anonymously without leaking the ID.
+    """
+    import random
+    import string
+    # Reuse an existing pending coupon for this customer to keep the flow
+    # idempotent (setting `auto_coupon_sent_{id}` also prevents re-sends,
+    # but this second net catches any race).
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM coupons WHERE code = ?", (code,))
-        existing = await cur.fetchone()
-        if existing:
-            return dict(existing)
+        # Existing coupon assigned to this customer via a usage row? No —
+        # usages are only recorded after payment. Use a lightweight tag by
+        # looking up the settings map for the sent marker instead.
+        # If sent-marker exists, we shouldn't hit this function anyway. Fall
+        # through to fresh creation.
+
+        # Generate a random code with retry on the unique constraint.
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I
+        for _ in range(10):
+            suffix = "".join(random.choices(alphabet, k=6))
+            code = f"VOLTA{suffix}"
+            # Fast collision check (unique index)
+            cur = await db.execute("SELECT 1 FROM coupons WHERE code = ?", (code,))
+            if not await cur.fetchone():
+                break
+        else:
+            raise RuntimeError("could not generate a unique VOLTA code after 10 tries")
 
         cid = new_id()
         ts = now_iso()

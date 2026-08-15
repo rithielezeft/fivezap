@@ -174,3 +174,22 @@ export function formatDateBR(iso) {
     return iso;
   }
 }
+
+// Compact date formatter: "08-08-26 às 23:08h" — used in cards where the
+// verbose "08/08/2026, 23:08:36" from `formatDateBR` is too noisy.
+export function formatDateShort(iso) {
+  if (!iso) return "-";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "-";
+    const parts = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: _displayTz,
+      day: "2-digit", month: "2-digit", year: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(d);
+    const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
+    return `${get("day")}-${get("month")}-${get("year")} às ${get("hour")}:${get("minute")}h`;
+  } catch {
+    return iso;
+  }
+}
