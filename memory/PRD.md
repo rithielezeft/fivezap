@@ -20,6 +20,20 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28] Auto-cupom usa a mesma % do desconto 7d
+
+**Pedido do usuário**: "a porcentagem dos cupom de volta tem que ser o mesmo que é o Desconto no lembrete 7d — % que já está configurado só deve usar o mesmo".
+
+**Correção em `services/auto_coupon.py::sweep_once`**: removida a leitura da setting `auto_coupon_percent`. Agora lê **`discount_7d_percent`** (a mesma que o desconto do lembrete de 7 dias usa em `services/discount.py`).
+
+Fallback: 15% se a setting estiver vazia/inválida. Docstring atualizada pra deixar claro o single source of truth.
+
+**Efeito prático**: se o admin ajustar "Desconto do lembrete 7d — %" para 8%, o próximo cupom `VOLTA` gerado automaticamente vem com 8% também. Zero configuração duplicada.
+
+Verificação: `_get_float("discount_7d_percent", 15.0)` retorna o valor correto do DB (testado com curl no endpoint de settings + inspeção direta). Regressão: 30 testes de cupom/dedup/geo/uploads continuam passando.
+
+
+
 ## [FIX 2026-02-28] Formato bonito de data + VOLTA aleatório + guia deploy
 
 ### 1) `formatDateShort` — formato compacto para cards

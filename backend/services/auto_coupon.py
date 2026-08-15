@@ -5,11 +5,13 @@ Behavior:
 - Runs hourly (in same scheduler tick).
 - Filters painel users where status == 'expired' AND days_since_expiry >= N.
 - Excludes trial users (package_id == trial_package_id).
-- For each qualifying customer, creates a unique coupon code
-  `WELCOMEBACK{customer_id_last6}` if it doesn't exist yet.
-- Coupon defaults: 15% off (configurable via `auto_coupon_percent`),
-  24h hard expiration (`auto_coupon_ttl_hours`),
-  1 max use (single-shot per customer).
+- For each qualifying customer, creates a unique random coupon code
+  `VOLTA{6 random chars}` if it doesn't exist yet.
+- Coupon uses the **same percentage as `discount_7d_percent`** (the "Desconto
+  do lembrete 7d" configured in Settings) — single source of truth. If admin
+  bumps that value, the recovery coupon uses the new % automatically.
+- Coupon defaults: 24h hard expiration (`auto_coupon_ttl_hours`),
+  1 max use (`auto_coupon_max_uses`, single-shot per customer).
 - Sends WhatsApp message using template `auto_recovery_coupon` with the
   coupon code and pay_link injected.
 - Idempotent: uses setting `auto_coupon_sent_{customer_id}` so we never
@@ -18,7 +20,7 @@ Behavior:
 Settings (all optional, sane defaults):
   auto_coupon_enabled          -> "true"/"false" (default true)
   auto_coupon_expired_days     -> int (default 3)
-  auto_coupon_percent          -> float (default 15.0)
+  discount_7d_percent          -> float (default 15.0)  ← shared with 7d reminder
   auto_coupon_ttl_hours        -> int (default 24)
   auto_coupon_max_uses         -> int (default 1)
 """
@@ -117,7 +119,11 @@ async def sweep_once() -> int:
         return 0
 
     threshold = await _get_int("auto_coupon_expired_days", 3)
-    percent = await _get_float("auto_coupon_percent", 15.0)
+    # Percent comes FROM the same "Desconto do lembrete 7d" setting the admin
+    # already configured. Single source of truth — if the admin bumps the 7d
+    # discount, the recovery coupon updates too. No separate setting.
+    # Falls back to 15% if the 7d discount setting is empty/invalid.
+    percent = await _get_float("discount_7d_percent", 15.0)
     ttl_hours = await _get_int("auto_coupon_ttl_hours", 24)
     max_uses = await _get_int("auto_coupon_max_uses", 1)
     trial_pkg_id = await _get_int("trial_package_id", 61)
