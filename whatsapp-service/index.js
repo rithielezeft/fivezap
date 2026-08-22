@@ -147,6 +147,14 @@ function _resolveChromiumPath() {
 
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: SESSION_DIR }),
+  // Pin the WA Web HTML to a known-good version — WhatsApp updates web.whatsapp.com
+  // frequently and it breaks whatsapp-web.js's inject step (Client.inject) with
+  // "TargetCloseError: Target closed". Pinning to a specific HTML from the
+  // community-maintained wa-version repo fixes this until the library updates.
+  webVersionCache: {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1045805239-alpha.html',
+  },
   puppeteer: {
     // MUST be 'new' — Chromium 132+ removed the old headless mode. Passing
     // `headless: true` becomes `--headless=old` on some puppeteer versions

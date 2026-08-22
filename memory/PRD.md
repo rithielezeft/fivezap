@@ -20,15 +20,19 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
-## [FIX 2026-02-28] Chromium `headless: 'new'` para Chromium 132+ (Debian Trixie)
+## [FIX 2026-02-28] Chromium `headless: 'new'` + Pin WA Web version 2.3000.1045805239-alpha
 
-**Raiz:** Chromium 132+ removeu o modo `--headless=old`. O `whatsapp-web.js` passava `headless: true` para o Puppeteer, que virava `--headless=old` → Chromium abria e morria imediatamente com `TargetCloseError: Target closed`. QR nunca era gerado no Pi.
+**Raiz:** Duas causas empilhadas quebravam o QR no Pi (Debian Trixie, Chromium 148):
+1. `headless: true` no Puppeteer virava `--headless=old` — Chromium 132+ removeu esse modo → `TargetCloseError` imediato.
+2. Após corrigir (1), `Client.inject` do whatsapp-web.js falhava: WhatsApp Web muda a estrutura HTML frequentemente, quebrando o script de injeção do wwebjs 1.34.7.
 
-**Fix:** Em `whatsapp-service/index.js`:
-- `headless: true` → `headless: 'new'`
-- Adicionado `--headless=new` explícito em `args` (belt & suspenders para puppeteer antigo)
-- Resolver agora prefere binário real (`/usr/lib/chromium/chromium`) sobre wrappers shell
-- Instalação automática do Chromium adicionada no `update.sh` (passo 0)
+**Fixes em `whatsapp-service/index.js`:**
+- `headless: 'new'` + `--headless=new` explícito em `args`
+- Resolver prefere binário real (`/usr/lib/chromium/chromium`) sobre wrappers shell (rejeita se não for ELF)
+- **`webVersionCache: { type: 'remote', remotePath: '.../2.3000.1045805239-alpha.html' }`** — força uma versão HTML do WA Web mantida pela comunidade `wppconnect-team/wa-version` que sabidamente funciona com wwebjs 1.34.x
+
+**Em `update.sh`:**
+- Instalação automática do Chromium via `apt install chromium` no passo 0
 
 
 ## [FIX 2026-02-28] Chromium auto-install no update.sh (Debian Trixie)
