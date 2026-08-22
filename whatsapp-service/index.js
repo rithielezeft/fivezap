@@ -96,23 +96,53 @@ function _resolveChromiumPath() {
   const explicit = process.env.CHROMIUM_PATH;
   if (explicit) return explicit;
   const fs = require('fs');
+  // Prefer REAL binaries first — shell wrappers cause TargetCloseError because
+  // Puppeteer's PID handle refers to the wrapper, which exits after spawning
+  // the real browser, breaking the DevTools protocol handshake.
   const candidates = [
-    '/usr/bin/chromium-browser',   // Raspberry Pi OS (default)
-    '/usr/bin/chromium',           // Debian/Ubuntu ARM
-    '/usr/bin/google-chrome',      // x86 dev boxes
+    // Real binaries (Debian/RPi OS install these under /usr/lib/*)
+    '/usr/lib/chromium/chrome',
+    '/usr/lib/chromium/chromium',
+    '/usr/lib/chromium-browser/chromium-browser',
+    // Common apt-installed paths (may be real OR wrapper — checked below)
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
     '/snap/bin/chromium',
   ];
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) { console.log('[WA] Using Chromium at', p); return p; } } catch (e) {}
+
+  // Helper: reject POSIX shell scripts. Puppeteer needs the real ELF binary.
+  function _isRealBinary(p) {
+    try {
+      const buf = Buffer.alloc(4);
+      const fd = fs.openSync(p, 'r');
+      fs.readSync(fd, buf, 0, 4, 0);
+      fs.closeSync(fd);
+      // ELF magic: 0x7F 'E' 'L' 'F'
+      return buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
+    } catch (e) { return false; }
   }
+
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      if (!_isRealBinary(p)) {
+        console.warn('[WA] Skipping', p, '— it is a shell wrapper, not the real Chromium binary');
+        continue;
+      }
+      console.log('[WA] Using Chromium at', p);
+      return p;
+    } catch (e) {}
+  }
+
   console.error('════════════════════════════════════════════════════════');
-  console.error('[WA] ❌ NENHUM CHROMIUM ENCONTRADO NO SISTEMA!');
-  console.error('[WA] O whatsapp-web.js precisa do Chromium para funcionar.');
+  console.error('[WA] ❌ NENHUM CHROMIUM (BINÁRIO REAL) ENCONTRADO!');
+  console.error('[WA] Encontrei apenas wrappers shell — Puppeteer não funciona com wrappers.');
   console.error('[WA] Instale com:  sudo apt install -y chromium');
-  console.error('[WA] (ou rode: sudo bash update.sh — o updater instala sozinho)');
+  console.error('[WA] Ou aponte manualmente: export CHROMIUM_PATH=/caminho/do/binario/real');
   console.error('════════════════════════════════════════════════════════');
-  return undefined;  // let Puppeteer use its bundled binary (may fail on ARM)
+  return undefined;
 }
 
 const client = new Client({
