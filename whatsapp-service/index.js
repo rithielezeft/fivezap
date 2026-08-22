@@ -106,8 +106,13 @@ function _resolveChromiumPath() {
   for (const p of candidates) {
     try { if (fs.existsSync(p)) { console.log('[WA] Using Chromium at', p); return p; } } catch (e) {}
   }
-  console.warn('[WA] No Chromium binary found in any known path — Puppeteer will try its bundled one');
-  return undefined;  // let Puppeteer use its bundled binary
+  console.error('════════════════════════════════════════════════════════');
+  console.error('[WA] ❌ NENHUM CHROMIUM ENCONTRADO NO SISTEMA!');
+  console.error('[WA] O whatsapp-web.js precisa do Chromium para funcionar.');
+  console.error('[WA] Instale com:  sudo apt install -y chromium');
+  console.error('[WA] (ou rode: sudo bash update.sh — o updater instala sozinho)');
+  console.error('════════════════════════════════════════════════════════');
+  return undefined;  // let Puppeteer use its bundled binary (may fail on ARM)
 }
 
 const client = new Client({

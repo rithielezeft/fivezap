@@ -110,6 +110,12 @@ export const analyticsApi = {
     api.get("/analytics/geography", { params: { scope } }).then((r) => r.data),
 };
 
+export const systemApi = {
+  update: (password) => api.post("/system/update", { password }).then((r) => r.data),
+  updateStatus: (tail_lines = 80) =>
+    api.get("/system/update-status", { params: { tail_lines } }).then((r) => r.data),
+};
+
 export const publicApi = {
   requestTrial: (data) => api.post("/public/trial", data).then((r) => r.data),
 };

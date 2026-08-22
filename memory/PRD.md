@@ -20,6 +20,45 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28] Chromium auto-install no update.sh (Debian Trixie)
+
+Debian Trixie não instala o `chromium-browser` por padrão. Sem o Chromium, o Puppeteer do `whatsapp-web.js` trava em "starting" e nunca gera QR.
+
+**`update.sh` (novo passo 0):**
+- Detecta se `/usr/bin/chromium-browser`, `/usr/bin/chromium` ou `/snap/bin/chromium` existe
+- Se ausente, roda `apt install -y chromium-browser` (fallback: `chromium`)
+- Loga o resultado + caminho detectado ou instrução manual em caso de falha
+
+**`whatsapp-service/index.js`:**
+- Mensagem de erro clara quando nenhum Chromium é encontrado (com instrução `sudo apt install`)
+- Substitui o `console.warn` silencioso anterior
+
+
+## [FEATURE 2026-02-28] Botão "Atualizar Pi" em Configurações (self-update remoto)
+
+Novo card no topo da tela de Configurações que executa `sudo bash update.sh` no servidor sem SSH.
+
+**Backend (`routers/system_update.py`):**
+- `POST /api/system/update` — recebe `{password}`, valida senha admin (**dupla proteção**: JWT + senha) e dispara o script em processo detached (`setsid nohup`). Bloqueia se já tem update rodando (409).
+- `GET /api/system/update-status?tail_lines=N` — retorna estado (`idle/running/success/error`) + últimas N linhas do log. Heurística de conclusão detecta markers como "update finished", "healthcheck passed" no output.
+- Logs em `/tmp/whatsflow-update-{ts}.log`, status em `/tmp/whatsflow-update-status.json` (persistente entre restarts).
+
+**Frontend (`pages/Settings.jsx::UpdatePiCard`):**
+- Botão "Atualizar Pi" laranja no topo da página
+- Ao clicar: box de aviso amarelo + input de senha inline (não modal — fica visível junto do log)
+- Após confirmar: badge "Atualizando..." pulsando + polling a cada 3s de `/update-status`
+- Terminal-style log tail mostrando as últimas 120 linhas em tempo real
+- Ao terminar: badge "Concluído" verde + reload automático em 3s (ou "Erro" vermelho com log preservado)
+- **Retomada em refresh**: se admin recarregar a página no meio do update, o `useEffect` detecta `state=running` e retoma o polling automaticamente
+- `catch` silencioso durante o restart do backend (quando ele reinicia, os polls falham por ~30s até voltar — não mostra erro pro usuário)
+
+**Segurança:**
+- 2 camadas: JWT (middleware) + senha admin re-validada no endpoint (evita que JWT vazado dispare update)
+- Script existente (`/app/update.sh`, 304 linhas) já tem rollback automático + backup pré-update
+- Não expõe stdout do processo pai — só o arquivo de log dedicado
+
+
+
 ## [FIX 2026-02-28] Chromium auto-detect + Coupon cleanup loop
 
 ### 1) WhatsApp preso em "starting" — Chromium não encontrado no Pi

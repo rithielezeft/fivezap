@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
-import { settingsApi, painelApi, paymentsApi, setDisplayTimezone } from "@/lib/api";
+import { settingsApi, painelApi, paymentsApi, systemApi, setDisplayTimezone } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin, MapTrifold, Lightning, Bell, Ticket, ArrowsClockwise, CreditCard, Tag } from "@phosphor-icons/react";
+import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin, MapTrifold, Lightning, Bell, Ticket, ArrowsClockwise, CreditCard, Tag, Download, Warning } from "@phosphor-icons/react";
 
 const FIELDS = [
   { key: "painel_username", label: "Painel.fun — Usuário", group: "painel" },
@@ -126,6 +126,162 @@ function scrollToSetting(key) {
   setTimeout(() => el.classList.remove("setting-highlight"), 2000);
 }
 
+
+function UpdatePiCard() {
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [password, setPassword] = useState("");
+  const [running, setRunning] = useState(false);
+  const [tail, setTail] = useState("");
+  const [state, setState] = useState("idle");
+  const pollRef = useRef(null);
+
+  async function trigger() {
+    if (!password) { toast.error("Digite sua senha admin"); return; }
+    try {
+      const res = await systemApi.update(password);
+      setRunning(true);
+      setState("running");
+      setTail("");
+      setShowConfirm(false);
+      setPassword("");
+      toast.success(res.message || "Update iniciado — aguarde ~2 min");
+      startPolling();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  }
+
+  function startPolling() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await systemApi.updateStatus(120);
+        setState(s.state);
+        setTail(s.tail || "");
+        if (s.state !== "running") {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setRunning(false);
+          if (s.state === "success") {
+            toast.success("Update concluído! Recarregando página...");
+            setTimeout(() => window.location.reload(), 3000);
+          } else if (s.state === "error") {
+            toast.error("Update falhou — veja o log abaixo");
+          }
+        }
+      } catch (_e) { /* backend restarting → will come back */ }
+    }, 3000);
+  }
+
+  useEffect(() => {
+    // On mount, check if an update is already running (e.g., admin refreshed
+    // the page while it was in progress).
+    (async () => {
+      try {
+        const s = await systemApi.updateStatus(80);
+        if (s.state === "running") {
+          setRunning(true);
+          setState("running");
+          setTail(s.tail || "");
+          startPolling();
+        }
+      } catch (_e) {
+        // Silently ignore — could be first-run before endpoint is reachable
+      }
+    })();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  return (
+    <div className="surface rounded-xl p-6" data-testid="update-pi-card">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[#FF9500]/15 text-[#FF9500] flex items-center justify-center shrink-0">
+            <Download size={18} weight="duotone" />
+          </div>
+          <div>
+            <h2 className="font-display text-lg font-bold">Atualização do Raspberry Pi</h2>
+            <p className="text-xs text-white/50 mt-1 max-w-md">
+              Roda <code className="text-white/70">sudo bash update.sh</code> no servidor:
+              backup do banco → git pull → reinstala deps → rebuild → restart supervisor → health-check com rollback automático.
+              O backend reinicia sozinho, ~1-2 min.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {state === "running" && (
+            <span className="text-xs px-2 py-1 rounded-full bg-[#FF9500]/15 text-[#FF9500] border border-[#FF9500]/30 animate-pulse">
+              Atualizando...
+            </span>
+          )}
+          {state === "success" && (
+            <span className="text-xs px-2 py-1 rounded-full bg-[#34C759]/15 text-[#34C759] border border-[#34C759]/30">
+              Concluído
+            </span>
+          )}
+          {state === "error" && (
+            <span className="text-xs px-2 py-1 rounded-full bg-[#FF3B30]/15 text-[#FF3B30] border border-[#FF3B30]/30">
+              Erro
+            </span>
+          )}
+          <Button
+            data-testid="btn-update-pi"
+            onClick={() => setShowConfirm(true)}
+            disabled={running}
+            className="bg-[#FF9500] hover:bg-[#CC7A00]"
+          >
+            <Download size={14} className="mr-1.5" />
+            {running ? "Em progresso..." : "Atualizar Pi"}
+          </Button>
+        </div>
+      </div>
+
+      {tail && (
+        <pre
+          data-testid="update-log"
+          className="mt-4 p-3 rounded-md bg-black/60 border border-white/10 text-[11px] leading-relaxed font-mono text-white/70 max-h-72 overflow-auto"
+        >
+          {tail}
+        </pre>
+      )}
+
+      {showConfirm && (
+        <div className="mt-4 p-4 rounded-md bg-yellow-500/5 border border-yellow-500/30 space-y-3">
+          <div className="flex items-start gap-2">
+            <Warning size={16} className="text-yellow-300 mt-0.5 shrink-0" />
+            <div className="text-xs text-yellow-100/90">
+              O update <strong>reinicia backend e frontend</strong>. Você vai perder a sessão por ~1-2 min.
+              Confirme sua senha admin pra iniciar.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="Senha admin"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && trigger()}
+              data-testid="input-update-password"
+              className="bg-white/[0.03] border-white/10 flex-1"
+              autoFocus
+            />
+            <Button variant="ghost" onClick={() => { setShowConfirm(false); setPassword(""); }}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={trigger}
+              data-testid="btn-confirm-update"
+              className="bg-[#FF9500] hover:bg-[#CC7A00]"
+            >
+              Confirmar
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { data, refetch } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
   const [form, setForm] = useState({});
@@ -199,6 +355,9 @@ export default function Settings() {
       }
     >
       <div className="space-y-6">
+        {/* UPDATE PI — remote self-update trigger */}
+        <UpdatePiCard />
+
         {/* PLAYBOOK — visual map of settings → app flows */}
         <div className="surface rounded-xl p-6" data-testid="settings-playbook">
           <div className="flex items-center gap-2 mb-2">

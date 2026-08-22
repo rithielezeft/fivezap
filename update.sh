@@ -60,6 +60,36 @@ echo                               | tee -a "$LOG_FILE"
 
 cd "$APP_DIR"
 
+# ----- 0) Garantir que o Chromium está instalado (necessário pro Puppeteer) -----
+# Sem chromium instalado, o whatsapp-web.js trava em "starting" e nunca gera o QR.
+# Debian Trixie NÃO instala o chromium por padrão. Detectamos e instalamos.
+CHROMIUM_PATHS=(/usr/bin/chromium-browser /usr/bin/chromium /snap/bin/chromium)
+CHROMIUM_FOUND=""
+for p in "${CHROMIUM_PATHS[@]}"; do
+  if [ -x "$p" ]; then CHROMIUM_FOUND="$p"; break; fi
+done
+if [ -z "$CHROMIUM_FOUND" ]; then
+  echo "▶ Chromium não encontrado — instalando via apt..." | tee -a "$LOG_FILE"
+  # Tenta os dois nomes de pacote: chromium-browser (RPi OS) e chromium (Debian puro)
+  DEBIAN_FRONTEND=noninteractive apt-get update -y 2>&1 | tee -a "$LOG_FILE" || true
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y chromium-browser 2>&1 | tee -a "$LOG_FILE"; then
+    echo "▶ chromium-browser indisponível — tentando pacote 'chromium'..." | tee -a "$LOG_FILE"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y chromium 2>&1 | tee -a "$LOG_FILE" || true
+  fi
+  # Reverifica
+  for p in "${CHROMIUM_PATHS[@]}"; do
+    if [ -x "$p" ]; then CHROMIUM_FOUND="$p"; break; fi
+  done
+  if [ -z "$CHROMIUM_FOUND" ]; then
+    echo "⚠️  Não consegui instalar o Chromium automaticamente." | tee -a "$LOG_FILE"
+    echo "    Rode manualmente:  sudo apt install -y chromium"    | tee -a "$LOG_FILE"
+  else
+    echo "✅ Chromium instalado em: $CHROMIUM_FOUND" | tee -a "$LOG_FILE"
+  fi
+else
+  echo "✅ Chromium presente em: $CHROMIUM_FOUND" | tee -a "$LOG_FILE"
+fi
+
 # ----- 1) Backup -----
 mkdir -p "$BACKUP_DIR"
 echo "▶ Fazendo backup do estado atual..." | tee -a "$LOG_FILE"
