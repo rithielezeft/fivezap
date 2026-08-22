@@ -233,17 +233,6 @@ echo "▶ Instalando dependências Node do WhatsApp service..." | tee -a "$LOG_F
 cd "$APP_DIR/whatsapp-service"
 sudo -u "$APP_USER" yarn install --ignore-engines --silent 2>&1 | tee -a "$LOG_FILE"
 
-# CRÍTICO: força download do Chrome-for-Testing do puppeteer. O yarn/npm
-# rodam o postinstall do puppeteer que baixa o Chrome, mas em Pi ARM esse
-# download falha silenciosamente às vezes. Rodamos manualmente para garantir.
-echo "▶ Garantindo Chrome do puppeteer (compatível com wwebjs, ~200MB)..." | tee -a "$LOG_FILE"
-if [ ! -d "$APP_HOME/.cache/puppeteer/chrome" ] || [ -z "$(ls -A "$APP_HOME/.cache/puppeteer/chrome" 2>/dev/null)" ]; then
-  sudo -u "$APP_USER" npx --yes puppeteer browsers install chrome 2>&1 | tee -a "$LOG_FILE" || \
-    echo "⚠️  Download do Chrome do puppeteer falhou — usará Chromium do sistema (pode falhar no QR)" | tee -a "$LOG_FILE"
-else
-  echo "✅ Chrome do puppeteer já está instalado" | tee -a "$LOG_FILE"
-fi
-
 # ----- 6) Frontend — rebuilda se mudou OU se o build está corrompido/incompleto -----
 NEED_REBUILD=0
 if [ "$FRONTEND_CHANGED" = "1" ]; then

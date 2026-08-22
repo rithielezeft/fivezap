@@ -96,56 +96,16 @@ function _resolveChromiumPath() {
   const explicit = process.env.CHROMIUM_PATH;
   if (explicit) return explicit;
   const fs = require('fs');
-  const { execSync } = require('child_process');
 
-  // 1) FIRST — try the puppeteer-bundled Chrome for Testing. This is critical
-  //    on ARM/Debian Trixie: system Chromium is often 148+ which has DevTools
-  //    protocol changes that crash the wwebjs `Client.inject` (page.evaluate).
-  //    Puppeteer downloads a version-matched Chrome that avoids this issue.
-  function _tryPuppeteerBundled() {
-    try {
-      const puppeteer = require('puppeteer');
-      const bundled = puppeteer.executablePath();
-      if (bundled && fs.existsSync(bundled)) return bundled;
-    } catch (e) { /* puppeteer package missing */ }
-    return null;
-  }
-
-  let bundled = _tryPuppeteerBundled();
-  if (bundled) {
-    console.log('[WA] Using puppeteer-bundled Chrome at', bundled);
-    return bundled;
-  }
-
-  // If puppeteer is installed but Chrome wasn't downloaded (common on Pi ARM
-  // when yarn install ran without network to Google's storage), download NOW
-  // before we fall back to broken system Chromium.
-  try {
-    require.resolve('puppeteer');
-    console.log('[WA] Chrome bundled do puppeteer não encontrado — baixando agora (~200MB, pode demorar 3-5 min no Pi)...');
-    execSync('npx --yes puppeteer browsers install chrome', {
-      stdio: 'inherit',
-      cwd: __dirname,
-      timeout: 15 * 60 * 1000,  // 15 min max
-    });
-    bundled = _tryPuppeteerBundled();
-    if (bundled) {
-      console.log('[WA] ✅ Chrome bundled baixado com sucesso:', bundled);
-      return bundled;
-    }
-    console.warn('[WA] Download do Chrome bundled terminou mas o binário não foi achado — tentando system Chromium');
-  } catch (e) {
-    console.warn('[WA] Falha no download automático do Chrome bundled:', e.message);
-    console.warn('[WA] Tentando system Chromium como último recurso (pode dar TargetCloseError com Chromium 148+)');
-  }
-
-  // 2) FALLBACK — system Chromium. Prefer real binaries over shell wrappers.
+  // System Chromium — prefer real ELF binary over shell wrappers.
+  // NOTE: We intentionally do NOT use puppeteer-bundled Chrome for Testing
+  // because Google's Chrome-for-Testing does NOT publish an ARM64 Linux
+  // build — the "linux_arm" download is actually the x86_64 binary in a
+  // mislabeled folder, which the ARM kernel can't execute.
   const candidates = [
-    // Real binaries (Debian/RPi OS install these under /usr/lib/*)
     '/usr/lib/chromium/chrome',
     '/usr/lib/chromium/chromium',
     '/usr/lib/chromium-browser/chromium-browser',
-    // Common apt-installed paths (may be real OR wrapper — checked below)
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
     '/usr/bin/google-chrome',
@@ -153,14 +113,12 @@ function _resolveChromiumPath() {
     '/snap/bin/chromium',
   ];
 
-  // Helper: reject POSIX shell scripts. Puppeteer needs the real ELF binary.
   function _isRealBinary(p) {
     try {
       const buf = Buffer.alloc(4);
       const fd = fs.openSync(p, 'r');
       fs.readSync(fd, buf, 0, 4, 0);
       fs.closeSync(fd);
-      // ELF magic: 0x7F 'E' 'L' 'F'
       return buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
     } catch (e) { return false; }
   }
@@ -169,7 +127,7 @@ function _resolveChromiumPath() {
     try {
       if (!fs.existsSync(p)) continue;
       if (!_isRealBinary(p)) {
-        console.warn('[WA] Skipping', p, '— it is a shell wrapper, not the real Chromium binary');
+        console.warn('[WA] Skipping', p, '— shell wrapper, not the real binary');
         continue;
       }
       console.log('[WA] Using system Chromium at', p);
@@ -177,55 +135,53 @@ function _resolveChromiumPath() {
     } catch (e) {}
   }
 
-  console.error('════════════════════════════════════════════════════════');
-  console.error('[WA] ❌ NENHUM CHROMIUM ENCONTRADO!');
-  console.error('[WA] Instale via:  cd ~/WhatsFlow/whatsapp-service && npx puppeteer browsers install chrome');
-  console.error('════════════════════════════════════════════════════════');
+  console.error('[WA] ❌ Chromium não encontrado. Instale via: sudo apt install -y chromium');
   return undefined;
 }
 
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: SESSION_DIR }),
-  // Pin the WA Web HTML to a known-good version — WhatsApp updates web.whatsapp.com
-  // frequently and it breaks whatsapp-web.js's inject step (Client.inject) with
-  // "TargetCloseError: Target closed". Pinning to a specific HTML from the
-  // community-maintained wa-version repo fixes this.
-  // Version 2.2412.54 is the last one known to work with wwebjs 1.34.x — newer
-  // 2.3000.x versions have a rewritten module structure that wwebjs 1.34 can't
-  // parse yet.
-  webVersionCache: {
-    type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-  },
+  // No webVersionCache pin — let wwebjs auto-detect the current WA Web
+  // version. Pinning to old versions (like 2.2412.54) broke on modern
+  // WA server API.
   puppeteer: {
-    // MUST be 'new' — Chromium 132+ removed the old headless mode. Passing
-    // `headless: true` becomes `--headless=old` on some puppeteer versions
-    // and Chromium immediately exits with TargetCloseError.
     headless: 'new',
     executablePath: _resolveChromiumPath(),
     // Bump the protocol timeout so Page.navigate doesn't fail on slow
-    // Raspberry Pi hardware. Default is 30s — WA web can take 60+ on ARM.
-    protocolTimeout: 180000,
+    // Raspberry Pi hardware. Default is 30s — WA web can take 90+ on ARM.
+    protocolTimeout: 300000,
     args: [
-      // Explicit new headless mode — belt & suspenders in case an old
-      // puppeteer builds the old --headless flag from `headless: true`.
       '--headless=new',
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-extensions',
-      '--no-first-run',
-      // Raspberry Pi CRITICAL: run Chromium in single-process mode. Without
-      // this, the renderer process crashes during WA Web's heavy script
-      // execution (Puppeteer sees "Target closed" at Client.inject). Trades
-      // a small amount of speed for massive stability on ARM/low-RAM boxes.
-      '--single-process',
-      // Raspberry Pi friendly flags — cut GPU + software rasterizer paths
-      // that spawn extra processes and increase the chance of Target closed.
+      '--disable-accelerated-2d-canvas',
       '--disable-gpu',
       '--disable-software-rasterizer',
-      '--disable-features=Translate,BackForwardCache,MediaRouter,DialMediaRouteProvider',
+      '--no-first-run',
+      '--no-default-browser-check',
       '--mute-audio',
+      // Chromium 148 stability flags for ARM64 — reduce memory pressure and
+      // avoid renderer crashes during heavy JS (WA Web is ~15MB of JS).
+      '--disable-features=IsolateOrigins,site-per-process,Translate,BackForwardCache,MediaRouter,DialMediaRouteProvider,CalculateNativeWinOcclusion,OptimizationHints',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-web-security',
+      '--disable-site-isolation-trials',
+      '--disable-hang-monitor',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-breakpad',
+      '--disable-component-extensions-with-background-pages',
+      '--disable-extensions',
+      '--disable-ipc-flooding-protection',
+      '--disable-popup-blocking',
+      '--disable-prompt-on-repost',
+      '--disable-sync',
+      '--force-color-profile=srgb',
+      '--metrics-recording-only',
+      '--password-store=basic',
+      '--use-mock-keychain',
     ],
   },
 });
