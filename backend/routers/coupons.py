@@ -179,6 +179,27 @@ async def delete_coupon(coupon_id: str):
     return {"ok": True}
 
 
+class BulkDeletePayload(BaseModel):
+    ids: List[str]
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_coupons(payload: BulkDeletePayload):
+    """Delete multiple coupons at once. Returns how many were removed
+    (may be less than requested if some IDs don't exist)."""
+    if not payload.ids:
+        raise HTTPException(400, "Nenhum cupom selecionado")
+    async with aiosqlite.connect(DB_PATH) as db:
+        placeholders = ",".join("?" * len(payload.ids))
+        cur = await db.execute(
+            f"DELETE FROM coupons WHERE id IN ({placeholders})",
+            payload.ids,
+        )
+        await db.commit()
+        deleted = cur.rowcount
+    return {"ok": True, "deleted": deleted, "requested": len(payload.ids)}
+
+
 @router.get("/{coupon_id}/usages", response_model=List[CouponUsage])
 async def list_coupon_usages(coupon_id: str):
     async with aiosqlite.connect(DB_PATH) as db:

@@ -622,9 +622,31 @@ function DeliveriesPanel() {
 // ---------------- Dedup (Blocked Duplicates) Panel ----------------
 
 function DedupPanel() {
+  const qc = useQueryClient();
   const [reasonFilter, setReasonFilter] = useState("");
   const [phoneFilter, setPhoneFilter] = useState("");
   const [limit, setLimit] = useState(100);
+
+  // Settings config for dedup rules — loaded from /api/settings
+  const { data: settings } = useQuery({
+    queryKey: ["dedup-settings"],
+    queryFn: async () => {
+      const { settingsApi } = await import("@/lib/api");
+      return settingsApi.get();
+    },
+  });
+
+  const saveSettingMut = useMutation({
+    mutationFn: async (updates) => {
+      const { settingsApi } = await import("@/lib/api");
+      return settingsApi.update(updates);
+    },
+    onSuccess: (_r, vars) => {
+      toast.success("Regra atualizada");
+      qc.invalidateQueries({ queryKey: ["dedup-settings"] });
+    },
+    onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
+  });
 
   const { data, refetch, isFetching } = useQuery({
     queryKey: ["dedup-log", reasonFilter, phoneFilter, limit],
@@ -643,8 +665,105 @@ function DedupPanel() {
     body_hash: { label: "Mesmo conteúdo", color: "#AF52DE", desc: "Bloqueado pois um texto idêntico já foi enviado (evento diferente, mesma mensagem)" },
   };
 
+  const dedupEnabled = (settings?.dedup_enabled ?? "true").toString().toLowerCase() === "true";
+  const dedupWindow = parseInt(settings?.dedup_window_minutes ?? "60");
+  const bodyWindow = parseInt(settings?.body_dedup_window_minutes ?? "15");
+  const sendGap = parseInt(settings?.send_min_gap_seconds ?? "3");
+
   return (
     <div className="space-y-4">
+      {/* Rules config — the actual settings powering the anti-dupe system */}
+      <div className="surface rounded-xl p-4" data-testid="dedup-rules-config">
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldCheck size={18} className="text-[#5AC8FA]" weight="duotone" />
+          <h3 className="font-display text-base font-bold">Regras da fila anti-duplicação</h3>
+        </div>
+        <p className="text-xs text-white/50 mb-4 leading-relaxed">
+          Configure como o sistema espaça envios e detecta duplicatas. Estas regras se aplicam a <b>todas as notificações automáticas</b>
+          (lembretes de vencimento, cupons VOLTA, confirmações de pagamento, etc.).
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Master toggle */}
+          <div className="rounded-lg p-3 bg-white/[0.02] border border-white/10">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs font-medium text-white/70">Anti-duplicata</div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dedupEnabled}
+                  onChange={(e) => saveSettingMut.mutate({ dedup_enabled: e.target.checked ? "true" : "false" })}
+                  className="sr-only peer"
+                  data-testid="dedup-toggle-enabled"
+                />
+                <div className="w-9 h-5 bg-white/10 peer-checked:bg-[#34C759] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+              </label>
+            </div>
+            <div className="text-[10px] text-white/40">{dedupEnabled ? "Sistema ativo" : "Bypass — todos são enviados"}</div>
+          </div>
+
+          {/* Phone+event window */}
+          <div className="rounded-lg p-3 bg-white/[0.02] border border-white/10">
+            <div className="text-xs font-medium text-white/70 mb-1">Janela mesmo evento (min)</div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="1"
+                max="1440"
+                value={dedupWindow}
+                onChange={(e) => saveSettingMut.mutate({ dedup_window_minutes: e.target.value })}
+                className="bg-white/5 border-white/10 h-8 text-sm font-mono"
+                data-testid="dedup-window-input"
+              />
+            </div>
+            <div className="text-[10px] text-white/40 mt-1">Mesmo evento + tel. bloqueado por N min</div>
+          </div>
+
+          {/* Body hash window */}
+          <div className="rounded-lg p-3 bg-white/[0.02] border border-white/10">
+            <div className="text-xs font-medium text-white/70 mb-1">Janela mesmo conteúdo (min)</div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="1"
+                max="120"
+                value={bodyWindow}
+                onChange={(e) => saveSettingMut.mutate({ body_dedup_window_minutes: e.target.value })}
+                className="bg-white/5 border-white/10 h-8 text-sm font-mono"
+                data-testid="body-dedup-window-input"
+              />
+            </div>
+            <div className="text-[10px] text-white/40 mt-1">Texto idêntico bloqueado por N min</div>
+          </div>
+
+          {/* Send pacing */}
+          <div className="rounded-lg p-3 bg-white/[0.02] border border-[#FF9F0A]/30">
+            <div className="text-xs font-medium text-[#FF9F0A] mb-1 flex items-center gap-1">
+              ⏱️ Espera entre envios (seg)
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="0"
+                max="60"
+                step="0.5"
+                value={sendGap}
+                onChange={(e) => saveSettingMut.mutate({ send_min_gap_seconds: e.target.value })}
+                className="bg-white/5 border-[#FF9F0A]/20 h-8 text-sm font-mono"
+                data-testid="send-gap-input"
+              />
+            </div>
+            <div className="text-[10px] text-white/40 mt-1">Cada envio espera N seg — anti-spam do WA</div>
+          </div>
+        </div>
+
+        <div className="mt-3 p-2.5 rounded-md bg-[#5AC8FA]/5 border border-[#5AC8FA]/20 text-[11px] text-white/70 leading-relaxed">
+          <b className="text-[#5AC8FA]">Como funciona:</b> quando várias notificações precisam sair juntas (ex: 500 clientes vencendo hoje),
+          a fila envia uma de cada vez, esperando <b>{sendGap}s entre elas</b>. Isso evita bloqueio de anti-spam do WhatsApp e reduz duplicações.
+          Se durante essa espera outra notificação idêntica entrar na fila, ela é <b>bloqueada</b> pelas regras acima e aparece na lista abaixo.
+        </div>
+      </div>
+
       {/* Info card */}
       <div className="surface rounded-xl p-4">
         <div className="flex items-start gap-3">
@@ -652,15 +771,15 @@ function DedupPanel() {
             <ShieldCheck size={16} weight="duotone" />
           </div>
           <div className="text-sm text-white/70 leading-relaxed">
-            <div className="font-semibold text-white/90 mb-1">Sistema anti-duplicata ativo</div>
+            <div className="font-semibold text-white/90 mb-1">Motivos de bloqueio</div>
             Toda vez que uma notificação tentou ser enviada mas o sistema detectou que seria uma <b>duplicata</b>,
             o envio foi bloqueado e registrado aqui. As duas regras ativas:
             <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               <div className="p-2 rounded bg-[#FF9F0A]/10 border border-[#FF9F0A]/20">
-                <b className="text-[#FF9F0A]">Mesmo evento</b>: mesmo <code>event_key</code> + mesmo telefone dentro da janela de dedup (config: <code>dedup_window_minutes</code>).
+                <b className="text-[#FF9F0A]">Mesmo evento</b>: mesmo <code>event_key</code> + mesmo telefone dentro da janela ({dedupWindow} min).
               </div>
               <div className="p-2 rounded bg-[#AF52DE]/10 border border-[#AF52DE]/20">
-                <b className="text-[#AF52DE]">Mesmo conteúdo</b>: mesmo texto renderizado + mesmo telefone (janela: <code>body_dedup_window_minutes</code>).
+                <b className="text-[#AF52DE]">Mesmo conteúdo</b>: mesmo texto renderizado + mesmo telefone ({bodyWindow} min).
               </div>
             </div>
           </div>

@@ -129,6 +129,7 @@ export const couponsApi = {
   create: (data) => api.post("/coupons", data).then((r) => r.data),
   update: (id, data) => api.put(`/coupons/${id}`, data).then((r) => r.data),
   remove: (id) => api.delete(`/coupons/${id}`).then((r) => r.data),
+  bulkDelete: (ids) => api.post("/coupons/bulk-delete", { ids }).then((r) => r.data),
   usages: (id) => api.get(`/coupons/${id}/usages`).then((r) => r.data),
   recentUsages: (limit = 50) =>
     api.get("/coupons/usages/recent", { params: { limit } }).then((r) => r.data),

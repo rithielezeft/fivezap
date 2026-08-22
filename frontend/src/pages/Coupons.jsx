@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Trash, PencilSimple, Tag, Clock } from "@phosphor-icons/react";
+import { Plus, Trash, PencilSimple, Tag, Clock, Check, X as XIcon } from "@phosphor-icons/react";
 
 function CouponForm({ initial, onSubmit, onCancel }) {
   const [f, setF] = useState({
@@ -205,6 +205,8 @@ export default function Coupons() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewingUsages, setViewingUsages] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const { data: coupons } = useQuery({
     queryKey: ["coupons"],
@@ -237,43 +239,131 @@ export default function Coupons() {
     },
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids) => couponsApi.bulkDelete(ids),
+    onSuccess: (r) => {
+      toast.success(`${r.deleted} cupom(ns) removido(s)`);
+      qc.invalidateQueries({ queryKey: ["coupons"] });
+      setSelectedIds(new Set());
+      setSelectMode(false);
+    },
+    onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const selectAll = () => {
+    setSelectedIds(new Set((coupons || []).map((c) => c.id)));
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    if (window.confirm(`Remover ${selectedIds.size} cupom(ns) selecionado(s)? Esta ação não pode ser desfeita.`)) {
+      bulkDeleteMut.mutate(Array.from(selectedIds));
+    }
+  };
 
   return (
     <Layout
       title="Cupons"
       subtitle="Códigos de desconto para renovações — cada cliente só usa um cupom a cada 28 dias"
       actions={
-        <Dialog open={creating} onOpenChange={setCreating}>
-          <DialogTrigger asChild>
-            <Button
-              className="bg-[#007AFF] hover:bg-[#005BB5]"
-              data-testid="btn-new-coupon"
-            >
-              <Plus size={16} className="mr-2" /> Novo cupom
+        selectMode ? (
+          <>
+            <span className="text-sm text-white/70 mr-2" data-testid="selection-count">
+              {selectedIds.size} selecionado{selectedIds.size !== 1 ? "s" : ""}
+            </span>
+            <Button variant="outline" className="border-white/10" onClick={selectAll} data-testid="btn-select-all">
+              Selecionar todos
             </Button>
-          </DialogTrigger>
-          <DialogContent className="bg-[#121212] border-white/10 text-white max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="font-display">Novo cupom</DialogTitle>
-              <DialogDescription className="text-white/50">
-                Crie um código de desconto para renovações. Máximo 50% off.
-              </DialogDescription>
-            </DialogHeader>
-            <CouponForm
-              onCancel={() => setCreating(false)}
-              onSubmit={(f) => createMut.mutate(f)}
-            />
-          </DialogContent>
-        </Dialog>
+            <Button variant="outline" className="border-white/10" onClick={clearSelection} data-testid="btn-clear-selection">
+              Limpar
+            </Button>
+            <Button
+              className="bg-[#FF3B30] hover:bg-[#D70015]"
+              onClick={handleBulkDelete}
+              disabled={selectedIds.size === 0 || bulkDeleteMut.isPending}
+              data-testid="btn-bulk-delete"
+            >
+              <Trash size={16} className="mr-2" />
+              {bulkDeleteMut.isPending ? "Removendo..." : `Remover ${selectedIds.size}`}
+            </Button>
+            <Button variant="outline" className="border-white/10" onClick={exitSelectMode} data-testid="btn-exit-select">
+              <XIcon size={16} className="mr-1" /> Sair
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              variant="outline"
+              className="border-white/10"
+              onClick={() => setSelectMode(true)}
+              disabled={!coupons || coupons.length === 0}
+              data-testid="btn-select-mode"
+            >
+              <Check size={16} className="mr-2" /> Selecionar múltiplos
+            </Button>
+            <Dialog open={creating} onOpenChange={setCreating}>
+              <DialogTrigger asChild>
+                <Button
+                  className="bg-[#007AFF] hover:bg-[#005BB5]"
+                  data-testid="btn-new-coupon"
+                >
+                  <Plus size={16} className="mr-2" /> Novo cupom
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-[#121212] border-white/10 text-white max-w-lg">
+                <DialogHeader>
+                  <DialogTitle className="font-display">Novo cupom</DialogTitle>
+                  <DialogDescription className="text-white/50">
+                    Crie um código de desconto para renovações. Máximo 50% off.
+                  </DialogDescription>
+                </DialogHeader>
+                <CouponForm
+                  onCancel={() => setCreating(false)}
+                  onSubmit={(f) => createMut.mutate(f)}
+                />
+              </DialogContent>
+            </Dialog>
+          </>
+        )
       }
     >
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {(coupons || []).map((c) => (
+        {(coupons || []).map((c) => {
+          const isSelected = selectedIds.has(c.id);
+          return (
           <div
             key={c.id}
-            className="surface rounded-xl p-5 flex flex-col"
+            onClick={() => { if (selectMode) toggleSelect(c.id); }}
+            className={"surface rounded-xl p-5 flex flex-col relative transition-all " + (
+              selectMode
+                ? "cursor-pointer " + (isSelected ? "ring-2 ring-[#007AFF] bg-[#007AFF]/5" : "hover:ring-1 hover:ring-white/20")
+                : ""
+            )}
             data-testid={`coupon-card-${c.id}`}
           >
+            {selectMode && (
+              <div
+                className={"absolute top-3 right-3 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all " + (
+                  isSelected
+                    ? "bg-[#007AFF] border-[#007AFF] text-white"
+                    : "border-white/20 bg-white/5"
+                )}
+                data-testid={`checkbox-${c.id}`}
+              >
+                {isSelected && <Check size={14} weight="bold" />}
+              </div>
+            )}
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-md bg-[#007AFF]/15 text-[#007AFF] flex items-center justify-center">
@@ -317,8 +407,9 @@ export default function Coupons() {
             )}
 
             <button
-              onClick={() => setViewingUsages(c)}
-              className="text-left text-xs text-white/60 hover:text-white flex items-center gap-1.5 mb-4"
+              onClick={(e) => { e.stopPropagation(); if (!selectMode) setViewingUsages(c); }}
+              disabled={selectMode}
+              className="text-left text-xs text-white/60 hover:text-white flex items-center gap-1.5 mb-4 disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid={`btn-view-usages-${c.id}`}
             >
               <Clock size={12} />
@@ -332,8 +423,9 @@ export default function Coupons() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setEditing(c)}
+                onClick={(e) => { e.stopPropagation(); setEditing(c); }}
                 className="text-xs"
+                disabled={selectMode}
                 data-testid={`btn-edit-coupon-${c.id}`}
               >
                 <PencilSimple size={14} className="mr-1" /> Editar
@@ -342,7 +434,9 @@ export default function Coupons() {
                 size="sm"
                 variant="ghost"
                 className="text-xs text-[#FF3B30]"
-                onClick={() => {
+                disabled={selectMode}
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (window.confirm(`Remover cupom ${c.code}?`)) {
                     removeMut.mutate(c.id);
                   }
@@ -353,7 +447,8 @@ export default function Coupons() {
               </Button>
             </div>
           </div>
-        ))}
+          );
+        })}
         {(!coupons || coupons.length === 0) && (
           <div
             className="col-span-full surface rounded-xl p-12 text-center text-white/40"
