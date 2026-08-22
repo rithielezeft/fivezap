@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
 import { settingsApi, painelApi, paymentsApi, systemApi, setDisplayTimezone } from "@/lib/api";
@@ -18,8 +18,6 @@ const FIELDS = [
   { key: "turnstile_pageurl", label: "Turnstile — pageurl", group: "captcha" },
   { key: "infinitepay_handle", label: "InfinitePay — Handle (InfiniteTag)", group: "pay" },
   { key: "infinitepay_webhook_secret", label: "InfinitePay — Webhook Secret (opcional, valida origem)", group: "pay", type: "password", placeholder: "deixe vazio para desativar" },
-  { key: "discount_7d_enabled", label: "Desconto no lembrete 7d — Ativo? (true/false)", group: "pay", placeholder: "false" },
-  { key: "discount_7d_percent", label: "Desconto no lembrete 7d — % (só vale no MESMO dia do lembrete)", group: "pay", placeholder: "5" },
   { key: "plan_price_1m", label: "Preço 1 mês (R$)", group: "pay", placeholder: "35,00" },
   { key: "plan_price_3m", label: "Preço 3 meses (R$)", group: "pay", placeholder: "90,00" },
   { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },
@@ -66,11 +64,10 @@ const FLOWS = [
   },
   {
     icon: Tag, color: "#34C759",
-    title: "Desconto 7d & Cupom VOLTA automático",
-    desc: "O MESMO % é usado no lembrete de 7d (só no mesmo dia) e no cupom VOLTA que sai pra clientes vencidos há 3+ dias.",
+    title: "Descontos automáticos por vencimento",
+    desc: "Configure % de desconto para cada evento (7 dias antes, 3 dias antes, no dia, ou após vencer). Quando o cliente abre o link no mesmo dia, o % é aplicado no checkout automaticamente e o lembrete usa {discount_line} / {discount_percent} na mensagem.",
     settings: [
-      { key: "discount_7d_enabled", note: "liga/desliga o 7d" },
-      { key: "discount_7d_percent", note: "⚡ COMPARTILHADO com VOLTA" },
+      { key: "discount_panel", note: "🎯 painel dedicado (rolar até 'Descontos automáticos')" },
     ],
   },
   {
@@ -117,13 +114,172 @@ const FLOWS = [
 ];
 
 function scrollToSetting(key) {
+  // Special case: the "discount_panel" chip in the playbook targets the
+  // dedicated DiscountsPanel section (no individual field).
+  if (key === "discount_panel") {
+    const panel = document.querySelector('[data-testid="settings-discounts"]');
+    if (panel) {
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      panel.classList.add("setting-highlight");
+      setTimeout(() => panel.classList.remove("setting-highlight"), 2000);
+    }
+    return;
+  }
   const el = document.querySelector(`[data-testid="setting-${key}"]`);
   if (!el) return;
   el.scrollIntoView({ behavior: "smooth", block: "center" });
-  // Add a temporary highlight ring
   el.classList.add("setting-highlight");
   el.focus?.();
   setTimeout(() => el.classList.remove("setting-highlight"), 2000);
+}
+
+
+// ---------------- Discounts Panel ----------------
+// Per-event configurable discount %. When enabled, the reminder for that
+// event will include {discount_line}/{discount_percent}, and the checkout
+// link applies the % automatically on the same calendar day.
+
+function DiscountRow({ event, onToggle, onChangePercent, saving }) {
+  const active = event.enabled && event.percent > 0;
+  const badgeColor = event.kind === "before" ? "#FF9500" : "#FF3B30";
+  return (
+    <div
+      className={"rounded-lg border transition p-3 flex items-center gap-3 " +
+        (active ? "border-[#34C759]/40 bg-[#34C759]/5" : "border-white/10 bg-white/[0.02]")}
+      data-testid={`discount-row-${event.event_key}`}
+    >
+      <span
+        className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wider"
+        style={{ backgroundColor: `${badgeColor}22`, color: badgeColor, border: `1px solid ${badgeColor}44` }}
+      >
+        {event.kind === "before" ? "Antes" : "Após"}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-sm truncate">{event.label}</div>
+        <div className="text-[10px] text-white/40 font-mono truncate">{event.event_key}</div>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <Input
+            type="number"
+            min="0"
+            max="50"
+            value={event.percent}
+            onChange={(e) => onChangePercent(parseInt(e.target.value) || 0)}
+            className="bg-white/5 border-white/10 w-20 pr-6 text-center font-mono"
+            disabled={saving}
+            data-testid={`discount-percent-${event.event_key}`}
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-white/40 pointer-events-none">%</span>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer" title={event.enabled ? "Ativo" : "Inativo"}>
+          <input
+            type="checkbox"
+            checked={event.enabled}
+            onChange={(e) => onToggle(e.target.checked)}
+            disabled={saving}
+            className="sr-only peer"
+            data-testid={`discount-toggle-${event.event_key}`}
+          />
+          <div className="w-11 h-6 bg-white/10 peer-checked:bg-[#34C759] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function DiscountsPanel() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["discounts"],
+    queryFn: settingsApi.listDiscounts,
+  });
+  const [pendingKey, setPendingKey] = useState(null);
+
+  const mut = useMutation({
+    mutationFn: ({ event_key, enabled, percent }) =>
+      settingsApi.updateDiscount(event_key, { enabled, percent }),
+    onMutate: ({ event_key }) => setPendingKey(event_key),
+    onSuccess: () => {
+      toast.success("Desconto atualizado");
+      qc.invalidateQueries({ queryKey: ["discounts"] });
+    },
+    onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
+    onSettled: () => setPendingKey(null),
+  });
+
+  const events = data?.events || [];
+  const beforeExp = events.filter((e) => e.kind === "before");
+  const afterExp = events.filter((e) => e.kind === "after");
+  const activeCount = events.filter((e) => e.enabled && e.percent > 0).length;
+
+  return (
+    <div className="surface rounded-xl p-6" data-testid="settings-discounts">
+      <div className="flex items-center gap-2 mb-1">
+        <Tag size={18} className="text-[#34C759]" weight="duotone" />
+        <h2 className="font-display text-lg font-bold">Descontos automáticos por vencimento</h2>
+        {activeCount > 0 && (
+          <span className="ml-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#34C759]/15 text-[#34C759] border border-[#34C759]/30">
+            {activeCount} ativo{activeCount > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-white/50 mb-4 leading-relaxed">
+        Configure um <b className="text-white/80">% de desconto</b> para cada evento de vencimento.
+        Quando ativo, a notificação usa as variáveis <code className="text-[#34C759] bg-[#34C759]/10 px-1 rounded">{`{discount_line}`}</code> e{" "}
+        <code className="text-[#34C759] bg-[#34C759]/10 px-1 rounded">{`{discount_percent}`}</code>{" "}
+        automaticamente, e o link de pagamento aplica o % <b>no mesmo dia</b> em que a mensagem foi disparada.
+        No dia seguinte, o desconto expira.
+      </p>
+
+      {isLoading ? (
+        <div className="text-center text-white/40 py-6 text-sm">Carregando...</div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs font-medium text-white/60 uppercase tracking-wider mb-2 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF9500]" />
+              Antes do vencimento
+            </div>
+            <div className="space-y-2">
+              {beforeExp.map((ev) => (
+                <DiscountRow
+                  key={ev.event_key}
+                  event={ev}
+                  saving={pendingKey === ev.event_key && mut.isPending}
+                  onToggle={(enabled) => mut.mutate({ event_key: ev.event_key, enabled, percent: ev.percent || 5 })}
+                  onChangePercent={(percent) => mut.mutate({ event_key: ev.event_key, enabled: ev.enabled, percent })}
+                />
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-white/60 uppercase tracking-wider mb-2 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF3B30]" />
+              Após o vencimento (recuperação)
+            </div>
+            <div className="space-y-2">
+              {afterExp.map((ev) => (
+                <DiscountRow
+                  key={ev.event_key}
+                  event={ev}
+                  saving={pendingKey === ev.event_key && mut.isPending}
+                  onToggle={(enabled) => mut.mutate({ event_key: ev.event_key, enabled, percent: ev.percent || 10 })}
+                  onChangePercent={(percent) => mut.mutate({ event_key: ev.event_key, enabled: ev.enabled, percent })}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 p-3 rounded-md bg-[#007AFF]/5 border border-[#007AFF]/20 text-xs text-white/70">
+        💡 <b>Dica:</b> use % pequenos (5-10%) para lembretes <i>antes</i> do vencimento e maiores (15-25%) para
+        recuperação <i>após</i> vencer — quanto mais tempo o cliente fica sem renovar, mais desconto ele precisa
+        pra voltar.
+      </div>
+    </div>
+  );
 }
 
 
@@ -357,6 +513,9 @@ export default function Settings() {
       <div className="space-y-6">
         {/* UPDATE PI — remote self-update trigger */}
         <UpdatePiCard />
+
+        {/* DISCOUNTS — per-event configurable discount % */}
+        <DiscountsPanel />
 
         {/* PLAYBOOK — visual map of settings → app flows */}
         <div className="surface rounded-xl p-6" data-testid="settings-playbook">

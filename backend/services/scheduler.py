@@ -226,29 +226,25 @@ async def _check_and_notify():
                 "expires_at": exp_dt.astimezone(display_tz).strftime("%d/%m/%Y"),
                 "pay_link": pay_link,
                 "days": abs(diff_days),
-                "discount_line": "",  # populated below only for the 7d reminder
+                "discount_line": "",
                 "discount_percent": "",
             }
 
-            # 7-day reminder: if same-day discount is enabled, tell the client.
-            # The discount is only valid *today* (same calendar day the
-            # reminder is fired) — mentioning it here creates urgency.
-            if diff_days == 7:
-                try:
-                    enabled_raw = (await get_setting("discount_7d_enabled") or "").strip().lower()
-                    if enabled_raw in ("true", "1", "yes", "on"):
-                        try:
-                            pct = int(await get_setting("discount_7d_percent", "5"))
-                        except (ValueError, TypeError):
-                            pct = 5
-                        if pct > 0:
-                            ctx["discount_percent"] = str(pct)
-                            ctx["discount_line"] = (
-                                f"🎁 *Pague hoje e ganhe {pct}% de desconto* — "
-                                "válido só até o fim do dia!\n\n"
-                            )
-                except Exception:
-                    pass
+            # Auto-populate discount vars if the admin has configured a
+            # discount for this event_key in Settings. The client will get
+            # the % applied automatically when they click pay_link today.
+            try:
+                from services.discount import get_discount_for_event
+                cfg = await get_discount_for_event(event_key)
+                if cfg:
+                    pct = cfg["percent"]
+                    ctx["discount_percent"] = str(pct)
+                    ctx["discount_line"] = (
+                        f"🎁 *Pague hoje e ganhe {pct}% de desconto* — "
+                        "aplicado automaticamente ao abrir o link, válido só até o fim do dia!\n\n"
+                    )
+            except Exception:
+                logger.exception("discount lookup failed (non-fatal) for %s", event_key)
 
             # Human-pacing: wait between clients (skip on the very first send
             # so the loop feels responsive when there's only one match).

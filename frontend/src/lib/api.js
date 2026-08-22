@@ -105,6 +105,8 @@ export const paymentsApi = {
 export const settingsApi = {
   get: () => api.get("/settings").then((r) => r.data),
   update: (data) => api.put("/settings", data).then((r) => r.data),
+  listDiscounts: () => api.get("/settings/discounts").then((r) => r.data),
+  updateDiscount: (event_key, data) => api.put(`/settings/discounts/${event_key}`, data).then((r) => r.data),
 };
 
 export const analyticsApi = {
