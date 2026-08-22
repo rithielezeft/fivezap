@@ -176,12 +176,16 @@ const client = new Client({
       '--disable-dev-shm-usage',
       '--disable-extensions',
       '--no-first-run',
+      // Raspberry Pi CRITICAL: run Chromium in single-process mode. Without
+      // this, the renderer process crashes during WA Web's heavy script
+      // execution (Puppeteer sees "Target closed" at Client.inject). Trades
+      // a small amount of speed for massive stability on ARM/low-RAM boxes.
+      '--single-process',
       // Raspberry Pi friendly flags — cut GPU + software rasterizer paths
       // that spawn extra processes and increase the chance of Target closed.
       '--disable-gpu',
       '--disable-software-rasterizer',
       '--disable-features=Translate,BackForwardCache,MediaRouter,DialMediaRouteProvider',
-      '--no-zygote',
       '--mute-audio',
     ],
   },
