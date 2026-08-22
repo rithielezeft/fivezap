@@ -96,20 +96,47 @@ function _resolveChromiumPath() {
   const explicit = process.env.CHROMIUM_PATH;
   if (explicit) return explicit;
   const fs = require('fs');
+  const { execSync } = require('child_process');
 
   // 1) FIRST — try the puppeteer-bundled Chrome for Testing. This is critical
   //    on ARM/Debian Trixie: system Chromium is often 148+ which has DevTools
   //    protocol changes that crash the wwebjs `Client.inject` (page.evaluate).
   //    Puppeteer downloads a version-matched Chrome that avoids this issue.
+  function _tryPuppeteerBundled() {
+    try {
+      const puppeteer = require('puppeteer');
+      const bundled = puppeteer.executablePath();
+      if (bundled && fs.existsSync(bundled)) return bundled;
+    } catch (e) { /* puppeteer package missing */ }
+    return null;
+  }
+
+  let bundled = _tryPuppeteerBundled();
+  if (bundled) {
+    console.log('[WA] Using puppeteer-bundled Chrome at', bundled);
+    return bundled;
+  }
+
+  // If puppeteer is installed but Chrome wasn't downloaded (common on Pi ARM
+  // when yarn install ran without network to Google's storage), download NOW
+  // before we fall back to broken system Chromium.
   try {
-    const puppeteer = require('puppeteer');
-    const bundled = puppeteer.executablePath();
-    if (bundled && fs.existsSync(bundled)) {
-      console.log('[WA] Using puppeteer-bundled Chrome at', bundled);
+    require.resolve('puppeteer');
+    console.log('[WA] Chrome bundled do puppeteer não encontrado — baixando agora (~200MB, pode demorar 3-5 min no Pi)...');
+    execSync('npx --yes puppeteer browsers install chrome', {
+      stdio: 'inherit',
+      cwd: __dirname,
+      timeout: 15 * 60 * 1000,  // 15 min max
+    });
+    bundled = _tryPuppeteerBundled();
+    if (bundled) {
+      console.log('[WA] ✅ Chrome bundled baixado com sucesso:', bundled);
       return bundled;
     }
+    console.warn('[WA] Download do Chrome bundled terminou mas o binário não foi achado — tentando system Chromium');
   } catch (e) {
-    console.warn('[WA] puppeteer package not available (', e.message, ') — falling back to system Chromium');
+    console.warn('[WA] Falha no download automático do Chrome bundled:', e.message);
+    console.warn('[WA] Tentando system Chromium como último recurso (pode dar TargetCloseError com Chromium 148+)');
   }
 
   // 2) FALLBACK — system Chromium. Prefer real binaries over shell wrappers.
