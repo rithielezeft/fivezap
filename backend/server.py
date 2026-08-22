@@ -141,6 +141,11 @@ async def lifespan(app: FastAPI):
     from services.auto_coupon import auto_coupon_loop as _auto_coupon_loop
     task_auto_coupon = asyncio.create_task(_auto_coupon_loop())
 
+    # Coupon cleanup loop: hourly hard-deletes expired coupons with zero
+    # usages, and marks expired-but-used coupons inactive (preserves audit).
+    from services.coupon_cleanup import coupon_cleanup_loop as _coupon_cleanup_loop
+    task_coupon_cleanup = asyncio.create_task(_coupon_cleanup_loop())
+
     yield
     task_exp.cancel()
     task_rem.cancel()
@@ -148,6 +153,7 @@ async def lifespan(app: FastAPI):
     task_delivery_retry.cancel()
     task_renewal_retry.cancel()
     task_auto_coupon.cancel()
+    task_coupon_cleanup.cancel()
     try:
         _stop_delivery()
     except Exception:

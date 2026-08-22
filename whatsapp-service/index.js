@@ -88,11 +88,33 @@ try {
   console.warn('[WA] Orphan process cleanup failed (non-fatal):', e.message);
 }
 
+// Chromium/Chrome path detection — Raspberry Pi (ARM) usually ships
+// `chromium-browser` or `chromium` via apt, NOT `google-chrome`. Falling
+// back through common paths avoids the "starting" hang caused by Puppeteer
+// failing to spawn the browser (TargetCloseError).
+function _resolveChromiumPath() {
+  const explicit = process.env.CHROMIUM_PATH;
+  if (explicit) return explicit;
+  const fs = require('fs');
+  const candidates = [
+    '/usr/bin/chromium-browser',   // Raspberry Pi OS (default)
+    '/usr/bin/chromium',           // Debian/Ubuntu ARM
+    '/usr/bin/google-chrome',      // x86 dev boxes
+    '/usr/bin/google-chrome-stable',
+    '/snap/bin/chromium',
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) { console.log('[WA] Using Chromium at', p); return p; } } catch (e) {}
+  }
+  console.warn('[WA] No Chromium binary found in any known path — Puppeteer will try its bundled one');
+  return undefined;  // let Puppeteer use its bundled binary
+}
+
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: SESSION_DIR }),
   puppeteer: {
     headless: true,
-    executablePath: process.env.CHROMIUM_PATH || '/usr/bin/google-chrome',
+    executablePath: _resolveChromiumPath(),
     // Bump the protocol timeout so Page.navigate doesn't fail on slow
     // Raspberry Pi hardware. Default is 30s — WA web can take 60+ on ARM.
     protocolTimeout: 180000,
@@ -102,6 +124,13 @@ const client = new Client({
       '--disable-dev-shm-usage',
       '--disable-extensions',
       '--no-first-run',
+      // Raspberry Pi friendly flags — cut GPU + software rasterizer paths
+      // that spawn extra processes and increase the chance of Target closed.
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--disable-features=Translate,BackForwardCache,MediaRouter,DialMediaRouteProvider',
+      '--no-zygote',
+      '--mute-audio',
     ],
   },
 });

@@ -20,6 +20,23 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28] Chromium auto-detect + Coupon cleanup loop
+
+### 1) WhatsApp preso em "starting" — Chromium não encontrado no Pi
+- `whatsapp-service/index.js::_resolveChromiumPath()`: tenta na ordem `CHROMIUM_PATH` → `/usr/bin/chromium-browser` (padrão Raspberry Pi OS) → `/usr/bin/chromium` → `/usr/bin/google-chrome` → `/usr/bin/google-chrome-stable` → `/snap/bin/chromium`. Loga qual foi escolhido.
+- Adicionadas 5 flags Puppeteer ARM-friendly: `--disable-gpu`, `--disable-software-rasterizer`, `--disable-features=Translate,BackForwardCache,MediaRouter,DialMediaRouteProvider`, `--no-zygote`, `--mute-audio`.
+- Antes o path estava fixo em `/usr/bin/google-chrome`, que no Pi normalmente não existe → Puppeteer TargetClosed → estado ficava em "starting" pra sempre.
+
+### 2) Cupons expirados não sendo excluídos
+- Novo `services/coupon_cleanup.py` — loop horário que:
+  - **DELETE** cupons com `expires_at < now` **e zero usages** (era o caso dos VOLTA de 24h que nunca foram resgatados)
+  - **UPDATE `active=0`** em cupons expirados COM usages (preserva o audit trail — não some do histórico)
+- Registrado no lifespan do backend com cancel no shutdown
+
+**Testes**: 1 novo caso em `tests/test_coupon_cleanup.py` cobrindo os 3 cenários (expirado-sem-uso → deleta, expirado-com-uso → desativa, ainda-válido → mantém). Passa.
+
+
+
 ## [FEATURE 2026-02-28] Playbook visual em Configurações
 
 Novo card no topo da tela de Configurações que **mapeia cada rotina do app pras settings que a alimentam**. Objetivo: evitar mudanças acidentais (ex: "mexi no `discount_7d_percent` sem saber que o cupom VOLTA também usa").
