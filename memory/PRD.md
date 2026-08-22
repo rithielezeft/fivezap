@@ -20,6 +20,17 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-02-28] Chromium `headless: 'new'` para Chromium 132+ (Debian Trixie)
+
+**Raiz:** Chromium 132+ removeu o modo `--headless=old`. O `whatsapp-web.js` passava `headless: true` para o Puppeteer, que virava `--headless=old` → Chromium abria e morria imediatamente com `TargetCloseError: Target closed`. QR nunca era gerado no Pi.
+
+**Fix:** Em `whatsapp-service/index.js`:
+- `headless: true` → `headless: 'new'`
+- Adicionado `--headless=new` explícito em `args` (belt & suspenders para puppeteer antigo)
+- Resolver agora prefere binário real (`/usr/lib/chromium/chromium`) sobre wrappers shell
+- Instalação automática do Chromium adicionada no `update.sh` (passo 0)
+
+
 ## [FIX 2026-02-28] Chromium auto-install no update.sh (Debian Trixie)
 
 Debian Trixie não instala o `chromium-browser` por padrão. Sem o Chromium, o Puppeteer do `whatsapp-web.js` trava em "starting" e nunca gera QR.

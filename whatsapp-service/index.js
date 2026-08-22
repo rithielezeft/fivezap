@@ -148,12 +148,18 @@ function _resolveChromiumPath() {
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsflow', dataPath: SESSION_DIR }),
   puppeteer: {
-    headless: true,
+    // MUST be 'new' — Chromium 132+ removed the old headless mode. Passing
+    // `headless: true` becomes `--headless=old` on some puppeteer versions
+    // and Chromium immediately exits with TargetCloseError.
+    headless: 'new',
     executablePath: _resolveChromiumPath(),
     // Bump the protocol timeout so Page.navigate doesn't fail on slow
     // Raspberry Pi hardware. Default is 30s — WA web can take 60+ on ARM.
     protocolTimeout: 180000,
     args: [
+      // Explicit new headless mode — belt & suspenders in case an old
+      // puppeteer builds the old --headless flag from `headless: true`.
+      '--headless=new',
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
