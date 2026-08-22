@@ -150,10 +150,13 @@ const client = new Client({
   // Pin the WA Web HTML to a known-good version — WhatsApp updates web.whatsapp.com
   // frequently and it breaks whatsapp-web.js's inject step (Client.inject) with
   // "TargetCloseError: Target closed". Pinning to a specific HTML from the
-  // community-maintained wa-version repo fixes this until the library updates.
+  // community-maintained wa-version repo fixes this.
+  // Version 2.2412.54 is the last one known to work with wwebjs 1.34.x — newer
+  // 2.3000.x versions have a rewritten module structure that wwebjs 1.34 can't
+  // parse yet.
   webVersionCache: {
     type: 'remote',
-    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1045805239-alpha.html',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
   },
   puppeteer: {
     // MUST be 'new' — Chromium 132+ removed the old headless mode. Passing
