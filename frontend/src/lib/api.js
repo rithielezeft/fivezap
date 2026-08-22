@@ -140,6 +140,9 @@ export const notificationsApi = {
   get: (event_key) => api.get(`/notifications/${event_key}`).then((r) => r.data),
   update: (event_key, data) => api.put(`/notifications/${event_key}`, data).then((r) => r.data),
   restoreDefault: (event_key) => api.post(`/notifications/${event_key}/restore-defaults`).then((r) => r.data),
+  listDeliveries: (params) => api.get("/notifications/deliveries", { params }).then((r) => r.data),
+  listDedupLog: (params) => api.get("/notifications/dedup-log", { params }).then((r) => r.data),
+  retryDelivery: (id) => api.post(`/notifications/deliveries/${id}/retry`).then((r) => r.data),
 };
 
 export const painelApi = {

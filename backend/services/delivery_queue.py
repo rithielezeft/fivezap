@@ -171,6 +171,29 @@ async def find_recent_delivery(
     return dict(row) if row else None
 
 
+async def _log_dedup_hit(
+    event_key: str, phone: str, body: str, image_url: Optional[str],
+    customer_id: Optional[str], reason: str, matched_delivery: dict,
+    window_minutes: int,
+) -> None:
+    """Record every blocked duplicate so the admin can see anti-dupe activity
+    in the /notifications page. Best-effort — never blocks the send."""
+    try:
+        async with aiosqlite.connect(database.DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO notification_dedup_log "
+                "(id, event_key, phone, body, image_url, customer_id, reason, "
+                " matched_delivery_id, matched_event_key, window_minutes, blocked_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (new_id(), event_key, phone, body, image_url, customer_id,
+                 reason, matched_delivery["id"], matched_delivery.get("event_key"),
+                 window_minutes, now_iso()),
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("dedup_log insert failed (non-fatal)")
+
+
 async def enqueue(
     event_key: str,
     phone: str,
@@ -209,6 +232,9 @@ async def enqueue(
                     event_key, phone, existing["id"], existing["status"],
                     effective_window,
                 )
+                await _log_dedup_hit(event_key, phone, body, image_url,
+                                     customer_id, "phone_event", existing,
+                                     effective_window)
                 return existing["id"]
 
         # Second net: same rendered BODY sent to same PHONE (any event_key).
@@ -226,6 +252,8 @@ async def enqueue(
                     event_key, phone, dup["id"], dup["status"], body_window,
                     dup["event_key"],
                 )
+                await _log_dedup_hit(event_key, phone, body, image_url,
+                                     customer_id, "body_hash", dup, body_window)
                 return dup["id"]
 
     did = new_id()

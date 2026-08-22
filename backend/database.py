@@ -376,6 +376,35 @@ async def init_db():
             await db.execute("ALTER TABLE command_templates ADD COLUMN image_url TEXT")
         except Exception:
             pass
+        # Dedup log: records every time a duplicate delivery was blocked
+        # by the delivery_queue. Lets the admin see the anti-dupe system
+        # working in the notifications page.
+        try:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS notification_dedup_log (
+                    id TEXT PRIMARY KEY,
+                    event_key TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    image_url TEXT,
+                    customer_id TEXT,
+                    reason TEXT NOT NULL,          -- 'phone_event' | 'body_hash'
+                    matched_delivery_id TEXT,      -- id of the delivery it collided with
+                    matched_event_key TEXT,        -- the ORIGINAL event key if diff
+                    window_minutes INTEGER NOT NULL,
+                    blocked_at TEXT NOT NULL
+                );
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dedup_log_time ON notification_dedup_log(blocked_at DESC)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_dedup_log_phone ON notification_dedup_log(phone, blocked_at DESC)"
+            )
+        except Exception:
+            pass
         # Cleanup: remove old *_cents price keys (kept if you rely on them)
         await db.execute("DELETE FROM settings WHERE key IN ('plan_price_1m_cents','plan_price_3m_cents','plan_price_6m_cents','plan_price_12m_cents')")
         await db.commit()

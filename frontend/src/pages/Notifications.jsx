@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Bell, Image as ImageIcon, FloppyDisk, PaperPlaneRight, X, UploadSimple, Trash } from "@phosphor-icons/react";
+import { Bell, Image as ImageIcon, FloppyDisk, PaperPlaneRight, X, UploadSimple, Trash, PaperPlaneTilt, ShieldCheck, ArrowClockwise, CheckCircle, Clock, WarningCircle } from "@phosphor-icons/react";
 
 // Legenda das variáveis dinâmicas — aparece como tooltip nos chips.
 const VAR_HELP = {
@@ -336,6 +336,7 @@ function NotificationCard({ notif, onSave, onRestore, testPhone, onSendTest }) {
 
 export default function Notifications() {
   const qc = useQueryClient();
+  const [section, setSection] = useState("templates"); // templates | deliveries | dedup
   const [tab, setTab] = useState("expiration_7d");
   const [testPhone, setTestPhone] = useState("");
 
@@ -368,45 +369,413 @@ export default function Notifications() {
   return (
     <Layout
       title="Notificações"
-      subtitle="Templates de mensagens automáticas com suporte a imagem"
+      subtitle="Templates + Histórico de envios + Bloqueio de duplicatas"
     >
-      <div className="surface rounded-xl p-4 mb-4">
+      {/* Top-level section switcher */}
+      <div className="flex gap-1 p-1 bg-white/5 rounded-lg mb-4 max-w-2xl">
+        <button
+          onClick={() => setSection("templates")}
+          className={"flex-1 py-2 px-3 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 " + (section === "templates" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/80")}
+          data-testid="tab-section-templates"
+        >
+          <Bell size={16} /> Templates
+        </button>
+        <button
+          onClick={() => setSection("deliveries")}
+          className={"flex-1 py-2 px-3 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 " + (section === "deliveries" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/80")}
+          data-testid="tab-section-deliveries"
+        >
+          <PaperPlaneTilt size={16} /> Entregas
+        </button>
+        <button
+          onClick={() => setSection("dedup")}
+          className={"flex-1 py-2 px-3 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 " + (section === "dedup" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/80")}
+          data-testid="tab-section-dedup"
+        >
+          <ShieldCheck size={16} /> Duplicatas Bloqueadas
+        </button>
+      </div>
+
+      {section === "templates" && (
+        <>
+          <div className="surface rounded-xl p-4 mb-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-md bg-[#007AFF]/15 text-[#007AFF] flex items-center justify-center shrink-0">
+                <Bell size={16} weight="duotone" />
+              </div>
+              <div className="text-sm text-white/70 leading-relaxed">
+                Estas mensagens são enviadas <b>automaticamente</b> pelo WhatsFlow para cada cliente do painel.fun de acordo com seu vencimento
+                e ID. Clique nas variáveis para inseri-las na mensagem. Adicione uma <b>imagem</b> opcional que será exibida
+                no topo do envio.
+              </div>
+            </div>
+          </div>
+
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="bg-[#121212] border border-white/10 flex-wrap h-auto">
+              {(notifs || []).map((n) => (
+                <TabsTrigger key={n.event_key} value={n.event_key} data-testid={`notif-tab-${n.event_key}`}>
+                  {EVENT_META[n.event_key]?.icon || "🔔"} {n.title}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {(notifs || []).map((n) => (
+              <TabsContent key={n.event_key} value={n.event_key} className="mt-4">
+                <NotificationCard
+                  notif={n}
+                  onSave={(event_key, data) => saveMut.mutate({ event_key, data })}
+                  onRestore={(event_key) => restoreMut.mutate(event_key)}
+                  testPhone={testPhone}
+                  onSendTest={{
+                    setTestPhone,
+                    send: (payload) => sendMut.mutate(payload),
+                    pending: sendMut.isPending,
+                  }}
+                />
+              </TabsContent>
+            ))}
+          </Tabs>
+        </>
+      )}
+
+      {section === "deliveries" && <DeliveriesPanel />}
+      {section === "dedup" && <DedupPanel />}
+    </Layout>
+  );
+}
+
+// ---------------- Deliveries Panel ----------------
+
+function StatusBadge({ status }) {
+  const map = {
+    sent: { bg: "#34C759", icon: <CheckCircle size={12} weight="fill" />, label: "Enviada" },
+    pending: { bg: "#FF9F0A", icon: <Clock size={12} weight="fill" />, label: "Pendente" },
+    failed_permanent: { bg: "#FF3B30", icon: <WarningCircle size={12} weight="fill" />, label: "Falhou" },
+  };
+  const s = map[status] || { bg: "#8E8E93", icon: null, label: status };
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
+      style={{ backgroundColor: `${s.bg}22`, color: s.bg, border: `1px solid ${s.bg}44` }}
+    >
+      {s.icon} {s.label}
+    </span>
+  );
+}
+
+function DeliveriesPanel() {
+  const qc = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState("");
+  const [phoneFilter, setPhoneFilter] = useState("");
+  const [limit, setLimit] = useState(50);
+
+  const { data, refetch, isFetching } = useQuery({
+    queryKey: ["deliveries", statusFilter, phoneFilter, limit],
+    queryFn: () => notificationsApi.listDeliveries({
+      limit,
+      ...(statusFilter && { status: statusFilter }),
+      ...(phoneFilter && { phone: phoneFilter }),
+    }),
+    refetchInterval: 8000,
+  });
+
+  const retryMut = useMutation({
+    mutationFn: (id) => notificationsApi.retryDelivery(id),
+    onSuccess: (r) => {
+      toast.success(r.ok ? "Reenviada com sucesso" : "Tentativa registrada — veja o status");
+      qc.invalidateQueries({ queryKey: ["deliveries"] });
+    },
+    onError: (e) => toast.error("Falhou: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const counts = data?.counts_by_status || {};
+  const dedupStats = data?.dedup_stats || {};
+
+  return (
+    <div className="space-y-4">
+      {/* Stats cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { label: "Enviadas", value: counts.sent || 0, color: "#34C759" },
+          { label: "Pendentes", value: counts.pending || 0, color: "#FF9F0A" },
+          { label: "Falhou", value: counts.failed_permanent || 0, color: "#FF3B30" },
+          { label: "Duplicatas bloqueadas", value: dedupStats.total_blocked || 0, color: "#5AC8FA" },
+          { label: "Bloqueadas (24h)", value: dedupStats.blocked_24h || 0, color: "#AF52DE" },
+        ].map((s) => (
+          <div key={s.label} className="surface rounded-xl p-3" data-testid={`stat-${s.label.toLowerCase().replace(/ /g, '-')}`}>
+            <div className="text-xs text-white/50">{s.label}</div>
+            <div className="text-2xl font-display font-bold mt-1" style={{ color: s.color }}>
+              {s.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="surface rounded-xl p-4 flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[200px]">
+          <label className="text-xs text-white/50 block mb-1">Filtrar por telefone</label>
+          <Input
+            value={phoneFilter}
+            onChange={(e) => setPhoneFilter(e.target.value)}
+            placeholder="5547..."
+            className="bg-white/5 border-white/10 font-mono text-sm"
+            data-testid="input-filter-phone"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-white/50 block mb-1">Status</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm"
+            data-testid="select-filter-status"
+          >
+            <option value="">Todos</option>
+            <option value="sent">Enviadas</option>
+            <option value="pending">Pendentes</option>
+            <option value="failed_permanent">Falhou</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-white/50 block mb-1">Limite</label>
+          <select
+            value={limit}
+            onChange={(e) => setLimit(parseInt(e.target.value))}
+            className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm"
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+          </select>
+        </div>
+        <Button variant="outline" className="border-white/10" onClick={() => refetch()} data-testid="btn-refresh-deliveries">
+          <ArrowClockwise size={14} className={"mr-2 " + (isFetching ? "animate-spin" : "")} />
+          Atualizar
+        </Button>
+      </div>
+
+      {/* Deliveries table */}
+      <div className="surface rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5 text-white/60 text-xs uppercase tracking-wider">
+              <tr>
+                <th className="text-left px-4 py-3">Data</th>
+                <th className="text-left px-4 py-3">Evento</th>
+                <th className="text-left px-4 py-3">Telefone</th>
+                <th className="text-left px-4 py-3">Mensagem</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-left px-4 py-3">Tentativas</th>
+                <th className="text-right px-4 py-3">Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.deliveries || []).length === 0 && (
+                <tr>
+                  <td colSpan="7" className="text-center text-white/40 py-8">
+                    Nenhuma entrega encontrada
+                  </td>
+                </tr>
+              )}
+              {(data?.deliveries || []).map((d) => (
+                <tr key={d.id} className="border-t border-white/5 hover:bg-white/[0.02]" data-testid={`delivery-row-${d.id}`}>
+                  <td className="px-4 py-2 text-white/70 text-xs font-mono whitespace-nowrap">
+                    {new Date(d.created_at).toLocaleString("pt-BR")}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-white/5 text-white/80">
+                      {d.event_key}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs">{d.phone}</td>
+                  <td className="px-4 py-2 text-white/70 max-w-md truncate" title={d.body}>
+                    {d.body?.slice(0, 80)}{d.body?.length > 80 ? "…" : ""}
+                  </td>
+                  <td className="px-4 py-2"><StatusBadge status={d.status} /></td>
+                  <td className="px-4 py-2 text-white/60 text-xs">{d.attempts}/{d.max_attempts}</td>
+                  <td className="px-4 py-2 text-right">
+                    {d.status !== "sent" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-white/10 text-xs h-7"
+                        onClick={() => retryMut.mutate(d.id)}
+                        disabled={retryMut.isPending}
+                        data-testid={`btn-retry-${d.id}`}
+                      >
+                        Reenviar
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- Dedup (Blocked Duplicates) Panel ----------------
+
+function DedupPanel() {
+  const [reasonFilter, setReasonFilter] = useState("");
+  const [phoneFilter, setPhoneFilter] = useState("");
+  const [limit, setLimit] = useState(100);
+
+  const { data, refetch, isFetching } = useQuery({
+    queryKey: ["dedup-log", reasonFilter, phoneFilter, limit],
+    queryFn: () => notificationsApi.listDedupLog({
+      limit,
+      ...(reasonFilter && { reason: reasonFilter }),
+      ...(phoneFilter && { phone: phoneFilter }),
+    }),
+    refetchInterval: 10000,
+  });
+
+  const counts = data?.counts_by_reason || {};
+
+  const REASON_META = {
+    phone_event: { label: "Mesmo evento", color: "#FF9F0A", desc: "Bloqueado pois mesmo evento já foi enviado neste telefone recentemente" },
+    body_hash: { label: "Mesmo conteúdo", color: "#AF52DE", desc: "Bloqueado pois um texto idêntico já foi enviado (evento diferente, mesma mensagem)" },
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Info card */}
+      <div className="surface rounded-xl p-4">
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-md bg-[#007AFF]/15 text-[#007AFF] flex items-center justify-center shrink-0">
-            <Bell size={16} weight="duotone" />
+          <div className="w-8 h-8 rounded-md bg-[#5AC8FA]/15 text-[#5AC8FA] flex items-center justify-center shrink-0">
+            <ShieldCheck size={16} weight="duotone" />
           </div>
           <div className="text-sm text-white/70 leading-relaxed">
-            Estas mensagens são enviadas <b>automaticamente</b> pelo WhatsFlow para cada cliente do painel.fun de acordo com seu vencimento
-            e ID. Clique nas variáveis para inseri-las na mensagem. Adicione uma <b>imagem</b> opcional que será exibida
-            no topo do envio.
+            <div className="font-semibold text-white/90 mb-1">Sistema anti-duplicata ativo</div>
+            Toda vez que uma notificação tentou ser enviada mas o sistema detectou que seria uma <b>duplicata</b>,
+            o envio foi bloqueado e registrado aqui. As duas regras ativas:
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+              <div className="p-2 rounded bg-[#FF9F0A]/10 border border-[#FF9F0A]/20">
+                <b className="text-[#FF9F0A]">Mesmo evento</b>: mesmo <code>event_key</code> + mesmo telefone dentro da janela de dedup (config: <code>dedup_window_minutes</code>).
+              </div>
+              <div className="p-2 rounded bg-[#AF52DE]/10 border border-[#AF52DE]/20">
+                <b className="text-[#AF52DE]">Mesmo conteúdo</b>: mesmo texto renderizado + mesmo telefone (janela: <code>body_dedup_window_minutes</code>).
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="bg-[#121212] border border-white/10 flex-wrap h-auto">
-          {(notifs || []).map((n) => (
-            <TabsTrigger key={n.event_key} value={n.event_key} data-testid={`notif-tab-${n.event_key}`}>
-              {EVENT_META[n.event_key]?.icon || "🔔"} {n.title}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {(notifs || []).map((n) => (
-          <TabsContent key={n.event_key} value={n.event_key} className="mt-4">
-            <NotificationCard
-              notif={n}
-              onSave={(event_key, data) => saveMut.mutate({ event_key, data })}
-              onRestore={(event_key) => restoreMut.mutate(event_key)}
-              testPhone={testPhone}
-              onSendTest={{
-                setTestPhone,
-                send: (payload) => sendMut.mutate(payload),
-                pending: sendMut.isPending,
-              }}
-            />
-          </TabsContent>
-        ))}
-      </Tabs>
-    </Layout>
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="surface rounded-xl p-3">
+          <div className="text-xs text-white/50">Total bloqueado</div>
+          <div className="text-2xl font-display font-bold mt-1 text-[#5AC8FA]">
+            {(counts.phone_event || 0) + (counts.body_hash || 0)}
+          </div>
+        </div>
+        <div className="surface rounded-xl p-3">
+          <div className="text-xs text-white/50">Por mesmo evento</div>
+          <div className="text-2xl font-display font-bold mt-1 text-[#FF9F0A]">{counts.phone_event || 0}</div>
+        </div>
+        <div className="surface rounded-xl p-3">
+          <div className="text-xs text-white/50">Por mesmo conteúdo</div>
+          <div className="text-2xl font-display font-bold mt-1 text-[#AF52DE]">{counts.body_hash || 0}</div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="surface rounded-xl p-4 flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[200px]">
+          <label className="text-xs text-white/50 block mb-1">Filtrar por telefone</label>
+          <Input
+            value={phoneFilter}
+            onChange={(e) => setPhoneFilter(e.target.value)}
+            placeholder="5547..."
+            className="bg-white/5 border-white/10 font-mono text-sm"
+            data-testid="input-dedup-phone"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-white/50 block mb-1">Motivo</label>
+          <select
+            value={reasonFilter}
+            onChange={(e) => setReasonFilter(e.target.value)}
+            className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm"
+            data-testid="select-dedup-reason"
+          >
+            <option value="">Todos</option>
+            <option value="phone_event">Mesmo evento</option>
+            <option value="body_hash">Mesmo conteúdo</option>
+          </select>
+        </div>
+        <Button variant="outline" className="border-white/10" onClick={() => refetch()} data-testid="btn-refresh-dedup">
+          <ArrowClockwise size={14} className={"mr-2 " + (isFetching ? "animate-spin" : "")} />
+          Atualizar
+        </Button>
+      </div>
+
+      {/* Table */}
+      <div className="surface rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5 text-white/60 text-xs uppercase tracking-wider">
+              <tr>
+                <th className="text-left px-4 py-3">Bloqueado em</th>
+                <th className="text-left px-4 py-3">Motivo</th>
+                <th className="text-left px-4 py-3">Evento tentado</th>
+                <th className="text-left px-4 py-3">Telefone</th>
+                <th className="text-left px-4 py-3">Mensagem</th>
+                <th className="text-left px-4 py-3">Janela</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.blocks || []).length === 0 && (
+                <tr>
+                  <td colSpan="6" className="text-center text-white/40 py-8">
+                    Nenhuma duplicata foi bloqueada ainda — o sistema está sempre monitorando
+                  </td>
+                </tr>
+              )}
+              {(data?.blocks || []).map((b) => {
+                const rm = REASON_META[b.reason] || { label: b.reason, color: "#8E8E93" };
+                return (
+                  <tr key={b.id} className="border-t border-white/5 hover:bg-white/[0.02]" data-testid={`dedup-row-${b.id}`}>
+                    <td className="px-4 py-2 text-white/70 text-xs font-mono whitespace-nowrap">
+                      {new Date(b.blocked_at).toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
+                        style={{ backgroundColor: `${rm.color}22`, color: rm.color, border: `1px solid ${rm.color}44` }}
+                        title={rm.desc}
+                      >
+                        {rm.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="text-[11px] font-mono px-2 py-0.5 rounded bg-white/5 text-white/80 inline-block">
+                        {b.event_key}
+                      </div>
+                      {b.matched_event_key && b.matched_event_key !== b.event_key && (
+                        <div className="text-[10px] text-white/40 mt-0.5">
+                          colidiu com <span className="font-mono">{b.matched_event_key}</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 font-mono text-xs">{b.phone}</td>
+                    <td className="px-4 py-2 text-white/70 max-w-md truncate" title={b.body}>
+                      {b.body?.slice(0, 80)}{b.body?.length > 80 ? "…" : ""}
+                    </td>
+                    <td className="px-4 py-2 text-white/50 text-xs">{b.window_minutes} min</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
