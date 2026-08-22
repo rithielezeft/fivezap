@@ -96,9 +96,23 @@ function _resolveChromiumPath() {
   const explicit = process.env.CHROMIUM_PATH;
   if (explicit) return explicit;
   const fs = require('fs');
-  // Prefer REAL binaries first — shell wrappers cause TargetCloseError because
-  // Puppeteer's PID handle refers to the wrapper, which exits after spawning
-  // the real browser, breaking the DevTools protocol handshake.
+
+  // 1) FIRST — try the puppeteer-bundled Chrome for Testing. This is critical
+  //    on ARM/Debian Trixie: system Chromium is often 148+ which has DevTools
+  //    protocol changes that crash the wwebjs `Client.inject` (page.evaluate).
+  //    Puppeteer downloads a version-matched Chrome that avoids this issue.
+  try {
+    const puppeteer = require('puppeteer');
+    const bundled = puppeteer.executablePath();
+    if (bundled && fs.existsSync(bundled)) {
+      console.log('[WA] Using puppeteer-bundled Chrome at', bundled);
+      return bundled;
+    }
+  } catch (e) {
+    console.warn('[WA] puppeteer package not available (', e.message, ') — falling back to system Chromium');
+  }
+
+  // 2) FALLBACK — system Chromium. Prefer real binaries over shell wrappers.
   const candidates = [
     // Real binaries (Debian/RPi OS install these under /usr/lib/*)
     '/usr/lib/chromium/chrome',
@@ -131,16 +145,14 @@ function _resolveChromiumPath() {
         console.warn('[WA] Skipping', p, '— it is a shell wrapper, not the real Chromium binary');
         continue;
       }
-      console.log('[WA] Using Chromium at', p);
+      console.log('[WA] Using system Chromium at', p);
       return p;
     } catch (e) {}
   }
 
   console.error('════════════════════════════════════════════════════════');
-  console.error('[WA] ❌ NENHUM CHROMIUM (BINÁRIO REAL) ENCONTRADO!');
-  console.error('[WA] Encontrei apenas wrappers shell — Puppeteer não funciona com wrappers.');
-  console.error('[WA] Instale com:  sudo apt install -y chromium');
-  console.error('[WA] Ou aponte manualmente: export CHROMIUM_PATH=/caminho/do/binario/real');
+  console.error('[WA] ❌ NENHUM CHROMIUM ENCONTRADO!');
+  console.error('[WA] Instale via:  cd ~/WhatsFlow/whatsapp-service && npx puppeteer browsers install chrome');
   console.error('════════════════════════════════════════════════════════');
   return undefined;
 }
