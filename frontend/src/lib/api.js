@@ -79,6 +79,8 @@ export const whatsappApi = {
   send: (data) => api.post("/whatsapp/send", data).then((r) => r.data),
   logout: () => api.post("/whatsapp/logout").then((r) => r.data),
   restart: () => api.post("/whatsapp/restart", null, { timeout: 30000 }).then((r) => r.data),
+  pairingCode: (phone) =>
+    api.post("/whatsapp/pairing-code", { phone }, { timeout: 20000 }).then((r) => r.data),
 };
 
 export const messagesApi = {

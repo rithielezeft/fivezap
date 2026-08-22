@@ -38,6 +38,23 @@ async def qr():
     return await whatsapp_client.get_qr()
 
 
+class PairingCodePayload(BaseModel):
+    phone: str  # digits with country code, e.g. "5547999999999"
+
+
+@router.post("/pairing-code")
+async def pairing_code(payload: PairingCodePayload):
+    """Generate an 8-character pairing code so the user can link WhatsApp
+    by typing the code on their phone (Settings → Linked Devices →
+    Link with phone number) instead of scanning a QR code."""
+    try:
+        return await whatsapp_client.request_pairing_code(payload.phone)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 @router.post("/send")
 async def send(payload: SendPayload):
     try:

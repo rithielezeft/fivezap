@@ -494,6 +494,37 @@ app.get('/qr', (req, res) => {
   res.json({ qr: currentQR, ready, state });
 });
 
+// Pairing code — alternative to QR. User enters their phone number, we
+// request an 8-char code from WA, they type it on the phone (Settings →
+// Linked Devices → Link with phone number). Requires the client to be in
+// "awaiting_qr" state (not yet connected/authenticated).
+app.post('/pairing-code', async (req, res) => {
+  const { phone } = req.body || {};
+  if (!phone) return res.status(400).json({ error: 'phone required' });
+  if (ready) return res.status(400).json({ error: 'already connected', state });
+
+  // Normalize phone: keep only digits, must include country code (e.g. 5547999999999)
+  const digits = String(phone).replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 15) {
+    return res.status(400).json({
+      error: 'Número inválido — inclua o código do país (ex: 5547999999999)',
+    });
+  }
+
+  try {
+    // whatsapp-web.js exposes requestPairingCode(phone[, showNotification])
+    // It returns a Promise<string> with the 8-char code (usually formatted).
+    const code = await client.requestPairingCode(digits);
+    console.log('[WA] Pairing code generated for', digits, '→', code);
+    // Format as XXXX-XXXX for readability
+    const formatted = code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+    res.json({ code: formatted, phone: digits });
+  } catch (e) {
+    console.error('[WA] requestPairingCode failed:', e);
+    res.status(500).json({ error: e.message || 'Falha ao gerar código' });
+  }
+});
+
 app.post('/send', async (req, res) => {
   const { phone, message, image_url } = req.body || {};
   if (!phone) return res.status(400).json({ error: 'phone required' });

@@ -58,6 +58,25 @@ async def logout() -> dict:
         return {"success": False, "error": str(e)}
 
 
+async def request_pairing_code(phone: str) -> dict:
+    """Request an 8-char pairing code as an alternative to QR scanning.
+    User types this code in the phone's WhatsApp under
+    Settings → Linked Devices → Link with phone number.
+    """
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{WA_SERVICE_URL}/pairing-code",
+            json={"phone": phone},
+        )
+        if resp.status_code >= 400:
+            try:
+                err = resp.json().get("error", resp.text)
+            except Exception:
+                err = resp.text
+            raise RuntimeError(err)
+        return resp.json()
+
+
 async def list_chats(chat_type: str = "group") -> dict:
     """List chats of a given type. `chat_type` in {"group","newsletter"}."""
     async with httpx.AsyncClient(timeout=15) as client:
