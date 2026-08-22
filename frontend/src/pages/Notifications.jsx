@@ -621,6 +621,83 @@ function DeliveriesPanel() {
 
 // ---------------- Dedup (Blocked Duplicates) Panel ----------------
 
+// ---------------- Numeric Setting (edit + save with local state) ----------------
+// Prevents the "saves every keystroke" bug by keeping local editing state
+// and only firing onSave() when the user clicks Save or presses Enter.
+// Shows an obvious "unsaved changes" indicator + explicit Save button so
+// admins understand the value only takes effect after clicking.
+
+function NumericSetting({ testId, label, hint, initialValue, min, max, step,
+                          allowFloat, onSave, saving, highlight }) {
+  const [value, setValue] = useState(initialValue);
+  useEffect(() => { setValue(initialValue); }, [initialValue]);
+
+  const parse = (v) => allowFloat ? parseFloat(v) : parseInt(v);
+  const parsed = parse(value);
+  const dirty = !Number.isNaN(parsed) && parsed !== initialValue;
+
+  const doSave = () => {
+    if (Number.isNaN(parsed)) {
+      toast.error("Valor inválido");
+      return;
+    }
+    if (typeof min === "number" && parsed < min) {
+      toast.error(`Mínimo: ${min}`);
+      return;
+    }
+    if (typeof max === "number" && parsed > max) {
+      toast.error(`Máximo: ${max}`);
+      return;
+    }
+    onSave(parsed);
+  };
+
+  const borderColor = dirty
+    ? (highlight || "#FF9F0A")
+    : (highlight ? `${highlight}30` : "rgba(255,255,255,0.1)");
+
+  return (
+    <div
+      className="rounded-lg p-3 bg-white/[0.02] border transition-colors"
+      style={{ borderColor }}
+    >
+      <div
+        className="text-xs font-medium mb-1"
+        style={{ color: highlight || "rgba(255,255,255,0.7)" }}
+      >
+        {label}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Input
+          type="number"
+          min={min}
+          max={max}
+          step={step || 1}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && dirty) doSave(); }}
+          className={"bg-white/5 h-8 text-sm font-mono " + (dirty ? "border-[#FF9F0A]/50" : "border-white/10")}
+          data-testid={testId}
+        />
+        <Button
+          size="sm"
+          onClick={doSave}
+          disabled={!dirty || saving}
+          className={"h-8 px-2 text-xs shrink-0 " + (dirty ? "bg-[#FF9F0A] hover:bg-[#FF9500] text-black" : "bg-white/10")}
+          data-testid={`${testId}-save`}
+          title={dirty ? "Salvar (Enter)" : "Sem alterações"}
+        >
+          <FloppyDisk size={12} weight="fill" />
+        </Button>
+      </div>
+      <div className="text-[10px] text-white/40 mt-1">
+        {dirty ? <span className="text-[#FF9F0A]">Não salvo — clique no ícone ou Enter</span> : hint}
+      </div>
+    </div>
+  );
+}
+
+
 function DedupPanel() {
   const qc = useQueryClient();
   const [reasonFilter, setReasonFilter] = useState("");
@@ -641,8 +718,8 @@ function DedupPanel() {
       const { settingsApi } = await import("@/lib/api");
       return settingsApi.update(updates);
     },
-    onSuccess: (_r, vars) => {
-      toast.success("Regra atualizada");
+    onSuccess: () => {
+      toast.success("Regra salva — aplicada imediatamente");
       qc.invalidateQueries({ queryKey: ["dedup-settings"] });
     },
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
@@ -668,7 +745,7 @@ function DedupPanel() {
   const dedupEnabled = (settings?.dedup_enabled ?? "true").toString().toLowerCase() === "true";
   const dedupWindow = parseInt(settings?.dedup_window_minutes ?? "60");
   const bodyWindow = parseInt(settings?.body_dedup_window_minutes ?? "15");
-  const sendGap = parseInt(settings?.send_min_gap_seconds ?? "3");
+  const sendGap = parseFloat(settings?.send_min_gap_seconds ?? "3");
 
   return (
     <div className="space-y-4">
@@ -677,10 +754,13 @@ function DedupPanel() {
         <div className="flex items-center gap-2 mb-3">
           <ShieldCheck size={18} className="text-[#5AC8FA]" weight="duotone" />
           <h3 className="font-display text-base font-bold">Regras da fila anti-duplicação</h3>
+          {saveSettingMut.isPending && (
+            <span className="text-[10px] text-[#FF9F0A] animate-pulse">Salvando...</span>
+          )}
         </div>
         <p className="text-xs text-white/50 mb-4 leading-relaxed">
-          Configure como o sistema espaça envios e detecta duplicatas. Estas regras se aplicam a <b>todas as notificações automáticas</b>
-          (lembretes de vencimento, cupons VOLTA, confirmações de pagamento, etc.).
+          Configure como o sistema espaça envios e detecta duplicatas. Edite os valores e clique em <b>&quot;Salvar&quot;</b> ou
+          pressione <b>Enter</b> — o backend passa a respeitar imediatamente na próxima notificação da fila.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -699,68 +779,53 @@ function DedupPanel() {
                 <div className="w-9 h-5 bg-white/10 peer-checked:bg-[#34C759] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
               </label>
             </div>
-            <div className="text-[10px] text-white/40">{dedupEnabled ? "Sistema ativo" : "Bypass — todos são enviados"}</div>
+            <div className="text-[10px] text-white/40">{dedupEnabled ? "Sistema ativo — regras obedecidas" : "Bypass — todos são enviados"}</div>
           </div>
 
-          {/* Phone+event window */}
-          <div className="rounded-lg p-3 bg-white/[0.02] border border-white/10">
-            <div className="text-xs font-medium text-white/70 mb-1">Janela mesmo evento (min)</div>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min="1"
-                max="1440"
-                value={dedupWindow}
-                onChange={(e) => saveSettingMut.mutate({ dedup_window_minutes: e.target.value })}
-                className="bg-white/5 border-white/10 h-8 text-sm font-mono"
-                data-testid="dedup-window-input"
-              />
-            </div>
-            <div className="text-[10px] text-white/40 mt-1">Mesmo evento + tel. bloqueado por N min</div>
-          </div>
+          <NumericSetting
+            testId="dedup-window-input"
+            label="Janela mesmo evento (min)"
+            hint="Mesmo evento + tel. bloqueado por N min"
+            initialValue={dedupWindow}
+            min={1}
+            max={1440}
+            onSave={(v) => saveSettingMut.mutate({ dedup_window_minutes: String(v) })}
+            saving={saveSettingMut.isPending}
+          />
 
-          {/* Body hash window */}
-          <div className="rounded-lg p-3 bg-white/[0.02] border border-white/10">
-            <div className="text-xs font-medium text-white/70 mb-1">Janela mesmo conteúdo (min)</div>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min="1"
-                max="120"
-                value={bodyWindow}
-                onChange={(e) => saveSettingMut.mutate({ body_dedup_window_minutes: e.target.value })}
-                className="bg-white/5 border-white/10 h-8 text-sm font-mono"
-                data-testid="body-dedup-window-input"
-              />
-            </div>
-            <div className="text-[10px] text-white/40 mt-1">Texto idêntico bloqueado por N min</div>
-          </div>
+          <NumericSetting
+            testId="body-dedup-window-input"
+            label="Janela mesmo conteúdo (min)"
+            hint="Texto idêntico bloqueado por N min"
+            initialValue={bodyWindow}
+            min={1}
+            max={1440}
+            onSave={(v) => saveSettingMut.mutate({ body_dedup_window_minutes: String(v) })}
+            saving={saveSettingMut.isPending}
+          />
 
-          {/* Send pacing */}
-          <div className="rounded-lg p-3 bg-white/[0.02] border border-[#FF9F0A]/30">
-            <div className="text-xs font-medium text-[#FF9F0A] mb-1 flex items-center gap-1">
-              ⏱️ Espera entre envios (seg)
-            </div>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min="0"
-                max="60"
-                step="0.5"
-                value={sendGap}
-                onChange={(e) => saveSettingMut.mutate({ send_min_gap_seconds: e.target.value })}
-                className="bg-white/5 border-[#FF9F0A]/20 h-8 text-sm font-mono"
-                data-testid="send-gap-input"
-              />
-            </div>
-            <div className="text-[10px] text-white/40 mt-1">Cada envio espera N seg — anti-spam do WA</div>
-          </div>
+          <NumericSetting
+            testId="send-gap-input"
+            label="⏱️ Espera entre envios (seg)"
+            hint="Cada envio espera N seg — anti-spam do WA"
+            highlight="#FF9F0A"
+            initialValue={sendGap}
+            step={0.5}
+            min={0}
+            max={300}
+            allowFloat
+            onSave={(v) => saveSettingMut.mutate({ send_min_gap_seconds: String(v) })}
+            saving={saveSettingMut.isPending}
+          />
         </div>
 
         <div className="mt-3 p-2.5 rounded-md bg-[#5AC8FA]/5 border border-[#5AC8FA]/20 text-[11px] text-white/70 leading-relaxed">
           <b className="text-[#5AC8FA]">Como funciona:</b> quando várias notificações precisam sair juntas (ex: 500 clientes vencendo hoje),
           a fila envia uma de cada vez, esperando <b>{sendGap}s entre elas</b>. Isso evita bloqueio de anti-spam do WhatsApp e reduz duplicações.
           Se durante essa espera outra notificação idêntica entrar na fila, ela é <b>bloqueada</b> pelas regras acima e aparece na lista abaixo.
+          <br /><br />
+          <b className="text-[#34C759]">✅ Aplicação em tempo real:</b> o sistema lê estes valores no banco a cada envio — assim que você salvar,
+          a próxima mensagem já respeita a nova regra. Nada de reiniciar serviço.
         </div>
       </div>
 

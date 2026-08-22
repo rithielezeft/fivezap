@@ -180,6 +180,8 @@ class SettingsUpdate(BaseModel):
     discount_7d_percent: Optional[str] = None
     dedup_enabled: Optional[str] = None
     dedup_window_minutes: Optional[str] = None
+    body_dedup_window_minutes: Optional[str] = None
+    send_min_gap_seconds: Optional[str] = None
     painel_refresh_interval_seconds: Optional[str] = None
     display_timezone: Optional[str] = None
 
