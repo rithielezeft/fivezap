@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from services import whatsapp_client
-from services.bot import process_incoming_message
+from services.bot import process_incoming_message, save_message
 
 router = APIRouter(prefix="/api/whatsapp", tags=["whatsapp"])
 logger = logging.getLogger(__name__)
@@ -57,15 +57,62 @@ async def pairing_code(payload: PairingCodePayload):
 
 @router.post("/send")
 async def send(payload: SendPayload):
+    """Send a message with the SAME anti-duplicate + pacing rules as
+    automated notifications. Two identical payloads within the dedup
+    window are collapsed into a single WA send; the pacer enforces the
+    global `send_min_gap_seconds` between actual sends.
+
+    Use `/send-immediate` if you need to bypass the queue (admin tests).
+    """
+    from services.delivery_queue import enqueue, _attempt
+    from services.bot import normalize_phone, find_or_create_customer
+
     try:
-        result = await whatsapp_client.send_message(payload.phone, payload.message, image_url=payload.image_url)
-        # Save outgoing message
-        from services.bot import save_message, normalize_phone, find_or_create_customer
+        phone_clean = normalize_phone(payload.phone)
+        # Ensure customer exists so save_message has a customer_id and
+        # the delivery log ties back to a client.
+        customer = await find_or_create_customer(phone_clean)
+
+        # Enqueue with default dedup (settings-driven). Same event_key for
+        # all manual sends → duplicates within the window are collapsed.
+        delivery_id = await enqueue(
+            event_key="manual_send",
+            phone=phone_clean,
+            body=payload.message or "",
+            image_url=payload.image_url,
+            customer_id=customer["id"],
+            # dedup_window_minutes=-1 (default) → obey admin's settings
+        )
+        # Fire the first attempt immediately (subsequent retries are handled
+        # by the queue loop). This gives the admin instant feedback.
+        sent = await _attempt(delivery_id)
+
+        note = payload.message or ("[imagem] " + (payload.image_url or ""))
+        await save_message(phone_clean, note, "out", customer["id"])
+        return {
+            "success": sent,
+            "queued": True,
+            "dedup_applied": True,
+            "delivery_id": delivery_id,
+        }
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/send-immediate")
+async def send_immediate(payload: SendPayload):
+    """Escape hatch: send immediately WITHOUT the dedup queue. Only use
+    for admin tests where you WANT to burst identical messages."""
+    try:
+        result = await whatsapp_client.send_message(
+            payload.phone, payload.message, image_url=payload.image_url,
+        )
+        from services.bot import normalize_phone, find_or_create_customer
         phone_clean = normalize_phone(payload.phone)
         customer = await find_or_create_customer(phone_clean)
         note = payload.message or ("[imagem] " + (payload.image_url or ""))
         await save_message(phone_clean, note, "out", customer["id"])
-        return result
+        return {**result, "queued": False, "dedup_applied": False}
     except Exception as e:
         raise HTTPException(502, str(e))
 

@@ -182,6 +182,7 @@ class SettingsUpdate(BaseModel):
     dedup_window_minutes: Optional[str] = None
     body_dedup_window_minutes: Optional[str] = None
     send_min_gap_seconds: Optional[str] = None
+    default_country_code: Optional[str] = None
     painel_refresh_interval_seconds: Optional[str] = None
     display_timezone: Optional[str] = None
 

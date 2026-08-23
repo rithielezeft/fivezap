@@ -418,6 +418,21 @@ async def get_setting(key: str, default: str = "") -> str:
         return row["value"] if row else default
 
 
+def get_setting_sync(key: str, default: str = "") -> str:
+    """Synchronous version of get_setting for use in sync code paths
+    (like phone normalization helpers called from data models).
+    Uses the raw sqlite3 driver — no async needed."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        conn.close()
+        return row["value"] if row else default
+    except Exception:
+        return default
+
+
 async def set_setting(key: str, value: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(

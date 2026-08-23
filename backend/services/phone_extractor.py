@@ -29,10 +29,11 @@ def _clean(number: str) -> str:
     Rules:
       - If input has `+` → keep digits as-is (already E.164, respects the
         user's explicit country code — Spain, Portugal, USA, etc.).
-      - If digits already start with 55 and length is 12-13 → BR keep as-is.
-      - If bare digits are 10 or 11 → assume Brazilian local, prepend 55
-        (system is primary-BR; ambiguity resolved in favour of BR).
       - Bare digits 12-15 → assume already has a country code, keep as-is.
+      - Bare digits 10 or 11 → prepend the admin-configured
+        `default_country_code` (Setting; default "55" for Brazil). Admins
+        with international clients can change this to "1" (USA), "351"
+        (Portugal), "34" (Spain), etc.
       - Anything else → keep digits (invalid length, let caller reject).
     """
     if not number:
@@ -47,20 +48,39 @@ def _clean(number: str) -> str:
     if has_plus:
         return digits
 
-    # 2) Already BR-prefixed (55 + 10/11 local digits)
-    if digits.startswith("55") and len(digits) in (12, 13):
-        return digits
-
-    # 3) Bare BR local (10 = fixed, 11 = mobile) → prepend 55
-    if len(digits) in (10, 11):
-        return "55" + digits
-
-    # 4) 12-15 digits without a `+` — assume already has a country code
-    #    (e.g. `34612345678` = Spain, `447700900123` = UK). Keep as-is.
+    # 2) Already E.164 (12-15 digits) — has a country code, keep untouched.
+    #    Common examples: 5511987654321 (BR), 447700900123 (UK),
+    #    34612345678 (ES), 15551234567 (US).
     if 12 <= len(digits) <= 15:
         return digits
 
-    # 5) Too short (<10) or too long (>15) — leave untouched.
+    # 3) Bare local number (10-11 digits) → prepend the admin-configured
+    #    default country code. RESPECT country-specific length:
+    #    - BR (55): 10 = fixed, 11 = mobile → both need prepending
+    #    - USA/CA (1): 10 = local, 11 = already has "1" prefix → only prepend 10
+    #    - PT (351): 9 = local → we only see 10-11 here, so 11 = already has 351? no
+    #                 351 + 9 = 12 which falls into rule (2). So 10-11 = local.
+    #    General rule: for 11-digit numbers, prepend only if the country code
+    #    is BR (55). For other 1-digit country codes, 11 digits = already E.164.
+    if len(digits) in (10, 11):
+        try:
+            from database import get_setting_sync
+            cc = (get_setting_sync("default_country_code") or "55").strip()
+            cc = re.sub(r"\D", "", cc) or "55"
+        except Exception:
+            cc = "55"
+
+        # 11-digit heuristic: if the country code is 1 digit long
+        # (USA=1, KZ=7, RU=7) AND our input is 11 digits AND starts with
+        # that country code, assume E.164 (don't double-prefix).
+        if len(digits) == 11 and len(cc) == 1 and digits.startswith(cc):
+            return digits
+        # 11-digit + non-BR country code: 11 digits already includes it.
+        if len(digits) == 11 and cc not in ("55",):
+            return digits
+        return cc + digits
+
+    # 4) Too short (<10) or too long (>15) — leave untouched.
     return digits
 
 # Fields on painel.fun where the phone might live (structured OR free text)

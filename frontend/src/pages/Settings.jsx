@@ -23,6 +23,7 @@ const FIELDS = [
   { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },
   { key: "plan_price_12m", label: "Preço 12 meses (R$)", group: "pay", placeholder: "280,00" },
   { key: "notification_days", label: "Dias de notificação (negativos = após venc.). Ex: 7,3,1,0,-1,-3,-7", group: "notify" },
+  { key: "default_country_code", label: "Código de país padrão (para números sem +) — 55=BR, 1=USA, 351=PT, 34=ES", group: "notify", placeholder: "55" },
   { key: "public_base_url", label: "URL pública (WhatsFlow)", group: "notify" },
   { key: "timezone", label: "Fuso horário", group: "notify" },
   { key: "admin_whatsapp", label: "Admin — Seu WhatsApp (recebe alertas de pagamento)", group: "notify", placeholder: "5511999998888" },
