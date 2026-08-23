@@ -376,6 +376,13 @@ async def init_db():
             await db.execute("ALTER TABLE command_templates ADD COLUMN image_url TEXT")
         except Exception:
             pass
+        # Track whether the customer's whatsapp field was set MANUALLY by the
+        # admin (via the Customers page). When set to 1, painel refreshes
+        # MUST NOT overwrite it — the admin knows better than painel's data.
+        try:
+            await db.execute("ALTER TABLE customers ADD COLUMN whatsapp_locked INTEGER DEFAULT 0")
+        except Exception:
+            pass
         # Dedup log: records every time a duplicate delivery was blocked
         # by the delivery_queue. Lets the admin see the anti-dupe system
         # working in the notifications page.

@@ -49,6 +49,7 @@ class Customer(BaseModel):
     expires_at: Optional[str] = None
     status: str = "active"
     notes: Optional[str] = None
+    whatsapp_locked: int = 0
     created_at: str
     updated_at: str
 

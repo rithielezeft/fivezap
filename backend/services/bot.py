@@ -298,11 +298,14 @@ async def process_incoming_message(
     # it to painel `reseller_notes` on trial creation.
     if real_phone_clean and phone_clean.endswith("@lid"):
         existing_wa = (customer.get("whatsapp") or "").strip()
-        if existing_wa != real_phone_clean:
+        # Only backfill if the current value differs AND admin hasn't manually
+        # locked the whatsapp field (whatsapp_locked=1 → admin overrode it).
+        if existing_wa != real_phone_clean and not customer.get("whatsapp_locked"):
             try:
                 async with aiosqlite.connect(DB_PATH) as db:
                     await db.execute(
-                        "UPDATE customers SET whatsapp = ?, updated_at = ? WHERE id = ?",
+                        "UPDATE customers SET whatsapp = ?, updated_at = ? WHERE id = ? "
+                        "AND (whatsapp_locked IS NULL OR whatsapp_locked = 0)",
                         (real_phone_clean, now_iso(), customer["id"]),
                     )
                     await db.commit()

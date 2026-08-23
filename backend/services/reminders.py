@@ -105,17 +105,23 @@ async def reminder_loop():
 
 
 async def cancel_pending_for_phone(phone: str, event_keys: list[str] | None = None) -> int:
-    """Cancel any pending reminders for the given phone number.
+    """Cancel any pending reminders + queued deliveries for the given phone.
 
     Called when a trial user successfully pays — we don't want to keep firing
     `trial_1h_reminder` / `trial_expired` messages telling them the test is
     about to end when they've already renewed.
 
-    Returns the number of reminders cancelled.
+    Cancels TWO layers:
+      1. `scheduled_reminders` (sent=0) — the scheduler won't pick them up
+      2. `notification_deliveries` (status='pending') — the queue won't send them
+
+    Returns the total number of rows cancelled across both tables.
     """
     if not phone:
         return 0
+    total = 0
     async with aiosqlite.connect(DB_PATH) as db:
+        # Layer 1: scheduled_reminders (before they enter the queue)
         if event_keys:
             placeholders = ",".join("?" for _ in event_keys)
             query = (
@@ -130,11 +136,36 @@ async def cancel_pending_for_phone(phone: str, event_keys: list[str] | None = No
             )
             params = (phone,)
         cur = await db.execute(query, params)
-        cancelled = cur.rowcount
+        total += cur.rowcount
+
+        # Layer 2: notification_deliveries pending (already in the queue but
+        # not yet sent) — mark as cancelled so the queue loop skips them.
+        # We reuse status='failed_permanent' + last_error='cancelled_by_pay'
+        # so the audit trail stays clean.
+        if event_keys:
+            placeholders = ",".join("?" for _ in event_keys)
+            query = (
+                f"UPDATE notification_deliveries "
+                f"SET status='failed_permanent', last_error='cancelled_by_payment', "
+                f"    next_retry_at=NULL "
+                f"WHERE status='pending' AND phone = ? AND event_key IN ({placeholders})"
+            )
+            params = (phone, *event_keys)
+        else:
+            query = (
+                "UPDATE notification_deliveries "
+                "SET status='failed_permanent', last_error='cancelled_by_payment', "
+                "    next_retry_at=NULL "
+                "WHERE status='pending' AND phone = ?"
+            )
+            params = (phone,)
+        cur = await db.execute(query, params)
+        total += cur.rowcount
         await db.commit()
-    if cancelled > 0:
+
+    if total > 0:
         logger.info(
-            "Cancelled %d pending reminder(s) for %s (event_keys=%s)",
-            cancelled, phone, event_keys,
+            "Cancelled %d pending reminder(s)+deliverie(s) for %s (event_keys=%s)",
+            total, phone, event_keys,
         )
-    return cancelled
+    return total

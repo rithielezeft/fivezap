@@ -60,6 +60,11 @@ async def update_customer(customer_id: str, payload: CustomerUpdate):
     fields = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(400, "No fields to update")
+    # If admin manually edited the whatsapp, LOCK it so painel refreshes
+    # don't overwrite it. `whatsapp_locked=1` signals "manual override —
+    # keep this even if painel returns a different number".
+    if "whatsapp" in fields:
+        fields["whatsapp_locked"] = 1
     fields["updated_at"] = now_iso()
     sets = ", ".join(f"{k} = ?" for k in fields)
     values = list(fields.values()) + [customer_id]

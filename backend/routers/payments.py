@@ -863,10 +863,13 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                         if uid == str(customer["id"]) or uid == str(painel_id):
                             phone = (extract_whatsapp(u) or "").strip()
                             if phone:
-                                # Persist so next time it's instant.
+                                # Persist so next time it's instant — BUT
+                                # respect manual lock (admin edited it via
+                                # Customers page → don't overwrite).
                                 async with aiosqlite.connect(DB_PATH) as db:
                                     await db.execute(
-                                        "UPDATE customers SET whatsapp = ?, updated_at = ? WHERE id = ?",
+                                        "UPDATE customers SET whatsapp = ?, updated_at = ? "
+                                        "WHERE id = ? AND (whatsapp_locked IS NULL OR whatsapp_locked = 0)",
                                         (phone, now_iso(), customer["id"]),
                                     )
                                     await db.commit()
@@ -897,18 +900,24 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 pass
 
             if phone:
-                # Cancel any pending trial reminders (trial_1h_reminder /
-                # trial_expired) — the client just paid + renewed, they don't
-                # need to be reminded the test is ending.
+                # Cancel any pending trial reminders + queued deliveries —
+                # the client just paid + renewed. They don't need to hear
+                # "seu teste está acabando" 5 min after receiving "renovação
+                # confirmada". Covers all known trial event keys.
                 try:
                     from services.reminders import cancel_pending_for_phone
                     cancelled = await cancel_pending_for_phone(
                         phone,
-                        event_keys=["trial_1h_reminder", "trial_expired"],
+                        event_keys=[
+                            "trial_1h_reminder",
+                            "trial_3h_reminder",
+                            "trial_expired",
+                            "trial_ready",  # in case queue is retrying a failed trial_ready
+                        ],
                     )
                     if cancelled > 0:
                         logger.info(
-                            "Cancelled %d pending trial reminder(s) for %s "
+                            "Cancelled %d pending trial reminder(s)/deliveries for %s "
                             "(client already renewed)", cancelled, phone,
                         )
                 except Exception:
@@ -1205,10 +1214,13 @@ async def resend_notification(payment_id: str):
 
     diag["resolved_phone"] = phone
 
-    # Persist so future notifications are instant
+    # Persist so future notifications are instant — but respect manual lock.
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE customers SET whatsapp = ?, updated_at = ? WHERE id = ?",
-                         (phone, now_iso(), pmt["customer_id"]))
+        await db.execute(
+            "UPDATE customers SET whatsapp = ?, updated_at = ? "
+            "WHERE id = ? AND (whatsapp_locked IS NULL OR whatsapp_locked = 0)",
+            (phone, now_iso(), pmt["customer_id"]),
+        )
         await db.commit()
 
     # WA service status
