@@ -58,6 +58,7 @@ export const customersApi = {
   create: (data) => api.post("/customers", data).then((r) => r.data),
   update: (id, data) => api.put(`/customers/${id}`, data).then((r) => r.data),
   remove: (id) => api.delete(`/customers/${id}`).then((r) => r.data),
+  setWhatsappByPainel: (data) => api.post("/customers/set-whatsapp-by-painel", data).then((r) => r.data),
 };
 
 export const trialsApi = {

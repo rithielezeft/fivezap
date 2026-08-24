@@ -343,19 +343,22 @@ async def _attempt(delivery_id: str) -> bool:
                 "delivery id=%s event=%s phone=%s → FAILED_PERMANENT after %d attempts: %s",
                 delivery_id, d["event_key"], d["phone"], attempts, err,
             )
-            # Best-effort admin alert about the permanent failure — don't
-            # loop through the queue (that would create infinite recursion
-            # on a stuck WA service). Send directly, ignoring failures.
+            # Best-effort admin alert about the permanent failure — enqueue
+            # so it also respects dedup + pacing rules (same alert twice
+            # in an hour → collapsed into one).
             try:
                 from database import get_setting
                 admin = (await get_setting("admin_whatsapp") or "").strip()
                 if admin and admin != d["phone"]:
-                    await whatsapp_client.send_message(
-                        admin,
-                        "⚠️ *Falha permanente em envio*\n\n"
-                        f"Notificação `{d['event_key']}` para {d['phone']} "
-                        f"não pôde ser entregue após {attempts} tentativas.\n"
-                        f"Motivo: {err[:200]}"
+                    await enqueue(
+                        event_key=f"admin_alert_failure_{d['event_key']}",
+                        phone=admin,
+                        body=(
+                            "⚠️ *Falha permanente em envio*\n\n"
+                            f"Notificação `{d['event_key']}` para {d['phone']} "
+                            f"não pôde ser entregue após {attempts} tentativas.\n"
+                            f"Motivo: {err[:200]}"
+                        ),
                     )
             except Exception:
                 pass

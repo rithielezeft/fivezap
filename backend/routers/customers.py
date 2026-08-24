@@ -1,12 +1,58 @@
 """Customer CRUD endpoints."""
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 import aiosqlite
-from typing import List
+from typing import List, Optional
 
 from database import DB_PATH
 from models import Customer, CustomerCreate, CustomerUpdate, new_id, now_iso
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
+
+
+class SetWhatsappPayload(BaseModel):
+    painel_username: str
+    whatsapp: str
+    name: Optional[str] = None
+
+
+@router.post("/set-whatsapp-by-painel")
+async def set_whatsapp_by_painel(payload: SetWhatsappPayload):
+    """Upsert a customer by painel_username and set/lock its whatsapp.
+
+    Used by the frontend Customers page (which shows painel users, not
+    internal customer records) to edit the phone number manually. Always
+    sets `whatsapp_locked=1` so future painel refreshes don't overwrite.
+    """
+    if not payload.painel_username or not payload.whatsapp:
+        raise HTTPException(400, "painel_username e whatsapp são obrigatórios")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM customers WHERE painel_username = ? LIMIT 1",
+            (payload.painel_username,),
+        )
+        existing = await cur.fetchone()
+
+        if existing:
+            await db.execute(
+                "UPDATE customers SET whatsapp = ?, whatsapp_locked = 1, "
+                "updated_at = ? WHERE id = ?",
+                (payload.whatsapp, now_iso(), existing["id"]),
+            )
+            cid = existing["id"]
+        else:
+            cid = new_id()
+            await db.execute(
+                "INSERT INTO customers (id, name, whatsapp, whatsapp_locked, "
+                "system_type, painel_username, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, 1, 'iptv', ?, 'active', ?, ?)",
+                (cid, payload.name or payload.painel_username, payload.whatsapp,
+                 payload.painel_username, now_iso(), now_iso()),
+            )
+        await db.commit()
+    return {"success": True, "customer_id": cid, "whatsapp_locked": True}
 
 
 @router.get("", response_model=List[Customer])

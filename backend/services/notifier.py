@@ -86,15 +86,16 @@ async def send_hardcoded(phone: str, body: str, event_key: str = "hardcoded",
     """Send a raw message (not from template) through the delivery queue.
     Same retry semantics — the client is never left without confirmation.
 
-    Dedup is DISABLED for hardcoded sends: admin alerts + fallbacks are
-    per-event (different bodies) and must always fire.
+    Dedup is ENABLED (uses admin's global settings). Different messages to
+    the same phone within the window collapse into a single send — critical
+    for admin alerts to avoid spam when 500 sends fail in a burst.
     """
     try:
         from services.delivery_queue import enqueue
         delivery_id = await enqueue(
             event_key=event_key, phone=phone, body=body,
             image_url=None, customer_id=customer_id,
-            dedup_window_minutes=0,
+            # dedup_window_minutes=-1 (default) → obey admin's settings
         )
         import aiosqlite
         async with aiosqlite.connect(database.DB_PATH) as db:

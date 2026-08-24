@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
 import { useColumnVisibility, ColumnPicker } from "@/components/ColumnPicker";
-import { painelApi, trialsApi, formatDateBR } from "@/lib/api";
+import { painelApi, trialsApi, customersApi, formatDateBR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk } from "@phosphor-icons/react";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -125,6 +125,7 @@ export default function Customers() {
   const [expiredData, setExpiredData] = useState(null);
   const [expiredSelected, setExpiredSelected] = useState({}); // { user_id: true }
   const [dupConfirm, setDupConfirm] = useState(null); // {duplicates, fresh_count, duplicate_count, selectedIds}
+  const [editPhoneFor, setEditPhoneFor] = useState(null); // {uid, name, current}
 
   // debounce search
   useEffect(() => {
@@ -169,6 +170,16 @@ export default function Customers() {
     mutationFn: painelApi.notifyNow,
     onSuccess: () => toast.success("Notificações enviadas aos clientes vencendo"),
     onError: (e) => toast.error("Falhou: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const setPhoneMut = useMutation({
+    mutationFn: (data) => customersApi.setWhatsappByPainel(data),
+    onSuccess: () => {
+      toast.success("Telefone salvo e bloqueado — painel refresh não vai sobrescrever");
+      setEditPhoneFor(null);
+      refetch();
+    },
+    onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
 
   const debugMut = useMutation({
@@ -485,16 +496,26 @@ export default function Customers() {
                   {cols.isVisible("username") && <td className="px-4 py-3 font-mono text-xs">{username}</td>}
                   {cols.isVisible("name") && <td className="px-4 py-3">{name}</td>}
                   {cols.isVisible("whatsapp") && <td className="px-4 py-3 font-mono text-xs text-white/70">
-                    {whatsapp}
-                    {waFromNotes && (
-                      <span
-                        className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 uppercase tracking-wide"
-                        title="Extraído do campo de notas/observação"
-                        data-testid={`wa-from-notes-${uid}`}
+                    <div className="flex items-center gap-1.5 group">
+                      <span data-testid={`wa-value-${uid}`}>{whatsapp}</span>
+                      {waFromNotes && (
+                        <span
+                          className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 uppercase tracking-wide"
+                          title="Extraído do campo de notas/observação"
+                          data-testid={`wa-from-notes-${uid}`}
+                        >
+                          notas
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setEditPhoneFor({ uid, name, current: whatsapp === "-" ? "" : whatsapp })}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 p-1 rounded hover:bg-white/10 text-white/50 hover:text-white"
+                        title="Editar telefone"
+                        data-testid={`edit-phone-${uid}`}
                       >
-                        notas
-                      </span>
-                    )}
+                        <PencilSimple size={12} />
+                      </button>
+                    </div>
                   </td>}
                   {cols.isVisible("system") && <td className="px-4 py-3">
                     {(() => {
@@ -932,6 +953,87 @@ export default function Customers() {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Edit Phone Dialog — sets whatsapp_locked=1 so painel refresh
+          NEVER overwrites the admin's manual choice */}
+      <Dialog open={!!editPhoneFor} onOpenChange={(o) => !o && setEditPhoneFor(null)}>
+        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <PencilSimple size={18} className="text-[#007AFF]" />
+              Editar telefone
+            </DialogTitle>
+            <DialogDescription className="text-white/50 text-sm">
+              {editPhoneFor?.name} — o número que você salvar aqui fica
+              <b className="text-white/80"> bloqueado</b> e não será sobrescrito por sincronizações do painel.
+            </DialogDescription>
+          </DialogHeader>
+          <PhoneEditForm
+            initial={editPhoneFor?.current || ""}
+            onCancel={() => setEditPhoneFor(null)}
+            onSave={(newPhone) => setPhoneMut.mutate({
+              painel_username: editPhoneFor.uid,
+              whatsapp: newPhone,
+              name: editPhoneFor.name,
+            })}
+            saving={setPhoneMut.isPending}
+          />
+        </DialogContent>
+      </Dialog>
     </Layout>
+  );
+}
+
+
+function PhoneEditForm({ initial, onCancel, onSave, saving }) {
+  const [value, setValue] = useState(initial || "");
+  useEffect(() => { setValue(initial || ""); }, [initial]);
+  const trimmed = (value || "").trim();
+  const digits = trimmed.replace(/[^\d+]/g, "");
+  const valid = digits.length >= 10;
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="text-xs text-white/60 block mb-1.5">Novo telefone (E.164 recomendado, ex: +34612345678)</label>
+        <input
+          type="tel"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && valid) onSave(digits); }}
+          placeholder="+34612345678"
+          className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#007AFF] focus:ring-1 focus:ring-[#007AFF]"
+          data-testid="input-edit-phone"
+          autoFocus
+        />
+        <div className="text-[10px] text-white/40 mt-1.5">
+          {valid ? (
+            <>Salva como: <span className="font-mono text-white/70">{digits}</span></>
+          ) : (
+            <span className="text-[#FF9F0A]">Mínimo 10 dígitos</span>
+          )}
+        </div>
+      </div>
+      <div className="text-[11px] text-white/50 bg-[#007AFF]/5 border border-[#007AFF]/20 rounded p-2 leading-relaxed">
+        💡 Use <code className="text-white/70">+</code> seguido do código do país (ex: <code className="text-white/70">+34</code> Espanha,{" "}
+        <code className="text-white/70">+1</code> USA, <code className="text-white/70">+55</code> Brasil) para evitar ambiguidade.
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 text-sm text-white/70 hover:text-white"
+          data-testid="btn-cancel-edit-phone"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={() => onSave(digits)}
+          disabled={!valid || saving}
+          className="px-4 py-2 text-sm bg-[#007AFF] hover:bg-[#005BB5] disabled:opacity-50 disabled:cursor-not-allowed rounded-md flex items-center gap-2"
+          data-testid="btn-save-edit-phone"
+        >
+          <FloppyDisk size={14} />
+          {saving ? "Salvando..." : "Salvar e bloquear"}
+        </button>
+      </div>
+    </div>
   );
 }
