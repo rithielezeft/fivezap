@@ -235,7 +235,7 @@ async def _check_and_notify():
             # the % applied automatically when they click pay_link today.
             try:
                 from services.discount import get_discount_for_event
-                cfg = await get_discount_for_event(event_key)
+                cfg = await get_discount_for_event(event)
                 if cfg:
                     pct = cfg["percent"]
                     ctx["discount_percent"] = str(pct)
@@ -244,7 +244,7 @@ async def _check_and_notify():
                         "aplicado automaticamente ao abrir o link, válido só até o fim do dia!\n\n"
                     )
             except Exception:
-                logger.exception("discount lookup failed (non-fatal) for %s", event_key)
+                logger.exception("discount lookup failed (non-fatal) for %s", event)
 
             # Human-pacing: wait between clients (skip on the very first send
             # so the loop feels responsive when there's only one match).
