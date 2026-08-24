@@ -28,12 +28,14 @@ async def get_qr() -> dict:
 
 
 # Known non-BR country codes that MAY appear right after a legacy `55` prefix.
-# ONLY multi-digit codes here — single-digit codes (1=USA, 7=RU) collide with
-# Brazilian area codes (11=SP, 71=BA, etc), so we can't safely strip 55
-# and retry as those. For US/RU cases, the admin should edit the phone
-# manually via the Customers page (which sets whatsapp_locked=1).
+# Ordered LONGEST-FIRST so multi-digit codes match before single-digit ones
+# (e.g. "351" checked before "1" to avoid PT being misread as US+51).
+# WARNING: "1" (USA/CA) collides with BR area codes starting with 1 (11=SP,
+# 12=SJC, ..., 19=Campinas). The fallback only fires when the FIRST send
+# already returned "not on WhatsApp", so the risk of hitting the wrong
+# person is low. Admin can manually correct via the Customers page.
 _FOREIGN_CC_AFTER_55 = (
-    "351",  # PT (must come before shorter codes)
+    "351",  # PT
     "353",  # IE
     "971",  # AE
     "966",  # SA
@@ -63,6 +65,7 @@ _FOREIGN_CC_AFTER_55 = (
     "86",   # CN
     "91",   # IN
     "27",   # ZA
+    "1",    # US/CA (LAST — ambiguous with BR DDDs 11-19)
 )
 
 
@@ -120,6 +123,25 @@ async def send_message(phone: str, message: str, image_url: str = None,
             phone, matched_cc, stripped[len(matched_cc):],
         )
         result = await _try_send_once(stripped, message, image_url, typing_ms)
+        # Fallback succeeded — persist the corrected phone on any customer
+        # matching the original number, so future sends skip the fallback.
+        # RESPECT whatsapp_locked=1 (admin's manual override wins).
+        try:
+            import aiosqlite
+            from database import DB_PATH
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    "UPDATE customers SET whatsapp = ?, updated_at = datetime('now') "
+                    "WHERE whatsapp = ? AND (whatsapp_locked IS NULL OR whatsapp_locked = 0)",
+                    (stripped, phone),
+                )
+                await db.commit()
+            logger.warning(
+                "Auto-corrected DB: whatsapp %s → %s (was 55-prefixed, real is +%s)",
+                phone, stripped, matched_cc,
+            )
+        except Exception:
+            logger.exception("Failed to auto-persist fallback phone %s → %s", phone, stripped)
         result["fallback_applied"] = True
         result["original_phone"] = phone
         result["retried_phone"] = stripped
