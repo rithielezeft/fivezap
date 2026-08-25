@@ -623,6 +623,12 @@ async def _run_trial_creation(customer: dict, matched: dict, mac: Optional[str],
         # 300-char InfinitePay URL.
         payment_ref_id = trial_user_id or painel_user or customer["id"]
         checkout_link = f"{public_base}/pay/{payment_ref_id}" if public_base else ""
+        # When payment_link_provider=painel, replace with pagme.xyz direct link
+        try:
+            from services.pay_link import resolve_pay_link
+            checkout_link = await resolve_pay_link(payment_ref_id, checkout_link)
+        except Exception:
+            pass
 
         # Per-plan InfinitePay direct links ({pay_link_1m}, _3m, _6m, _12m)
         # remain long InfinitePay URLs so the admin can send a one-click

@@ -168,6 +168,7 @@ class SettingsUpdate(BaseModel):
     turnstile_pageurl: Optional[str] = None
     infinitepay_handle: Optional[str] = None
     infinitepay_webhook_secret: Optional[str] = None
+    payment_link_provider: Optional[str] = None  # "infinitepay" or "painel"
     notification_days: Optional[str] = None
     trial_package_id: Optional[str] = None
     public_base_url: Optional[str] = None

@@ -173,6 +173,11 @@ async def sweep_once() -> int:
             # Send WhatsApp with template `auto_recovery_coupon`
             base_url = (await get_setting("public_base_url") or "").rstrip("/")
             pay_link = f"{base_url}/pay/{user_id}?ref=auto_coupon" if base_url else ""
+            try:
+                from services.pay_link import resolve_pay_link
+                pay_link = await resolve_pay_link(user_id, pay_link)
+            except Exception:
+                pass
 
             ctx = {
                 "name": u.get("username") or u.get("name") or "",

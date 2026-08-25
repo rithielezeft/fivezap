@@ -29,6 +29,12 @@ async def post_trial_flow(
     # Use painel user id if we have it; fall back to the username as identifier
     pay_id = painel_user_id or painel_user or ""
     pay_link = f"{public_base}/pay/{pay_id}" if public_base and pay_id else ""
+    if pay_id:
+        try:
+            from services.pay_link import resolve_pay_link
+            pay_link = await resolve_pay_link(pay_id, pay_link)
+        except Exception:
+            pass
 
     ctx = {
         "name": name or "",

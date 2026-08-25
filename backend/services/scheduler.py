@@ -216,6 +216,12 @@ async def _check_and_notify():
                 continue
 
             pay_link = f"{public_base}/pay/{user_id}?ref={event}"
+            # If provider=painel, replace with the direct pagme.xyz link
+            try:
+                from services.pay_link import resolve_pay_link
+                pay_link = await resolve_pay_link(user_id, pay_link)
+            except Exception:
+                pass
             exp_dt = datetime.fromisoformat(exp_iso)
             ctx = {
                 "name": name,
