@@ -894,6 +894,7 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
 
     last_resp = None
     last_body_used = None
+    attempts_log = []
     for body in bodies_to_try:
         resp = await asyncio.to_thread(_post_renew, token, body)
         if resp.status_code == 401:
@@ -901,6 +902,8 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
             resp = await asyncio.to_thread(_post_renew, token, body)
         last_resp = resp
         last_body_used = body
+        # Log every attempt so we can see BOTH body shapes if both fail
+        attempts_log.append(f"body={body} → HTTP {resp.status_code}: {(resp.text or '')[:200]}")
         # Stop if success OR if this is a real 4xx that isn't sessao_nao_renderizada
         if resp.status_code < 400:
             break
@@ -912,8 +915,8 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
     resp = last_resp
     if resp.status_code >= 400:
         logger.error(
-            "Renew failed %s with body=%s: %s",
-            resp.status_code, last_body_used, resp.text[:400],
+            "❌ RENEW FAILED — all attempts:\n  %s",
+            "\n  ".join(attempts_log),
         )
         raise RuntimeError(f"Renew failed: HTTP {resp.status_code} — {resp.text[:200]}")
     try:
