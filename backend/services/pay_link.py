@@ -44,29 +44,26 @@ def clear_cache() -> None:
 
 
 async def resolve_pay_link(painel_user_id: str | int, fallback_local_url: str) -> str:
-    """Return the correct payment link for the currently active provider.
-
-    Args:
-        painel_user_id: The painel.fun user id (numeric string). Used only
-            when provider="painel" to fetch the pagme.xyz URL from the API.
-        fallback_local_url: The default `{public_base}/pay/{id}` URL to return
-            when provider="infinitepay" (or when painel lookup fails).
-
-    Returns:
-        The URL to embed in the WhatsApp message. Never raises — falls back
-        to the local URL on any error (so notifications never break).
-    """
+    """Return the correct payment link for the currently active provider."""
     provider = (await get_setting("payment_link_provider") or "infinitepay").strip().lower()
+    logger.info(
+        "resolve_pay_link: user_id=%s provider=%s fallback=%s",
+        painel_user_id, provider, fallback_local_url,
+    )
     if provider != "painel":
         return fallback_local_url
 
     user_id = str(painel_user_id).strip()
     if not user_id or not user_id.isdigit():
-        # Can't build painel link without a numeric user id
+        logger.warning(
+            "resolve_pay_link: user_id=%r is not numeric — falling back to local URL",
+            painel_user_id,
+        )
         return fallback_local_url
 
     cached = _cache_get(user_id)
     if cached:
+        logger.info("resolve_pay_link: HIT cache for %s → %s", user_id, cached)
         return cached
 
     try:
@@ -75,10 +72,12 @@ async def resolve_pay_link(painel_user_id: str | int, fallback_local_url: str) -
         url = data.get("url")
         if url:
             _cache_set(user_id, url)
+            logger.info("resolve_pay_link: painel API returned %s for user=%s", url, user_id)
             return url
+        logger.warning("resolve_pay_link: painel returned no url — data=%s", data)
     except Exception as e:
         logger.warning(
-            "resolve_pay_link: painel lookup failed for user_id=%s: %s "
+            "resolve_pay_link: painel lookup FAILED for user_id=%s: %s "
             "(falling back to local URL)", user_id, e,
         )
 
