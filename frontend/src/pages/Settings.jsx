@@ -18,6 +18,10 @@ const FIELDS = [
   { key: "turnstile_pageurl", label: "Turnstile — pageurl", group: "captcha" },
   { key: "infinitepay_handle", label: "InfinitePay — Handle (InfiniteTag)", group: "pay" },
   { key: "infinitepay_webhook_secret", label: "InfinitePay — Webhook Secret (opcional, valida origem)", group: "pay", type: "password", placeholder: "deixe vazio para desativar" },
+  { key: "payment_link_provider", label: "Provedor de link de pagamento — escolha qual fica ATIVO nas mensagens",
+    group: "pay", placeholder: "infinitepay",
+    options: ["infinitepay", "painel"],
+    help: "infinitepay = usa a página /pay do WhatsFlow (checkout InfinitePay direto). painel = pega o link pagme.xyz gerado pelo próprio painel.fun (bypass total do bloqueio sessao_nao_renderizada)." },
   { key: "plan_price_1m", label: "Preço 1 mês (R$)", group: "pay", placeholder: "35,00" },
   { key: "plan_price_3m", label: "Preço 3 meses (R$)", group: "pay", placeholder: "90,00" },
   { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },
@@ -704,6 +708,9 @@ export default function Settings() {
                       onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
                       data-testid={`setting-${f.key}`}
                     />
+                  )}
+                  {f.help && (
+                    <p className="text-[11px] text-white/40 mt-1 leading-snug">{f.help}</p>
                   )}
                 </div>
               ))}

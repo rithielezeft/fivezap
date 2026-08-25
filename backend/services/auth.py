@@ -78,6 +78,10 @@ def is_public(path: str, method: str = "GET") -> bool:
         return True
     if path.startswith("/api/pay/customer/"):  # legacy alias
         return True
+    # Public painel-generated payment link — /pay/{id} redirects here when
+    # payment_link_provider="painel" so the client goes straight to pagme.xyz.
+    if path.startswith("/api/payments/painel-link/"):
+        return True
     # Public payment creation from /pay/{id} page — customer clicks "Pagar"
     # (POST only — GET /api/payments must stay admin to protect payment history)
     if path == "/api/payments" and method.upper() == "POST":

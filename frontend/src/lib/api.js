@@ -101,6 +101,8 @@ export const paymentsApi = {
   resendNotification: (paymentId) =>
     api.post(`/payments/resend-notification/${paymentId}`, {}).then((r) => r.data),
   diagnostics: () => api.get("/payments/diagnostics").then((r) => r.data),
+  painelLink: (customerId) =>
+    api.get(`/payments/painel-link/${customerId}`).then((r) => r.data),
 };
 
 export const settingsApi = {

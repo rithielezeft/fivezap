@@ -847,6 +847,47 @@ def _pick_plan_by_months(plans: list, months: int) -> dict | None:
     return None
 
 
+async def get_client_payment_link(user_id: str) -> dict:
+    """Fetch painel.fun's own payment link for a specific client.
+
+    Endpoint: GET /api/payments/payment-link/client/{user_id}
+    Response: {"success": true, "data": {"token": "...", "url": "https://pagme.xyz/r/..."}}
+
+    When the client pays this link, painel processes the renewal internally —
+    we don't need our own webhook or /renew call. This is the alternative flow
+    that sidesteps the `sessao_nao_renderizada` block entirely.
+    """
+    token = await login()
+    base = await get_setting("painel_base_url")
+
+    def _get(tok):
+        return cffi_requests.get(
+            f"{base}/api/payments/payment-link/client/{user_id}",
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+            },
+            impersonate="chrome124",
+            timeout=60,
+        )
+
+    resp = await asyncio.to_thread(_get, token)
+    if resp.status_code == 401:
+        token = await login(force=True)
+        resp = await asyncio.to_thread(_get, token)
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"get_client_payment_link failed: HTTP {resp.status_code} — {resp.text[:200]}"
+        )
+    data = resp.json()
+    body = data.get("data") if isinstance(data, dict) and "data" in data else data
+    if not isinstance(body, dict) or not body.get("url"):
+        raise RuntimeError(f"get_client_payment_link: unexpected response shape — {str(data)[:200]}")
+    return body
+
+
 async def renew_user(user_id: str, package_id: int, months: int | None = None) -> dict:
     """Renew existing user via painel API.
 

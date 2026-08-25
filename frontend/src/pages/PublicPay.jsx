@@ -75,6 +75,31 @@ export default function PublicPay() {
     retry: 1,
   });
 
+  // When provider is "painel", we skip our own UI and redirect straight
+  // to the painel-generated pagme.xyz checkout. Panel handles the renewal
+  // internally when payment clears — no webhook processing needed on our side.
+  const [painelRedirecting, setPainelRedirecting] = useState(false);
+  const [painelError, setPainelError] = useState("");
+  useEffect(() => {
+    if (!data?.customer) return;
+    if (data.payment_link_provider !== "painel") return;
+    if (returnedFromPay) return;  // Don't redirect if returning from checkout
+    setPainelRedirecting(true);
+    paymentsApi.painelLink(customerId)
+      .then((r) => {
+        if (r?.url) {
+          window.location.href = r.url;
+        } else {
+          setPainelError("Painel não retornou link de pagamento.");
+          setPainelRedirecting(false);
+        }
+      })
+      .catch((e) => {
+        setPainelError(e.response?.data?.detail || e.message || "Falha ao obter link do painel");
+        setPainelRedirecting(false);
+      });
+  }, [data?.customer, data?.payment_link_provider, customerId, returnedFromPay]);
+
   const createPayMut = useMutation({
     mutationFn: paymentsApi.create,
     onSuccess: (result) => {
@@ -85,6 +110,31 @@ export default function PublicPay() {
   });
 
   if (isLoading) return <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center">Carregando...</div>;
+
+  if (painelRedirecting) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-4" data-testid="painel-redirect">
+        <div className="surface rounded-2xl p-8 text-center max-w-md">
+          <CreditCard size={48} weight="duotone" className="text-[#00C853] mx-auto animate-pulse" />
+          <h2 className="font-display text-2xl font-bold mt-3">Abrindo checkout do painel…</h2>
+          <p className="text-white/50 text-sm mt-2">Você será redirecionado em alguns segundos.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (painelError) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-4">
+        <div className="surface rounded-2xl p-8 text-center max-w-md">
+          <WarningCircle size={48} weight="duotone" className="text-[#FF3B30] mx-auto" />
+          <h2 className="font-display text-2xl font-bold mt-3">Erro no link do painel</h2>
+          <p className="text-white/50 text-sm mt-2">{painelError}</p>
+          <p className="text-white/40 text-xs mt-4">Tente novamente ou entre em contato com o suporte.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (

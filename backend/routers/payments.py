@@ -1802,7 +1802,57 @@ async def get_customer_payment_info(customer_id: str):
         "payments_history": payments_history,
         "messages_history": messages_history,
         "active_discount": await _get_active_discount_for_public(str(customer["id"])),
+        # Which payment provider is currently active. When "painel", the /pay page
+        # will redirect straight to the painel-generated pagme.xyz link.
+        "payment_link_provider": (await get_setting("payment_link_provider") or "infinitepay").strip().lower(),
     }
+
+
+@router.get("/painel-link/{customer_id}")
+async def get_painel_payment_link(customer_id: str):
+    """Public: resolve the painel.fun-generated payment link for a customer.
+
+    Called by /pay/{customer_id} when `payment_link_provider == "painel"`.
+    Painel returns a `pagme.xyz` URL where the customer pays; upon payment
+    the panel renews the user internally — we don't need webhook or /renew.
+    """
+    # Resolve painel_id from local records (trials first, then Mongo)
+    painel_id = None
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT trial_user_id FROM trials WHERE trial_user_id = ? OR customer_id = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (str(customer_id), str(customer_id)),
+        )
+        row = await cur.fetchone()
+        if row:
+            painel_id = row["trial_user_id"]
+
+    if not painel_id:
+        # Direct fallback: if customer_id is already a painel id (numeric)
+        if str(customer_id).isdigit():
+            painel_id = str(customer_id)
+        else:
+            # Try Mongo lookup for painel_id
+            try:
+                from services import mongo_store
+                doc = await mongo_store.find_customer_by_painel_id(str(customer_id))
+                if doc and doc.get("painel_id"):
+                    painel_id = str(doc["painel_id"])
+            except Exception:
+                pass
+
+    if not painel_id:
+        raise HTTPException(404, "Painel ID not found for this customer")
+
+    try:
+        from services import painel
+        data = await painel.get_client_payment_link(painel_id)
+        return {"url": data["url"], "token": data.get("token"), "painel_id": painel_id}
+    except Exception as e:
+        logger.exception("Failed to fetch painel payment link for %s", painel_id)
+        raise HTTPException(502, f"Painel error: {e}")
 
 
 async def _get_active_discount_for_public(customer_id: str) -> dict | None:
