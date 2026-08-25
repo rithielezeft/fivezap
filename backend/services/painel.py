@@ -850,7 +850,7 @@ def _pick_plan_by_months(plans: list, months: int) -> dict | None:
 async def get_client_payment_link(user_id: str) -> dict:
     """Fetch painel.fun's own payment link for a specific client.
 
-    Endpoint: GET /api/payments/payment-link/client/{user_id}
+    Endpoint: POST /api/payments/payment-link/client/{user_id}  (empty body)
     Response: {"success": true, "data": {"token": "...", "url": "https://pagme.xyz/r/..."}}
 
     When the client pays this link, painel processes the renewal internally —
@@ -860,23 +860,30 @@ async def get_client_payment_link(user_id: str) -> dict:
     token = await login()
     base = await get_setting("painel_base_url")
 
-    def _get(tok):
-        return cffi_requests.get(
+    def _call(tok, method):
+        fn = cffi_requests.post if method == "POST" else cffi_requests.get
+        return fn(
             f"{base}/api/payments/payment-link/client/{user_id}",
             headers={
                 "Authorization": f"Bearer {tok}",
                 "Origin": "https://painel.fun",
                 "Referer": "https://painel.fun/",
                 "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
             },
+            json={} if method == "POST" else None,
             impersonate="chrome124",
             timeout=60,
         )
 
-    resp = await asyncio.to_thread(_get, token)
+    # Try POST first (most common for token-generating endpoints), fall back to GET
+    resp = await asyncio.to_thread(_call, token, "POST")
     if resp.status_code == 401:
         token = await login(force=True)
-        resp = await asyncio.to_thread(_get, token)
+        resp = await asyncio.to_thread(_call, token, "POST")
+    if resp.status_code == 405:
+        # Method not allowed via POST — try GET
+        resp = await asyncio.to_thread(_call, token, "GET")
     if resp.status_code >= 400:
         raise RuntimeError(
             f"get_client_payment_link failed: HTTP {resp.status_code} — {resp.text[:200]}"
