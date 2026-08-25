@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # {user_id: (url, expires_at_epoch)}
 _link_cache: dict[str, tuple[str, float]] = {}
-_CACHE_TTL_SECONDS = 30 * 60  # 30 min
+_CACHE_TTL_SECONDS = 5 * 60  # 5 min — short enough to recover quickly if a link goes stale
 
 
 def _cache_get(user_id: str) -> str | None:

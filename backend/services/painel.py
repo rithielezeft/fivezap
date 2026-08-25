@@ -850,84 +850,72 @@ def _pick_plan_by_months(plans: list, months: int) -> dict | None:
 async def get_client_payment_link(user_id: str) -> dict:
     """Fetch painel.fun's own payment link for a specific client.
 
-    Endpoint: POST /api/payments/payment-link/client/{user_id}
-    Body: {"plan_ids": [41, 42, 43, 44]}  ← from get_price_overrides
+    2026-08 — Panel requires the FULL browser bootstrap sequence before it
+    creates a payment link with plans attached. Otherwise the endpoint returns
+    a link but pagme.xyz opens saying "Nenhuma forma de pagamento disponível".
 
-    Without the plans in the body, painel creates a "blank" link (pagme.xyz
-    opens saying "Nenhuma forma de pagamento está disponível"). Passing the
-    plan_ids attaches the full set of available plans to the checkout.
+    Confirmed via DevTools Network capture — the SPA fires these 8 GETs before
+    the POST /payment-link/client/{id}:
+      1. GET /api/profile
+      2. GET /api/datacomplements
+      3. GET /api/news
+      4. GET /api/catalog/releases
+      5. GET /api/whatsapp/session
+      6. GET /api/users?page=1&per=10&reseller={name}
+      7. GET /api/domains?page=1&per=10&reseller_name={name}
+      8. GET /api/reseller/check-message
 
+    Then POST /api/payments/payment-link/client/{user_id} with body {}.
     Response: {"success": true, "data": {"token": "...", "url": "https://pagme.xyz/r/..."}}
-
-    When the client pays this link, painel processes the renewal internally.
     """
     token = await login()
     base = await get_setting("painel_base_url")
+    reseller_name = (await get_setting("painel_username") or "").strip()
 
-    # Fetch the plans available for this specific client so the generated
-    # link exposes ALL of them (Mensal/Trimestral/Semestral/Anual).
-    plan_ids: list[int] = []
-    try:
-        overrides = await get_price_overrides(user_id)
-        plan_ids = [p.get("plan_id") for p in (overrides or {}).get("plans", []) if p.get("plan_id")]
-    except Exception as e:
-        logger.warning("get_client_payment_link: could not fetch plan_ids for %s: %s", user_id, e)
+    hdrs = {
+        "Authorization": f"Bearer {token}",
+        "Origin": "https://painel.fun",
+        "Referer": "https://painel.fun/",
+        "Accept": "application/json, text/plain, */*",
+    }
 
-    # Build variants to try. Panel might respond differently depending on body shape.
-    # Order matters: try WITHOUT body first (matches most SPA "get current" flows),
-    # then with plan_ids, then variants seen in the DevTools captures.
-    bodies_to_try: list[dict | None] = [
-        None,               # no body — same as browser default fetch()
-        {},                 # empty JSON object
+    # PRIMING: fire the same GETs the SPA does before opening the link modal.
+    # All failures are non-fatal — we only care that the endpoint gets touched
+    # so the panel treats this as a full browser session.
+    prime_urls = [
+        f"{base}/api/profile",
+        f"{base}/api/datacomplements",
+        f"{base}/api/news",
+        f"{base}/api/catalog/releases",
+        f"{base}/api/whatsapp/session",
+        f"{base}/api/users?page=1&per=10&reseller={reseller_name}&text_search=",
+        f"{base}/api/domains?page=1&per=10&order_by=&reseller_name={reseller_name}",
+        f"{base}/api/reseller/check-message",
     ]
-    if plan_ids:
-        bodies_to_try.append({"plan_ids": plan_ids})
-        bodies_to_try.append({"plans": plan_ids})
+    for u in prime_urls:
+        try:
+            r = await asyncio.to_thread(
+                cffi_requests.get, u, headers=hdrs, impersonate="chrome124", timeout=30,
+            )
+            logger.info("payment-link prime: GET %s → HTTP %s",
+                        u.split("/api/", 1)[1][:60], r.status_code)
+        except Exception as e:
+            logger.warning("payment-link prime step failed for %s: %s", u, e)
 
-    def _call(tok, method, body=None):
-        fn = cffi_requests.post if method == "POST" else cffi_requests.get
-        kwargs = dict(
-            headers={
-                "Authorization": f"Bearer {tok}",
-                "Origin": "https://painel.fun",
-                "Referer": "https://painel.fun/",
-                "Accept": "application/json, text/plain, */*",
-                "Content-Type": "application/json",
-            },
+    # Now hit the actual POST with body {} — same as the browser.
+    def _post(tok, body):
+        return cffi_requests.post(
+            f"{base}/api/payments/payment-link/client/{user_id}",
+            json=body,
+            headers={**hdrs, "Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
             impersonate="chrome124",
             timeout=60,
         )
-        if body is not None:
-            kwargs["json"] = body
-        return fn(f"{base}/api/payments/payment-link/client/{user_id}", **kwargs)
 
-    last_resp = None
-    winning_body = None
-    for b in bodies_to_try:
-        resp = await asyncio.to_thread(_call, token, "POST", b)
-        if resp.status_code == 401:
-            token = await login(force=True)
-            resp = await asyncio.to_thread(_call, token, "POST", b)
-        last_resp = resp
-        winning_body = b
-        # Any 2xx is a match — panel accepted this body shape.
-        if 200 <= resp.status_code < 300:
-            # Peek at response — if it looks like a working link, stop.
-            try:
-                data = resp.json()
-                d = data.get("data") if isinstance(data, dict) else None
-                if isinstance(d, dict) and d.get("url"):
-                    break
-            except Exception:
-                pass
-        if resp.status_code == 405:
-            # try GET as last resort
-            resp = await asyncio.to_thread(_call, token, "GET")
-            last_resp = resp
-            if 200 <= resp.status_code < 300:
-                break
-
-    resp = last_resp
+    resp = await asyncio.to_thread(_post, token, {})
+    if resp.status_code == 401:
+        token = await login(force=True)
+        resp = await asyncio.to_thread(_post, token, {})
     if resp.status_code >= 400:
         raise RuntimeError(
             f"get_client_payment_link failed: HTTP {resp.status_code} — {resp.text[:200]}"
@@ -937,8 +925,8 @@ async def get_client_payment_link(user_id: str) -> dict:
     if not isinstance(body_out, dict) or not body_out.get("url"):
         raise RuntimeError(f"get_client_payment_link: unexpected response shape — {str(data)[:200]}")
     logger.info(
-        "get_client_payment_link: user=%s winning_body=%s → %s",
-        user_id, winning_body, body_out.get("url"),
+        "get_client_payment_link: user=%s → %s (after full priming)",
+        user_id, body_out.get("url"),
     )
     return body_out
 
