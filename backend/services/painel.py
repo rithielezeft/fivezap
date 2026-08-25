@@ -850,17 +850,30 @@ def _pick_plan_by_months(plans: list, months: int) -> dict | None:
 async def get_client_payment_link(user_id: str) -> dict:
     """Fetch painel.fun's own payment link for a specific client.
 
-    Endpoint: POST /api/payments/payment-link/client/{user_id}  (empty body)
+    Endpoint: POST /api/payments/payment-link/client/{user_id}
+    Body: {"plan_ids": [41, 42, 43, 44]}  ← from get_price_overrides
+
+    Without the plans in the body, painel creates a "blank" link (pagme.xyz
+    opens saying "Nenhuma forma de pagamento está disponível"). Passing the
+    plan_ids attaches the full set of available plans to the checkout.
+
     Response: {"success": true, "data": {"token": "...", "url": "https://pagme.xyz/r/..."}}
 
-    When the client pays this link, painel processes the renewal internally —
-    we don't need our own webhook or /renew call. This is the alternative flow
-    that sidesteps the `sessao_nao_renderizada` block entirely.
+    When the client pays this link, painel processes the renewal internally.
     """
     token = await login()
     base = await get_setting("painel_base_url")
 
-    def _call(tok, method):
+    # Fetch the plans available for this specific client so the generated
+    # link exposes ALL of them (Mensal/Trimestral/Semestral/Anual).
+    plan_ids: list[int] = []
+    try:
+        overrides = await get_price_overrides(user_id)
+        plan_ids = [p.get("plan_id") for p in (overrides or {}).get("plans", []) if p.get("plan_id")]
+    except Exception as e:
+        logger.warning("get_client_payment_link: could not fetch plan_ids for %s: %s", user_id, e)
+
+    def _call(tok, method, body=None):
         fn = cffi_requests.post if method == "POST" else cffi_requests.get
         return fn(
             f"{base}/api/payments/payment-link/client/{user_id}",
@@ -871,16 +884,16 @@ async def get_client_payment_link(user_id: str) -> dict:
                 "Accept": "application/json, text/plain, */*",
                 "Content-Type": "application/json",
             },
-            json={} if method == "POST" else None,
+            json=body if method == "POST" else None,
             impersonate="chrome124",
             timeout=60,
         )
 
-    # Try POST first (most common for token-generating endpoints), fall back to GET
-    resp = await asyncio.to_thread(_call, token, "POST")
+    post_body = {"plan_ids": plan_ids} if plan_ids else {}
+    resp = await asyncio.to_thread(_call, token, "POST", post_body)
     if resp.status_code == 401:
         token = await login(force=True)
-        resp = await asyncio.to_thread(_call, token, "POST")
+        resp = await asyncio.to_thread(_call, token, "POST", post_body)
     if resp.status_code == 405:
         # Method not allowed via POST — try GET
         resp = await asyncio.to_thread(_call, token, "GET")
@@ -892,6 +905,10 @@ async def get_client_payment_link(user_id: str) -> dict:
     body = data.get("data") if isinstance(data, dict) and "data" in data else data
     if not isinstance(body, dict) or not body.get("url"):
         raise RuntimeError(f"get_client_payment_link: unexpected response shape — {str(data)[:200]}")
+    logger.info(
+        "get_client_payment_link: user=%s plan_ids=%s → %s",
+        user_id, plan_ids, body.get("url"),
+    )
     return body
 
 
