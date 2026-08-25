@@ -20,6 +20,51 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-08-25 v2] Renovação painel.fun — Novo fluxo `price-overrides` + `plan_id/amount`
+
+**Causa raiz identificada** (via inspeção de código do frontend do painel.fun):
+Painel.fun mudou a API do endpoint `POST /api/users/{id}/renew`. O middleware `sessao_nao_renderizada` bloqueia toda chamada que não passe primeiro pelo GET `/api/payments/price-overrides/client/{id}`. Além disso, o body do renew mudou de `{package_id}` para `{plan_id, amount}`.
+
+**Nova API do painel:**
+```
+GET  /api/payments/price-overrides/client/{user_id}
+  → {"data": {"plans": [{plan_id, title, amount, ...}], "assigned_plan_id": null}}
+  Plan titles: "Mensal"=1mo, "Trimestral"=3mo, "Semestral"=6mo, "Anual"=12mo
+
+POST /api/users/{user_id}/renew
+  → body {plan_id: X, amount: Y}   (NOT mais {package_id})
+```
+
+**Mudanças em `backend/services/painel.py`:**
+- Adicionada função `get_price_overrides(user_id)` que faz o GET necessário
+- `_pick_plan_by_months(plans, N)` seleciona o plano correto pelo título
+- `renew_user(user_id, package_id, months=None)` agora:
+  1. Chama `get_price_overrides` primeiro (isso "prima" a sessão no painel)
+  2. Casa o plano pelos meses (1/3/6/12)
+  3. Faz POST /renew com `{plan_id, amount}` novo formato
+  4. Se falhar com erro que NÃO seja `sessao_nao_renderizada`, tenta o body legado `{package_id}` como fallback (retrocompat)
+
+**Callers atualizados** para passar `months=payment.get("plan_months")`:
+- `routers/payments.py` (webhook + reprocess)
+- `services/renewal_retry.py` (retry loop)
+- `routers/painel_users.py` (renovação manual)
+
+**Bugs colaterais consertados:**
+- `UnboundLocalError: phone` — inicializado no escopo externo antes do `try painel.renew_user`
+- `UnboundLocalError: painel_user` — mesma correção
+- Logging bug com slice de dict — simplificado para `str(result)[:400]`
+- Testes atualizados para aceitar novo kwarg `months` (adicionado `**kwargs` nos mocks)
+
+**Testes unitários:** 44/45 passaram (1 falha por flakiness de xdist, passa isolado).
+
+**⚠️ Ação necessária no Pi:**
+```bash
+git pull && sudo systemctl restart whatsflow-backend
+```
+Aguardar o próximo pagamento → deve renovar automaticamente. Se ainda falhar, rodar `/api/payments/trace/{payment_id}` para diagnóstico e verificar logs `journalctl -u whatsflow-backend | grep -E "price-overrides|matched|START RENEWAL"`.
+
+
+
 ## [FIX 2026-08-25] Webhook InfinitePay — diagnóstico + logs estruturados
 
 **Sintoma reportado:** clientes pagando pelo link do InfinitePay não estavam sendo renovados no painel.fun após atualização.

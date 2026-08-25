@@ -86,6 +86,7 @@ async def _sweep_once():
                 result = await painel.renew_user(
                     user_id=painel_id,
                     package_id=payment.get("package_id") or 0,
+                    months=payment.get("plan_months"),
                 )
             except Exception as e:
                 # Retry failed too — bump attempts + reschedule.

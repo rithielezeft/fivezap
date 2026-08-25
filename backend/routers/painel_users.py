@@ -334,7 +334,11 @@ async def renew(payload: RenewPayload):
     """Manually renew a painel user by ID."""
     package_id = painel.get_package_id(payload.system_type, payload.plan_months)
     try:
-        result = await painel.renew_user(user_id=payload.user_id, package_id=package_id)
+        result = await painel.renew_user(
+            user_id=payload.user_id,
+            package_id=package_id,
+            months=payload.plan_months,
+        )
         return {"success": True, "package_id": package_id, "raw": result}
     except Exception as e:
         logger.exception("renew failed")

@@ -66,7 +66,7 @@ def test_iso_date_normalized_to_br_format(tmp_path):
         if phone == "5511900001111":
             captured["body"] = body
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-05-15"}
 
     async def go():
@@ -95,7 +95,7 @@ def test_full_iso_timestamp_normalized_to_br(tmp_path):
         if phone == "5511900001111":
             captured["body"] = body
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-05-15T23:59:59Z"}
 
     async def go():
@@ -122,7 +122,7 @@ def test_unix_timestamp_normalized_to_br(tmp_path):
         if phone == "5511900001111":
             captured["body"] = body
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         # 2027-05-15 00:00 UTC
         return {"expires_at": 1810771200}
 
@@ -153,7 +153,7 @@ def test_missing_expiry_projected_from_current_customer_date(tmp_path):
         if phone == "5511900001111":
             captured["body"] = body
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {}  # <-- painel returns nothing
 
     async def go():
@@ -181,7 +181,7 @@ def test_missing_expiry_and_expired_customer_projects_from_today(tmp_path):
         if phone == "5511900001111":
             captured["body"] = body
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {}
 
     async def go():
@@ -215,7 +215,7 @@ def test_template_body_has_name_months_and_expires(tmp_path):
         if phone == "5511900001111":
             captured["body"] = body
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-05-15"}
 
     async def go():

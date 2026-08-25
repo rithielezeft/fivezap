@@ -744,23 +744,136 @@ async def get_reseller_balance() -> dict:
     return result
 
 
-async def renew_user(user_id: str, package_id: int) -> dict:
-    """Renew existing user via painel API.
+async def get_price_overrides(user_id: str) -> dict:
+    """Fetch the price/plan overrides for a specific user.
 
-    Endpoint: POST /api/users/{user_id}/renew
-    Body: {"package_id": <int>}
+    Endpoint: GET /api/payments/price-overrides/client/{user_id}
 
-    Args:
-        user_id: painel.fun user id (integer as string) — the same id used in {pay_link}
-        package_id: package to renew with (from PACKAGE_IDS mapping)
+    Response shape (2026-08 update):
+        {"success": true, "data": {
+            "plans": [
+                {"plan_id": 41, "title": "Mensal", "default_amount": 30, "amount": 30, "overridden": false},
+                {"plan_id": 42, "title": "Trimestral", "default_amount": 90, "amount": 90, "overridden": false},
+                {"plan_id": 43, "title": "Semestral", "default_amount": 162.9, "amount": 162.9, "overridden": false},
+                {"plan_id": 44, "title": "Anual", "default_amount": 300, "amount": 300, "overridden": false},
+            ],
+            "assigned_plan_id": null
+        }}
+
+    This call is what the SPA does BEFORE opening the "Renovar" modal.
+    Calling it primes painel's `sessao_nao_renderizada` middleware — /api/users/{id}/renew
+    only accepts the request AFTER this call has been made in the same auth session.
     """
     token = await login()
     base = await get_setting("painel_base_url")
 
-    def _post_renew(tok):
+    def _get(tok):
+        return cffi_requests.get(
+            f"{base}/api/payments/price-overrides/client/{user_id}",
+            headers={
+                "Authorization": f"Bearer {tok}",
+                "Origin": "https://painel.fun",
+                "Referer": "https://painel.fun/",
+                "Accept": "application/json, text/plain, */*",
+            },
+            impersonate="chrome124",
+            timeout=60,
+        )
+
+    resp = await asyncio.to_thread(_get, token)
+    if resp.status_code == 401:
+        token = await login(force=True)
+        resp = await asyncio.to_thread(_get, token)
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"get_price_overrides failed: HTTP {resp.status_code} — {resp.text[:200]}"
+        )
+    data = resp.json()
+    return data.get("data") if isinstance(data, dict) and "data" in data else data
+
+
+# Maps plan title (as returned by /price-overrides) to number of months.
+# Painel returns Portuguese titles.
+_PLAN_TITLE_TO_MONTHS = {
+    "mensal": 1,
+    "bimestral": 2,
+    "trimestral": 3,
+    "semestral": 6,
+    "anual": 12,
+}
+
+
+def _pick_plan_by_months(plans: list, months: int) -> dict | None:
+    """Given the plans list from /price-overrides, pick the one that matches N months."""
+    if not plans:
+        return None
+    for p in plans:
+        title = (p.get("title") or "").strip().lower()
+        if _PLAN_TITLE_TO_MONTHS.get(title) == months:
+            return p
+    return None
+
+
+async def renew_user(user_id: str, package_id: int, months: int | None = None) -> dict:
+    """Renew existing user via painel API.
+
+    2026-08 UPDATE — Painel added `sessao_nao_renderizada` middleware on POST /renew.
+    New required flow:
+      1. GET /api/payments/price-overrides/client/{user_id}  ← primes session
+      2. POST /api/users/{user_id}/renew  with  {plan_id, amount}   ← new body shape
+
+    Legacy behavior (kept as fallback if new flow fails):
+      POST /api/users/{user_id}/renew  with  {package_id: <int>}
+
+    Args:
+        user_id: painel.fun user id (integer as string)
+        package_id: legacy package id — used to derive months if `months` not given
+        months: subscription period in months (1/3/6/12). If missing, we try to infer
+                from package_id via reverse PACKAGE_IDS lookup.
+    """
+    token = await login()
+    base = await get_setting("painel_base_url")
+
+    # Derive months from package_id if not provided
+    if months is None:
+        for _sys, mapping in PACKAGE_IDS.items():
+            for m, pkg in mapping.items():
+                if pkg == package_id:
+                    months = m
+                    break
+            if months is not None:
+                break
+    if months is None:
+        months = 1  # safest default
+
+    # STEP 1: Fetch price-overrides — this ALSO primes the session for /renew
+    price_data = None
+    plan_id = None
+    amount = None
+    try:
+        price_data = await get_price_overrides(user_id)
+        plans = (price_data or {}).get("plans") or []
+        matched = _pick_plan_by_months(plans, months)
+        if matched:
+            plan_id = matched.get("plan_id")
+            amount = matched.get("amount") if matched.get("amount") is not None else matched.get("default_amount")
+            logger.info(
+                "price-overrides matched for user=%s months=%s → plan_id=%s amount=%s",
+                user_id, months, plan_id, amount,
+            )
+        else:
+            logger.warning(
+                "price-overrides had no plan matching %s months for user %s (plans=%s)",
+                months, user_id, [p.get("title") for p in plans],
+            )
+    except Exception as e:
+        logger.warning("get_price_overrides failed for user %s: %s (will fallback)", user_id, e)
+
+    # STEP 2: Call /renew.  Prefer new body shape; fall back to legacy on 4xx.
+    def _post_renew(tok, body):
         return cffi_requests.post(
             f"{base}/api/users/{user_id}/renew",
-            json={"package_id": package_id},
+            json=body,
             headers={
                 "Authorization": f"Bearer {tok}",
                 "Origin": "https://painel.fun",
@@ -772,12 +885,36 @@ async def renew_user(user_id: str, package_id: int) -> dict:
             timeout=90,
         )
 
-    resp = await asyncio.to_thread(_post_renew, token)
-    if resp.status_code == 401:
-        token = await login(force=True)
-        resp = await asyncio.to_thread(_post_renew, token)
+    # Build the body — new shape if we have plan_id, legacy otherwise
+    bodies_to_try = []
+    if plan_id is not None:
+        bodies_to_try.append({"plan_id": plan_id, "amount": amount})
+    # Always keep legacy as fallback
+    bodies_to_try.append({"package_id": package_id})
+
+    last_resp = None
+    last_body_used = None
+    for body in bodies_to_try:
+        resp = await asyncio.to_thread(_post_renew, token, body)
+        if resp.status_code == 401:
+            token = await login(force=True)
+            resp = await asyncio.to_thread(_post_renew, token, body)
+        last_resp = resp
+        last_body_used = body
+        # Stop if success OR if this is a real 4xx that isn't sessao_nao_renderizada
+        if resp.status_code < 400:
+            break
+        body_lower = (resp.text or "").lower()
+        if "sessao_nao_renderizada" not in body_lower:
+            # Genuine error, no point trying the other body shape
+            break
+
+    resp = last_resp
     if resp.status_code >= 400:
-        logger.error("Renew failed %s: %s", resp.status_code, resp.text[:400])
+        logger.error(
+            "Renew failed %s with body=%s: %s",
+            resp.status_code, last_body_used, resp.text[:400],
+        )
         raise RuntimeError(f"Renew failed: HTTP {resp.status_code} — {resp.text[:200]}")
     try:
         data = resp.json()

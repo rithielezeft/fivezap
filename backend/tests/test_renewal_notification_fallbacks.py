@@ -79,7 +79,7 @@ def test_phone_falls_back_to_painel_cache_and_notifies(tmp_path):
     async def fake_wa(phone, body, image_url=None, **kw):
         all_sends.append({"phone": phone, "body": body})
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-05-01"}
 
     async def fake_read_cache():
@@ -152,7 +152,7 @@ def test_hardcoded_fallback_when_template_disabled(tmp_path):
     async def fake_wa(phone, body, image_url=None, **kw):
         sent.append({"phone": phone, "body": body})
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-06-15"}
 
     async def go():
@@ -204,7 +204,7 @@ def test_admin_alert_shows_notify_status_success(tmp_path):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-06-15"}
 
     async def go():
@@ -244,7 +244,7 @@ def test_admin_alert_shows_notify_status_when_no_phone(tmp_path):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-06-15"}
 
     async def empty_cache():
@@ -288,7 +288,7 @@ def test_admin_alert_shows_notify_status_when_template_disabled(tmp_path):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-06-15"}
 
     async def go():

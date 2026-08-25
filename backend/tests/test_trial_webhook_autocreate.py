@@ -74,7 +74,7 @@ def test_trial_webhook_autocreates_payment_and_notifies(tmp_path):
     renew_calls = []
     notify_calls = []
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         renew_calls.append({"user_id": user_id, "package_id": package_id})
         return {"expires_at": "2027-01-01T00:00:00Z"}
 

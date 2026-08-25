@@ -78,7 +78,7 @@ def test_two_captures_same_link_both_renew(tmp_path):
 
     renew_calls = []
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         renew_calls.append({"user_id": user_id, "package_id": package_id})
         return {"expires_at": "2027-01-01"}
 
@@ -136,7 +136,7 @@ def test_duplicate_webhook_same_transaction_is_idempotent(tmp_path):
 
     renew_calls = []
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         renew_calls.append(1)
         return {"expires_at": "2027-01-01"}
 
@@ -171,7 +171,7 @@ def test_no_transaction_nsu_falls_back_to_order_nsu_idempotency(tmp_path):
 
     renew_calls = []
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         renew_calls.append(1)
         return {"expires_at": "2027-01-01"}
 
@@ -204,7 +204,7 @@ def test_first_capture_stores_transaction_nsu(tmp_path):
     from routers import payments as payments_mod
     from services import painel, whatsapp_client
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-01-01"}
 
     async def go():
@@ -236,7 +236,7 @@ def test_three_captures_produce_three_renewals(tmp_path):
 
     renew_calls = []
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         renew_calls.append(1)
         return {"expires_at": "2027-01-01"}
 

@@ -794,18 +794,24 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         return {"ok": True, "status": "paid_no_painel_id", "payment_id": payment["id"]}
 
     # Trigger painel renewal
+    # Pre-init vars at outer scope so exception handlers can safely reference them
+    # even if `painel.renew_user` throws before they get resolved inside the try.
+    phone = ""
+    painel_user = ""
     logger.info(
         "🔎 START RENEWAL payment=%s customer=%s painel_id=%s package_id=%s plan_months=%s source=%s",
         payment["id"], customer["id"], painel_id, payment["package_id"],
         payment["plan_months"], source,
     )
     try:
-        result = await painel.renew_user(user_id=painel_id, package_id=payment["package_id"])
+        result = await painel.renew_user(
+            user_id=painel_id,
+            package_id=payment["package_id"],
+            months=payment.get("plan_months"),
+        )
         logger.info(
             "✅ PAINEL RENEWED payment=%s painel_id=%s result=%s",
-            payment["id"], painel_id,
-            (result if isinstance(result, dict) else str(result))[:400]
-            if isinstance(result, dict) else str(result)[:400],
+            payment["id"], painel_id, str(result)[:400],
         )
         await log_activity(
             "renewal_success",

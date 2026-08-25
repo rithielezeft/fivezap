@@ -107,7 +107,7 @@ def test_admin_alert_fires_on_successful_renewal(tmp_path):
         else:
             client_msgs.append((phone, body))
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-01-01"}
 
     async def go():
@@ -207,7 +207,7 @@ def test_admin_alert_fires_when_painel_renewal_fails(tmp_path):
         if phone == "5511777777777":
             admin_msgs.append(body)
 
-    async def bad_renew(user_id, package_id):
+    async def bad_renew(user_id, package_id, **kwargs):
         raise RuntimeError("painel.fun 500 boom")
 
     async def go():
@@ -257,7 +257,7 @@ def test_admin_alert_silent_when_setting_empty_on_renewal(tmp_path):
     async def fake_wa_send(phone, body, image_url=None, **kw):
         all_sends.append((phone, body))
 
-    async def fake_renew(user_id, package_id):
+    async def fake_renew(user_id, package_id, **kwargs):
         return {"expires_at": "2027-01-01"}
 
     async def go():
