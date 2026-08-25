@@ -460,8 +460,22 @@ async def webhook(request: Request):
         "InfinitePay webhook parsed: order_nsu=%s paid=%s (transaction_nsu=%s paid_amount=%s)",
         order_nsu, paid, body.get("transaction_nsu"), paid_amount,
     )
-    result = await _process_payment_confirmation(str(order_nsu), paid=paid, source="webhook", raw=body)
-    return result
+    try:
+        result = await _process_payment_confirmation(str(order_nsu), paid=paid, source="webhook", raw=body)
+        logger.info(
+            "🎯 WEBHOOK RESULT order_nsu=%s → %s",
+            order_nsu, result,
+        )
+        return result
+    except Exception as e:
+        # NEVER return 5xx to InfinitePay — they will spam-retry indefinitely.
+        # Log full context and return 200 so InfinitePay marks delivered;
+        # the payment_poller / renewal_retry loops will pick up the slack.
+        logger.exception(
+            "💥 WEBHOOK CRASHED order_nsu=%s raw=%s → returning 200 to avoid retry storm",
+            order_nsu, body,
+        )
+        return {"ok": False, "status": "webhook_crashed", "error": str(e)[:400]}
 
 
 async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str = "webhook", raw: dict = None):
@@ -585,6 +599,11 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         payment = dict(payment_row)
 
     if not paid:
+        logger.warning(
+            "❌ WEBHOOK RECEIVED but paid=False → SKIP RENEWAL. "
+            "payment=%s order_nsu=%s source=%s raw=%s",
+            payment["id"], order_nsu, source, raw,
+        )
         return {"ok": True, "status": "not_paid", "payment_id": payment["id"]}
 
     # If the original payment row is already marked paid AND we got a NEW
@@ -775,8 +794,19 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         return {"ok": True, "status": "paid_no_painel_id", "payment_id": payment["id"]}
 
     # Trigger painel renewal
+    logger.info(
+        "🔎 START RENEWAL payment=%s customer=%s painel_id=%s package_id=%s plan_months=%s source=%s",
+        payment["id"], customer["id"], painel_id, payment["package_id"],
+        payment["plan_months"], source,
+    )
     try:
         result = await painel.renew_user(user_id=painel_id, package_id=payment["package_id"])
+        logger.info(
+            "✅ PAINEL RENEWED payment=%s painel_id=%s result=%s",
+            payment["id"], painel_id,
+            (result if isinstance(result, dict) else str(result))[:400]
+            if isinstance(result, dict) else str(result)[:400],
+        )
         await log_activity(
             "renewal_success",
             f"Renovação {payment['plan_months']}m para {customer['name']} (painel_id={painel_id}, source={source})",
@@ -1370,6 +1400,103 @@ async def payments_diagnostics():
             "Se admin_whatsapp_configured=false → configure em Configurações → 'Admin — Seu WhatsApp'. "
             "Se public_base_url não é HTTPS público → InfinitePay não consegue chamar o webhook. "
             "Se renewal_template.enabled=false → cliente recebe apenas mensagem hardcoded."
+        ),
+    }
+
+
+@router.get("/trace/{key}")
+async def trace_payment(key: str):
+    """Admin: complete lifecycle trace for a payment. Returns:
+      • the payment row (raw)
+      • all activity_log entries for the customer around this payment
+      • the last 5 webhook-related log lines (from activity_log)
+      • what the code would do RIGHT NOW if this webhook fired again
+
+    `key` accepts either payment_id, order_nsu, or a painel_id.
+    Zero side-effects — read-only diagnostic.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Resolve by id, order_nsu, or customer_id
+        cur = await db.execute(
+            "SELECT * FROM payments WHERE id = ? OR order_nsu = ? OR customer_id = ? "
+            "ORDER BY created_at DESC LIMIT 5",
+            (key, key, key),
+        )
+        payments = [dict(r) for r in await cur.fetchall()]
+
+        activity = []
+        if payments:
+            customer_ids = list({p["customer_id"] for p in payments if p.get("customer_id")})
+            if customer_ids:
+                placeholders = ",".join("?" for _ in customer_ids)
+                cur = await db.execute(
+                    f"SELECT * FROM activity_logs WHERE customer_id IN ({placeholders}) "
+                    f"ORDER BY created_at DESC LIMIT 30",
+                    tuple(customer_ids),
+                )
+                activity = [dict(r) for r in await cur.fetchall()]
+
+        # Customer + trials context
+        customer = None
+        trials = []
+        if payments:
+            cur = await db.execute(
+                "SELECT * FROM customers WHERE id = ?",
+                (payments[0]["customer_id"],),
+            )
+            crow = await cur.fetchone()
+            customer = dict(crow) if crow else None
+            cur = await db.execute(
+                "SELECT trial_user_id, system_type, created_at FROM trials "
+                "WHERE customer_id = ? ORDER BY created_at DESC LIMIT 5",
+                (payments[0]["customer_id"],),
+            )
+            trials = [dict(r) for r in await cur.fetchall()]
+
+    # What would `_process_payment_confirmation` do RIGHT NOW?
+    diagnosis = {"can_renew": False, "reason": "no payment found"}
+    if payments:
+        p = payments[0]
+        painel_id = _extract_painel_id_from_nsu(p["order_nsu"] or "")
+        if not painel_id or not painel_id.isdigit():
+            painel_id = next(
+                (t["trial_user_id"] for t in trials if t.get("trial_user_id")),
+                "",
+            )
+        if painel_id and str(painel_id).isdigit() and p.get("package_id"):
+            diagnosis = {
+                "can_renew": True,
+                "would_call": f"painel.renew_user(user_id='{painel_id}', package_id={p['package_id']})",
+                "current_status": p["status"],
+            }
+        elif not painel_id:
+            diagnosis = {
+                "can_renew": False,
+                "reason": "painel_id could not be extracted from order_nsu and no trial found",
+                "order_nsu": p["order_nsu"],
+            }
+        elif not p.get("package_id"):
+            diagnosis = {
+                "can_renew": False,
+                "reason": "package_id is 0/empty — check plan_months mapping in painel.PACKAGE_IDS",
+                "plan_months": p.get("plan_months"),
+            }
+
+    return {
+        "key": key,
+        "payments": payments,
+        "customer": customer,
+        "trials": trials,
+        "activity_log": activity,
+        "diagnosis": diagnosis,
+        "next_step": (
+            "Se can_renew=true e status ainda é 'pending', chame "
+            "POST /api/payments/reprocess/{payment_id} para forçar. "
+            "Se status='paid_renewal_failed', o retry automático vai tentar novamente "
+            "(veja renewal_next_retry_at). Se painel_id não foi encontrado, "
+            "renove manualmente no painel.fun."
         ),
     }
 

@@ -20,6 +20,28 @@ Sistema para Raspberry Pi que conecta WhatsApp via whatsapp-web.js, envia/recebe
 - **Frontend**: React 19 + Shadcn UI + Phosphor Icons + recharts (dark theme, Cabinet Grotesk + IBM Plex Sans)
 
 
+## [FIX 2026-08-25] Webhook InfinitePay — diagnóstico + logs estruturados
+
+**Sintoma reportado:** clientes pagando pelo link do InfinitePay não estavam sendo renovados no painel.fun após atualização.
+
+**Investigação:** análise de todo o fluxo `_process_payment_confirmation` (payments.py, ~660 linhas). Nenhum defeito determinístico no código — `painel.renew_user` é a última chamada, todos os try/except pós-renewal já são não-fatais (`cancel_pending_for_phone`, `send_notification`, admin alerts). Sem logs do Pi, não foi possível provar a causa.
+
+**Ações tomadas (defensivas):**
+1. **Log estruturado** em cada checkpoint do webhook — busca por `🔎 START RENEWAL` / `✅ PAINEL RENEWED` / `🎯 WEBHOOK RESULT` / `💥 WEBHOOK CRASHED` no `sudo journalctl -u whatsflow-backend`.
+2. **Handler top-level try/except no `/webhook`** — se qualquer coisa crashar, retorna 200 com `status: webhook_crashed` (evita retry storm do InfinitePay) e o `payment_poller` cobre.
+3. **Novo endpoint `GET /api/payments/trace/{key}`** — retorna payment + customer + trials + activity_log + `diagnosis.can_renew` com `would_call` mostrando exatamente qual chamada `painel.renew_user` seria feita. Aceita `payment_id`, `order_nsu` ou `customer_id`.
+
+**Como o usuário deve usar no Pi quando um cliente pagar e não renovar:**
+```
+# Ver o que aconteceu com o webhook desse cliente:
+sudo journalctl -u whatsflow-backend --since "1h ago" | grep -E "WEBHOOK|START RENEWAL|PAINEL"
+
+# Ou consultar via API:
+curl -H "Authorization: Bearer <token>" https://<seu-dominio>/api/payments/trace/<payment_id>
+```
+
+
+
 ## [FIX 2026-02-28] Chromium `headless: 'new'` + Pin WA Web version 2.3000.1045805239-alpha
 
 **Raiz:** Duas causas empilhadas quebravam o QR no Pi (Debian Trixie, Chromium 148):
