@@ -873,10 +873,20 @@ async def get_client_payment_link(user_id: str) -> dict:
     except Exception as e:
         logger.warning("get_client_payment_link: could not fetch plan_ids for %s: %s", user_id, e)
 
+    # Build variants to try. Panel might respond differently depending on body shape.
+    # Order matters: try WITHOUT body first (matches most SPA "get current" flows),
+    # then with plan_ids, then variants seen in the DevTools captures.
+    bodies_to_try: list[dict | None] = [
+        None,               # no body — same as browser default fetch()
+        {},                 # empty JSON object
+    ]
+    if plan_ids:
+        bodies_to_try.append({"plan_ids": plan_ids})
+        bodies_to_try.append({"plans": plan_ids})
+
     def _call(tok, method, body=None):
         fn = cffi_requests.post if method == "POST" else cffi_requests.get
-        return fn(
-            f"{base}/api/payments/payment-link/client/{user_id}",
+        kwargs = dict(
             headers={
                 "Authorization": f"Bearer {tok}",
                 "Origin": "https://painel.fun",
@@ -884,32 +894,53 @@ async def get_client_payment_link(user_id: str) -> dict:
                 "Accept": "application/json, text/plain, */*",
                 "Content-Type": "application/json",
             },
-            json=body if method == "POST" else None,
             impersonate="chrome124",
             timeout=60,
         )
+        if body is not None:
+            kwargs["json"] = body
+        return fn(f"{base}/api/payments/payment-link/client/{user_id}", **kwargs)
 
-    post_body = {"plan_ids": plan_ids} if plan_ids else {}
-    resp = await asyncio.to_thread(_call, token, "POST", post_body)
-    if resp.status_code == 401:
-        token = await login(force=True)
-        resp = await asyncio.to_thread(_call, token, "POST", post_body)
-    if resp.status_code == 405:
-        # Method not allowed via POST — try GET
-        resp = await asyncio.to_thread(_call, token, "GET")
+    last_resp = None
+    winning_body = None
+    for b in bodies_to_try:
+        resp = await asyncio.to_thread(_call, token, "POST", b)
+        if resp.status_code == 401:
+            token = await login(force=True)
+            resp = await asyncio.to_thread(_call, token, "POST", b)
+        last_resp = resp
+        winning_body = b
+        # Any 2xx is a match — panel accepted this body shape.
+        if 200 <= resp.status_code < 300:
+            # Peek at response — if it looks like a working link, stop.
+            try:
+                data = resp.json()
+                d = data.get("data") if isinstance(data, dict) else None
+                if isinstance(d, dict) and d.get("url"):
+                    break
+            except Exception:
+                pass
+        if resp.status_code == 405:
+            # try GET as last resort
+            resp = await asyncio.to_thread(_call, token, "GET")
+            last_resp = resp
+            if 200 <= resp.status_code < 300:
+                break
+
+    resp = last_resp
     if resp.status_code >= 400:
         raise RuntimeError(
             f"get_client_payment_link failed: HTTP {resp.status_code} — {resp.text[:200]}"
         )
     data = resp.json()
-    body = data.get("data") if isinstance(data, dict) and "data" in data else data
-    if not isinstance(body, dict) or not body.get("url"):
+    body_out = data.get("data") if isinstance(data, dict) and "data" in data else data
+    if not isinstance(body_out, dict) or not body_out.get("url"):
         raise RuntimeError(f"get_client_payment_link: unexpected response shape — {str(data)[:200]}")
     logger.info(
-        "get_client_payment_link: user=%s plan_ids=%s → %s",
-        user_id, plan_ids, body.get("url"),
+        "get_client_payment_link: user=%s winning_body=%s → %s",
+        user_id, winning_body, body_out.get("url"),
     )
-    return body
+    return body_out
 
 
 async def renew_user(user_id: str, package_id: int, months: int | None = None) -> dict:
