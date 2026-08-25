@@ -39,6 +39,9 @@ backend/whatsflow.db
 backend/whatsflow.db-journal
 backend/whatsflow.db-shm
 backend/whatsflow.db-wal
+yarn.lock
+frontend/yarn.lock
+whatsapp-service/yarn.lock
 
 # WhatsApp session data
 whatsapp-service/.wwebjs_auth
