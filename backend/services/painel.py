@@ -961,9 +961,38 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
     resp = last_resp
     if resp.status_code >= 400:
         logger.error(
-            "❌ RENEW FAILED — all attempts:\n  %s",
+            "❌ RENEW FAILED via HTTP — all attempts:\n  %s",
             "\n  ".join(attempts_log),
         )
+
+        # BROWSER FALLBACK: painel.fun's `sessao_nao_renderizada` middleware
+        # blocks HTTP renewals even when we replicate the exact SPA sequence.
+        # Fire up a real Chromium via Playwright to do the renew as a legit
+        # browser session. This bypasses the check because it IS a browser.
+        # Controlled by setting `enable_browser_fallback` (default: true).
+        body_lower = (resp.text or "").lower()
+        if "sessao_nao_renderizada" in body_lower:
+            enabled = (await get_setting("enable_browser_fallback") or "true").lower()
+            if enabled not in ("false", "0", "off", "no"):
+                logger.warning(
+                    "🌐 Attempting BROWSER FALLBACK (Playwright + 2Captcha) for user=%s",
+                    user_id,
+                )
+                try:
+                    from services.painel_browser import renew_user_via_browser
+                    data = await renew_user_via_browser(user_id=user_id, months=months)
+                    logger.info(
+                        "✅ Browser fallback succeeded for user=%s", user_id,
+                    )
+                    # Skip the HTTP soft-failure check — browser path already validated.
+                    return data
+                except Exception as be:
+                    logger.exception("Browser fallback also failed for user=%s", user_id)
+                    raise RuntimeError(
+                        f"Renew failed via HTTP AND browser. "
+                        f"HTTP: {resp.text[:150]} | Browser: {str(be)[:150]}"
+                    )
+
         raise RuntimeError(f"Renew failed: HTTP {resp.status_code} — {resp.text[:200]}")
     try:
         data = resp.json()
