@@ -744,6 +744,43 @@ async def get_reseller_balance() -> dict:
     return result
 
 
+async def _prime_renewal_session(user_id: str, token: str, base: str) -> None:
+    """Make the exact pre-`/renew` request sequence the SPA makes.
+    Painel's `sessao_nao_renderizada` middleware requires ALL of these calls
+    (in this order) before it will accept POST /api/users/{id}/renew.
+
+    Confirmed via DevTools Network capture (2026-08-25):
+      1. GET /api/payments/plans?audience=client
+      2. GET /api/payments/price-overrides/client/{user_id}
+      3. GET /api/reseller/check-message
+      4. POST /api/users/{user_id}/renew   ← the actual renewal (caller does this)
+
+    Errors are swallowed (best-effort) — the whole point is to touch these
+    endpoints, not to consume their results. If any single call 500s the
+    session may still be primed.
+    """
+    hdrs = {
+        "Authorization": f"Bearer {token}",
+        "Origin": "https://painel.fun",
+        "Referer": "https://painel.fun/",
+        "Accept": "application/json, text/plain, */*",
+    }
+    endpoints = [
+        f"{base}/api/payments/plans?audience=client",
+        f"{base}/api/payments/price-overrides/client/{user_id}",
+        f"{base}/api/reseller/check-message",
+    ]
+    for url in endpoints:
+        try:
+            r = await asyncio.to_thread(
+                cffi_requests.get, url,
+                headers=hdrs, impersonate="chrome124", timeout=30,
+            )
+            logger.info("prime session step: GET %s → HTTP %s", url.rsplit("/", 2)[-1], r.status_code)
+        except Exception as e:
+            logger.warning("prime session step failed for %s: %s", url, e)
+
+
 async def get_price_overrides(user_id: str) -> dict:
     """Fetch the price/plan overrides for a specific user.
 
@@ -759,10 +796,6 @@ async def get_price_overrides(user_id: str) -> dict:
             ],
             "assigned_plan_id": null
         }}
-
-    This call is what the SPA does BEFORE opening the "Renovar" modal.
-    Calling it primes painel's `sessao_nao_renderizada` middleware — /api/users/{id}/renew
-    only accepts the request AFTER this call has been made in the same auth session.
     """
     token = await login()
     base = await get_setting("painel_base_url")
@@ -846,11 +879,14 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
     if months is None:
         months = 1  # safest default
 
-    # STEP 1: Fetch price-overrides — this ALSO primes the session for /renew
+    # STEP 1: Fetch price-overrides + prime session
+    # (DevTools capture confirmed the SPA also hits /payments/plans and
+    # /reseller/check-message BEFORE /renew — the middleware requires this exact sequence.)
     price_data = None
     plan_id = None
     amount = None
     try:
+        # First fetch the plan pricing (also primes part of the session).
         price_data = await get_price_overrides(user_id)
         plans = (price_data or {}).get("plans") or []
         matched = _pick_plan_by_months(plans, months)
@@ -868,6 +904,13 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
             )
     except Exception as e:
         logger.warning("get_price_overrides failed for user %s: %s (will fallback)", user_id, e)
+
+    # Now fire the OTHER two priming calls (plans + check-message) — these are
+    # required for painel's `sessao_nao_renderizada` middleware to accept /renew.
+    try:
+        await _prime_renewal_session(user_id, token, base)
+    except Exception as e:
+        logger.warning("_prime_renewal_session failed: %s (will still try /renew)", e)
 
     # STEP 2: Call /renew.  Prefer new body shape; fall back to legacy on 4xx.
     def _post_renew(tok, body):
