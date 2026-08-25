@@ -885,11 +885,14 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
             timeout=90,
         )
 
-    # Build the body — new shape if we have plan_id, legacy otherwise
+    # Build the body — painel.fun (2026-08) requires ALL THREE fields together:
+    #   {package_id, plan_id, amount}
+    # (Confirmed via DevTools capture of the real SPA request.)
+    # Fallback to legacy {package_id} only if we couldn't resolve plan_id from
+    # price-overrides.
     bodies_to_try = []
     if plan_id is not None:
-        bodies_to_try.append({"plan_id": plan_id, "amount": amount})
-    # Always keep legacy as fallback
+        bodies_to_try.append({"package_id": package_id, "plan_id": plan_id, "amount": amount})
     bodies_to_try.append({"package_id": package_id})
 
     last_resp = None
