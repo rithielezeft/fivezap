@@ -882,6 +882,7 @@ async def get_client_payment_link(user_id: str) -> dict:
     # PRIMING: fire the same GETs the SPA does before opening the link modal.
     # All failures are non-fatal — we only care that the endpoint gets touched
     # so the panel treats this as a full browser session.
+    # Fire in parallel to keep total priming time under 3s even on slow links.
     prime_urls = [
         f"{base}/api/profile",
         f"{base}/api/datacomplements",
@@ -892,15 +893,16 @@ async def get_client_payment_link(user_id: str) -> dict:
         f"{base}/api/domains?page=1&per=10&order_by=&reseller_name={reseller_name}",
         f"{base}/api/reseller/check-message",
     ]
-    for u in prime_urls:
+
+    def _fire_get(u: str):
         try:
-            r = await asyncio.to_thread(
-                cffi_requests.get, u, headers=hdrs, impersonate="chrome124", timeout=30,
-            )
+            r = cffi_requests.get(u, headers=hdrs, impersonate="chrome124", timeout=20)
             logger.info("payment-link prime: GET %s → HTTP %s",
                         u.split("/api/", 1)[1][:60], r.status_code)
         except Exception as e:
             logger.warning("payment-link prime step failed for %s: %s", u, e)
+
+    await asyncio.gather(*[asyncio.to_thread(_fire_get, u) for u in prime_urls])
 
     # Now hit the actual POST with body {} — same as the browser.
     def _post(tok, body):

@@ -68,13 +68,22 @@ async def resolve_pay_link(painel_user_id: str | int, fallback_local_url: str) -
 
     try:
         from services import painel
-        data = await painel.get_client_payment_link(user_id)
+        # Hard timeout so a slow painel never freezes bot/scheduler flows.
+        data = await asyncio.wait_for(
+            painel.get_client_payment_link(user_id),
+            timeout=20.0,
+        )
         url = data.get("url")
         if url:
             _cache_set(user_id, url)
             logger.info("resolve_pay_link: painel API returned %s for user=%s", url, user_id)
             return url
         logger.warning("resolve_pay_link: painel returned no url — data=%s", data)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "resolve_pay_link: painel lookup TIMED OUT (>20s) for user_id=%s "
+            "(falling back to local URL)", user_id,
+        )
     except Exception as e:
         logger.warning(
             "resolve_pay_link: painel lookup FAILED for user_id=%s: %s "
