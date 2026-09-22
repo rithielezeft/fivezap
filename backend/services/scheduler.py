@@ -216,12 +216,9 @@ async def _check_and_notify():
                 continue
 
             pay_link = f"{public_base}/pay/{user_id}?ref={event}"
-            # If provider=painel, replace with the direct pagme.xyz link
-            try:
-                from services.pay_link import resolve_pay_link
-                pay_link = await resolve_pay_link(user_id, pay_link)
-            except Exception:
-                pass
+            # Batched flow: use the local /pay page URL. Do NOT call painel here —
+            # the scheduler loops through many users and would flood the panel.
+            # When user clicks the link, /pay redirects to pagme.xyz if provider=painel.
             exp_dt = datetime.fromisoformat(exp_iso)
             ctx = {
                 "name": name,

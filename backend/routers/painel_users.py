@@ -621,11 +621,9 @@ async def notify_expired(payload: NotifyExpiredPayload):
         uid_str = t["uid_str"]
         exp = t["exp"]
         pay_link = f"{public_base}/pay/{uid_str}" if public_base else ""
-        try:
-            from services.pay_link import resolve_pay_link
-            pay_link = await resolve_pay_link(uid_str, pay_link)
-        except Exception:
-            pass
+        # Batched flow: use local /pay URL. Don't call painel API here —
+        # notify-expired loops through many users. /pay redirects to pagme.xyz
+        # on click when provider=painel.
         name = u.get("full_name") or u.get("name") or u.get("username") or "cliente"
         username = u.get("username") or u.get("login") or ""
 
