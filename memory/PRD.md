@@ -15,6 +15,8 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 ## Implemented
 - 2026-10-26 Phase 1: repo imported, deps installed (pip, yarn: @phosphor-icons/react, react-globe.gl, three; whatsapp-service node_modules), backend/.env got ADMIN_PASSWORD + JWT_SECRET. Login, all 12 screens, QR code and /teste verified (testing agent 100%). painel.fun sync works (13 users).
 
+- 2026-10-26 Renewal fix (services/painel.py, painel_browser.py): package_id validated vs GET /api/datacomplements (official_duration months), plan_id+amount resolved from price-overrides (title) then /payments/plans (duration_days); browser fallback now sends the real package_id (was hardcoded 17 = 1 month). Read-only verified; no real /renew sent.
+
 ## Notes
 - ADMIN_PASSWORD in .env is re-applied on every backend restart (password changed in UI resets on restart).
 - SQLite file and WA session may be lost when the environment resets.
