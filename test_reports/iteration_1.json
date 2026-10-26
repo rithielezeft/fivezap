@@ -1,0 +1,22 @@
+{
+  "summary": "Read-only smoke test of imported WhatsFlow app. Backend: 30/30 pytest pass (health, root, login ok/401, /me, 8 protected endpoints reject no/invalid token, whatsapp status+qr, 14 read-only GETs). Frontend: unauth redirect to /login, login with admin password lands on Dashboard, all 12 sidebar pages load with correct titles and zero JS page errors, WhatsApp page shows state awaiting_qr with QR image rendered, public /teste loads without login. No writes/trials/payments/messages were triggered.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["'Clientes ativos' card shows 0 while Clientes page lists 13 active painel users (likely counts local customers table vs painel cache) - pre-existing behaviour, not a regression"]},
+      {"screen": "/teste public page", "issues": ["SISTEMA field uses a native <select> instead of shadcn Select (cosmetic, pre-existing)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_smoke_preview_readonly.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": ["App.js calls settingsApi.get() on mount even on /login and /teste (unauthenticated) -> harmless 401, swallowed by catch", "Login brute-force map is in-memory per process (resets on restart) - acceptable for single-admin app"],
+  "updated_files": ["/app/backend/tests/test_smoke_preview_readonly.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin password Rithi0518@ from /app/memory/test_credentials.md - works",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Production-connected accounts (painel.fun, InfinitePay, WhatsApp). Only read-only tests were run. Use tests/test_smoke_preview_readonly.py for regression. Many pre-existing repo tests in /app/backend/tests may hit real external services - do not run blindly. WhatsApp service state was awaiting_qr with has_qr=true."
+}
