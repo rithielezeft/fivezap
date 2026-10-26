@@ -12,6 +12,7 @@ const STATUS = {
   sending: { label: "Enviando", cls: "bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30" },
   sent: { label: "Enviada", cls: "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30" },
   missed: { label: "Não enviada", cls: "bg-white/[0.04] text-white/50 border-white/10" },
+  disabled: { label: "Desativada", cls: "bg-white/[0.04] text-white/40 border-white/10" },
   cancelled: { label: "Cancelada", cls: "bg-white/[0.04] text-white/50 border-white/10" },
   failed_permanent: { label: "Falhou", cls: "bg-[#FF3B30]/10 text-[#FF3B30] border-[#FF3B30]/30" },
 };

@@ -134,6 +134,11 @@ async def sweep_once() -> int:
         logger.warning("auto_coupon: painel unreachable — skipping. %s", e)
         return 0
 
+    from services.notifier import get_template
+    if not await get_template("auto_recovery_coupon"):
+        logger.info("auto_coupon: template auto_recovery_coupon missing/disabled — skipping sweep")
+        return 0
+
     sent = 0
     for u in users:
         try:

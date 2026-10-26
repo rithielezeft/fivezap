@@ -265,7 +265,7 @@ export default function Customers() {
       const s = u._system_type || null;
       if (systemFilter === "unknown" ? s : s !== systemFilter) return false;
     }
-    if (statusFilter === "trial") return !!u.is_trial;
+    if (statusFilter === "trial") return !!u._is_trial;
     if (statusFilter !== "all") {
       const st = u._status || "unknown";
       if (st !== statusFilter) return false;
@@ -401,7 +401,7 @@ export default function Customers() {
           const n = f.key === "all"
             ? users.length
             : f.key === "trial"
-              ? users.filter((u) => u.is_trial).length
+              ? users.filter((u) => u._is_trial).length
               : (data?.by_status?.[f.key] || 0);
           return (
             <button
@@ -621,7 +621,7 @@ export default function Customers() {
               <tr><td colSpan={9} className="px-4 py-12 text-center text-white/40">
                 {users.length === 0
                   ? "Nenhum cliente encontrado no painel.fun"
-                  : `Nenhum cliente ${systemFilter === "unknown" ? "sem sistema definido" : systemFilter.toUpperCase()} encontrado`}
+                  : "Nenhum cliente encontrado com esses filtros"}
               </td></tr>
             )}
           </tbody>

@@ -1,0 +1,41 @@
+{
+  "summary": "Tested the anti-duplicate notification changes and the new customer notification preview, without sending anything. Backend: 39/39 pytest pass. That covers 30 regression smoke tests, 5 new API tests and 4 new delivery-queue tests. The queue tests ran on a TEMP COPY of whatsflow.db with a slow fake send_message: enqueue plus concurrent _attempt plus retry_loop_iteration made exactly ONE send call, using idempotency_key = delivery id. Stale 'sending' rows were released and sent; fresh 'sending' rows were left alone. No TEST_ rows reached the real DB. /api/painel/users returns _next_notification for all 13 users. /users/{id}/notifications returns rendered bodies with no leftover {placeholders}, valid statuses, history, duplicate_sends and is_trial, plus 404 for an unknown id and 401 without a token. Node whatsapp-service: index.js passes node --check and the running process uses the latest file. /send while not ready returns 503 twice for the same idempotency_key, so error responses are not cached, and a missing phone returns 400. Frontend: the Clientes page shows the 'Próximo aviso' column (13 cells) and 13 'Avisos' buttons. The dialog opens from both the button and the cell, with 8 message bubbles and status pills on the upcoming tab, an empty history tab and Escape to close. The 'Testes' chip filters to 0 users as expected. No JS page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/painel/users/{id}/notifications", "issue": "The auto_recovery_coupon template does not exist in notification_templates, yet it is listed in upcoming with status 'scheduled' and body=null. The UI shows 'AGENDADA' next to 'Modelo desativado — nada será enviado', which contradicts itself. _expiration_plan and next_notification_map also do not skip disabled or missing templates, so 'Próximo aviso' can point to a message that will never be sent."},
+      {"endpoint": "services/auto_coupon.py", "issue": "auto_coupon_sent_{user_id} is now set BEFORE send_notification. send_notification returns False without enqueuing when the template is missing or disabled, which is the current state for auto_recovery_coupon. The coupon is still created and the customer is flagged forever, but no message is ever sent. Set the key only after confirming the template exists or a delivery id was enqueued."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Customers empty state", "issue": "With the 'Testes' (or any status) filter and system filter 'all', the empty message reads 'Nenhum cliente ALL encontrado'. The system filter key leaks into the text.", "selector": "table empty row", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Testes filter", "issue": "The frontend filter uses only u.is_trial. The backend is_trial_user also treats package_id == trial_package_id or type containing 'trial' as a trial. Trials detected only by package_id will be missing from the 'Testes' chip and count. Expose a backend _is_trial flag and filter on it.", "affected_selectors": ["[data-testid='filter-status-trial']"]}
+    ],
+    "design_issues": [
+      {"screen": "Customer notifications dialog", "issues": ["A disabled template should show a 'Desativado' pill instead of 'Agendada'"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_customer_notifications_preview.py", "/app/backend/tests/test_delivery_queue_claim_tempdb.py", "/app/backend/tests/test_smoke_preview_readonly.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "In upcoming.py: skip or mark (status 'disabled') events whose template is missing or disabled, in both user_notifications and next_notification_map",
+    "In auto_coupon.py: only set auto_coupon_sent_{uid} if the template exists or the enqueue produced a delivery, so customers are not silently flagged when no message is sent",
+    "Customers.jsx: base the trial filter on a backend-computed _is_trial flag; fix the 'Nenhum cliente ALL encontrado' empty-state text"
+  ],
+  "critical_code_review_comments": [
+    "delivery_queue atomic claim (UPDATE ... WHERE status='pending' with rowcount check) is correct. The inline-enqueue row gets next_retry_at=now+300s, so the retry loop does not grab it while it is in flight. Verified.",
+    "Stale-claim release resends after 300s. If many sends queue behind the pace lock for longer than 300s, a still-in-flight row can be released and re-sent. The Node idempotency map covers this, but only within the process lifetime and for 6h; a Node restart loses the map. Consider a longer CLAIM_TIMEOUT or a heartbeat.",
+    "Node idempotency middleware: if the handler ends the response without res.json (e.g. res.end or a thrown error), waiters hang and the key is never cleared. Error statuses are correctly not cached (verified with a 503).",
+    "whatsapp_client sends the alternate-format retry with key '{id}:alt'. That is fine, but if both formats reach WhatsApp the message is sent twice; pre-existing behaviour.",
+    "Customers.jsx is 1077 lines; consider splitting."
+  ],
+  "updated_files": ["/app/backend/tests/test_customer_notifications_preview.py", "/app/backend/tests/test_delivery_queue_claim_tempdb.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin password Rithi0518@ (/app/memory/test_credentials.md) works",
+  "seed_data_creation": "None. Queue tests used a temp copy of whatsflow.db only.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Production-connected accounts. Do NOT click Notificar/Renovar/Teste. Run the new tests with: REACT_APP_BACKEND_URL=... pytest tests/test_customer_notifications_preview.py tests/test_delivery_queue_claim_tempdb.py (pytest.ini uses xdist). 13 active users, no trials or expired users; WhatsApp is awaiting_qr. The real DB md5 changes between runs because of backend cache refresh, which is normal."
+}

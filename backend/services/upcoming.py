@@ -32,7 +32,14 @@ async def _settings():
         "trial_pkg": int(await get_setting("trial_package_id", "61") or 61),
         "coupon_on": (await get_setting("auto_coupon_enabled") or "true").strip().lower() in ("true", "1", "yes", "on"),
         "coupon_days": int(await get_setting("auto_coupon_expired_days") or 3),
+        "enabled": await _enabled_templates(),
     }
+
+
+async def _enabled_templates() -> set:
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        cur = await db.execute("SELECT event_key FROM notification_templates WHERE enabled = 1")
+        return {r[0] for r in await cur.fetchall()}
 
 
 def is_trial_user(u: dict, trial_pkg: int) -> bool:
@@ -94,7 +101,7 @@ async def next_notification_map(users: list) -> dict:
                 out[uid] = {"event_key": r["event_key"], "title": TITLES.get(r["event_key"], r["event_key"]),
                             "date": r["send_at"], "kind": "trial"}
             continue
-        nxt = next((p for p in _expiration_plan(u, cfg) if p[1] >= today), None)
+        nxt = next((p for p in _expiration_plan(u, cfg) if p[1] >= today and p[0] in cfg["enabled"]), None)
         if nxt:
             out[uid] = {"event_key": nxt[0], "title": TITLES.get(nxt[0], nxt[0]),
                         "date": nxt[1].isoformat(), "kind": "expiration"}
@@ -155,7 +162,8 @@ async def user_notifications(u: dict) -> dict:
                 ctx = {}
             upcoming.append({
                 "event_key": r["event_key"], "title": TITLES.get(r["event_key"], r["event_key"]),
-                "when": r["send_at"], "status": REMINDER_STATUS.get(r["sent"], "scheduled"),
+                "when": r["send_at"],
+                "status": REMINDER_STATUS.get(r["sent"], "scheduled") if r["event_key"] in cfg["enabled"] or r["sent"] != 0 else "disabled",
                 **(await _preview(r["event_key"], ctx)),
             })
     else:
@@ -165,7 +173,9 @@ async def user_notifications(u: dict) -> dict:
         for ev, day, d in _expiration_plan(u, cfg):
             sent = [x for x in deliveries if x["event_key"] == ev and x["status"] in ("sent", "sending", "pending")
                     and (_local_date(x["created_at"]) or today) >= day]
-            if sent:
+            if ev not in cfg["enabled"]:
+                status = "disabled"
+            elif sent:
                 status = "sent" if sent[0]["status"] == "sent" else "queued"
             elif day < today:
                 status = "missed"

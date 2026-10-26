@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 RETRY_INTERVAL_SECONDS = 10
 LOOP_TICK_SECONDS = 5   # scan the queue every 5s → up to +5s of latency
 DEFAULT_MAX_ATTEMPTS = 5
-CLAIM_TIMEOUT_SECONDS = 300
+CLAIM_TIMEOUT_SECONDS = 1800
 
 # Sentinel so callers can distinguish "use the setting" from "explicit 0".
 _USE_SETTING = -1

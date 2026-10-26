@@ -242,9 +242,11 @@ async def list_users(search: Optional[str] = None, force: bool = False,
         u["_status"] = exp["status"]
 
     try:
-        from services.upcoming import next_notification_map
+        from services.upcoming import next_notification_map, is_trial_user
         nxt = await next_notification_map(users)
+        trial_pkg = int(await get_setting("trial_package_id", "61") or 61)
         for u in users:
+            u["_is_trial"] = is_trial_user(u, trial_pkg)
             u["_next_notification"] = nxt.get(str(u.get("id") or u.get("user_id") or u.get("username") or ""))
     except Exception:
         logger.exception("next_notification_map failed (non-fatal)")

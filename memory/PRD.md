@@ -17,6 +17,7 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 
 - 2026-10-26 Renewal fix (services/painel.py, painel_browser.py): package_id validated vs GET /api/datacomplements (official_duration months), plan_id+amount resolved from price-overrides (title) then /payments/plans (duration_days); browser fallback now sends the real package_id (was hardcoded 17 = 1 month). Read-only verified; no real /renew sent.
 - 2026-10-26 Images: uploads saved on local disk (UPLOAD_DIR, default backend/uploads) + mirrored to object storage when EMERGENT_LLM_KEY set; whatsapp_client inlines our /api/uploads/* images as base64 data URI before sending (any host, relative or absolute); Node express json limit 25mb.
+- 2026-10-26 Anti-duplicate notifications: delivery_queue atomic claim ('sending' status, inline-attempt vs retry-loop race fixed), WhatsApp service idempotency by delivery id (6h), scheduler single-run lock + key claimed before pacing, auto_coupon key set before send and sweep skipped when template missing. Clientes page: 'Próximo aviso' column, 'Avisos' dialog (programadas/enviadas with WhatsApp-style preview, duplicate warning), 'Testes' filter (GET /api/painel/users/{id}/notifications).
 
 ## Notes
 - ADMIN_PASSWORD in .env is re-applied on every backend restart (password changed in UI resets on restart).
