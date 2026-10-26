@@ -188,11 +188,13 @@ async def sweep_once() -> int:
                 "days_expired": str(days_expired),
             }
 
+            # Mark BEFORE sending: a queued (not-yet-sent) delivery is retried by
+            # the queue, so re-sending next hour would duplicate the coupon.
+            await set_setting(key, now_iso())
             ok = await send_notification(
                 "auto_recovery_coupon", phone, ctx, customer_id=user_id,
             )
             if ok:
-                await set_setting(key, now_iso())
                 sent += 1
                 logger.info(
                     "auto_coupon: sent %s to %s (customer=%s, %.1f%%, expires_in %dh)",

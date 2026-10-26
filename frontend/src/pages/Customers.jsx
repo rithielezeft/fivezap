@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
 import { useColumnVisibility, ColumnPicker } from "@/components/ColumnPicker";
+import { CustomerNotificationsDialog } from "@/components/CustomerNotificationsDialog";
 import { painelApi, trialsApi, customersApi, formatDateBR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk, BellRinging } from "@phosphor-icons/react";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -113,11 +114,12 @@ export default function Customers() {
     { key: "system", label: "Sistema" },
     { key: "expires", label: "Expira" },
     { key: "status", label: "Status" },
+    { key: "nextnotif", label: "Próximo aviso" },
     { key: "paylink", label: "Link de pagamento" },
     { key: "actions", label: "Ações" },
   ];
-  const CUSTOMER_DEFAULTS = { username: true, name: true, whatsapp: true, system: true, expires: true, status: true, paylink: true, actions: true };
-  const CUSTOMER_MOBILE_DEFAULTS = { username: true, name: false, whatsapp: true, system: false, expires: true, status: true, paylink: false, actions: true };
+  const CUSTOMER_DEFAULTS = { username: true, name: true, whatsapp: true, system: true, expires: true, status: true, nextnotif: true, paylink: true, actions: true };
+  const CUSTOMER_MOBILE_DEFAULTS = { username: true, name: false, whatsapp: true, system: false, expires: true, status: true, nextnotif: true, paylink: false, actions: true };
   const cols = useColumnVisibility("customers-cols", CUSTOMER_DEFAULTS, CUSTOMER_MOBILE_DEFAULTS);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugData, setDebugData] = useState(null);
@@ -126,6 +128,7 @@ export default function Customers() {
   const [expiredSelected, setExpiredSelected] = useState({}); // { user_id: true }
   const [dupConfirm, setDupConfirm] = useState(null); // {duplicates, fresh_count, duplicate_count, selectedIds}
   const [editPhoneFor, setEditPhoneFor] = useState(null); // {uid, name, current}
+  const [notifFor, setNotifFor] = useState(null); // painel user id
 
   // debounce search
   useEffect(() => {
@@ -262,6 +265,7 @@ export default function Customers() {
       const s = u._system_type || null;
       if (systemFilter === "unknown" ? s : s !== systemFilter) return false;
     }
+    if (statusFilter === "trial") return !!u.is_trial;
     if (statusFilter !== "all") {
       const st = u._status || "unknown";
       if (st !== statusFilter) return false;
@@ -391,11 +395,14 @@ export default function Customers() {
           { key: "expired",        label: "Vencidos",      cls: "border-[#FF3B30]/30 text-[#FF3B30] hover:bg-[#FF3B30]/10" },
           { key: "expiring_soon",  label: "Vencendo",      cls: "border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10" },
           { key: "active",         label: "Ativos",        cls: "border-[#34C759]/30 text-[#34C759] hover:bg-[#34C759]/10" },
+          { key: "trial",          label: "Testes",        cls: "border-[#5AC8FA]/30 text-[#5AC8FA] hover:bg-[#5AC8FA]/10" },
         ].map((f) => {
           const active = statusFilter === f.key;
           const n = f.key === "all"
             ? users.length
-            : (data?.by_status?.[f.key] || 0);
+            : f.key === "trial"
+              ? users.filter((u) => u.is_trial).length
+              : (data?.by_status?.[f.key] || 0);
           return (
             <button
               key={f.key}
@@ -470,13 +477,14 @@ export default function Customers() {
               {cols.isVisible("system") && <th className="px-4 py-3">Sistema</th>}
               {cols.isVisible("expires") && <th className="px-4 py-3">Expira</th>}
               {cols.isVisible("status") && <th className="px-4 py-3">Status</th>}
+              {cols.isVisible("nextnotif") && <th className="px-4 py-3">Próximo aviso</th>}
               {cols.isVisible("paylink") && <th className="px-4 py-3">Link de pagamento</th>}
               {cols.isVisible("actions") && <th className="px-4 py-3 text-right">Ações</th>}
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-white/40">
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-white/40">
                 <CloudArrowDown size={32} className="mx-auto mb-2 animate-pulse" />
                 Buscando no painel.fun...
               </td></tr>
@@ -535,6 +543,24 @@ export default function Customers() {
                   </td>}
                   {cols.isVisible("expires") && <td className="px-4 py-3 text-xs text-white/60">{expires ? formatDateBR(expires) : "—"}</td>}
                   {cols.isVisible("status") && <td className="px-4 py-3"><StatusBadge user={u} /></td>}
+                  {cols.isVisible("nextnotif") && <td className="px-4 py-3">
+                    <button
+                      onClick={() => setNotifFor(uid)}
+                      className="text-left text-xs hover:text-white text-white/70 transition-colors"
+                      data-testid={`next-notif-${uid}`}
+                    >
+                      {u._next_notification ? (
+                        <>
+                          <div className="font-medium">{u._next_notification.title}</div>
+                          <div className="font-mono text-[10px] text-white/40">
+                            {/^\d{4}-\d{2}-\d{2}$/.test(u._next_notification.date)
+                              ? u._next_notification.date.split("-").reverse().join("/")
+                              : formatDateBR(u._next_notification.date)}
+                          </div>
+                        </>
+                      ) : <span className="text-white/30">Ver histórico</span>}
+                    </button>
+                  </td>}
                   {cols.isVisible("paylink") && <td className="px-4 py-3">
                     {payLink ? (
                       <div className="flex items-center gap-1">
@@ -564,6 +590,15 @@ export default function Customers() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        onClick={() => setNotifFor(uid)}
+                        data-testid={`btn-notifs-${uid}`}
+                        title="Ver mensagens programadas e enviadas"
+                      >
+                        <BellRinging size={16} className="mr-1" /> Avisos
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => setTrialFor({ ...u, _uid: uid, _system: system, _mac: mac, _name: name, _whatsapp: whatsapp })}
                         data-testid={`btn-trial-${uid}`}
                       >
@@ -583,7 +618,7 @@ export default function Customers() {
               );
             })}
             {!isLoading && filteredUsers.length === 0 && !error && (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-white/40">
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-white/40">
                 {users.length === 0
                   ? "Nenhum cliente encontrado no painel.fun"
                   : `Nenhum cliente ${systemFilter === "unknown" ? "sem sistema definido" : systemFilter.toUpperCase()} encontrado`}
@@ -592,6 +627,8 @@ export default function Customers() {
           </tbody>
         </table>
       </div>
+
+      <CustomerNotificationsDialog userId={notifFor} onClose={() => setNotifFor(null)} />
 
       {/* Renew Dialog */}
       <Dialog open={!!renewFor} onOpenChange={(o) => !o && setRenewFor(null)}>

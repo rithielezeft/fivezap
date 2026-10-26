@@ -73,7 +73,19 @@ async def check_expirations_loop():
         await asyncio.sleep(60 * 60)  # every hour
 
 
+_check_lock = asyncio.Lock()
+
+
 async def _check_and_notify():
+    # Hourly loop + "Notificar vencendo" button must never run concurrently.
+    if _check_lock.locked():
+        logger.info("Notification check already running — skipping overlapping run")
+        return
+    async with _check_lock:
+        await _check_and_notify_locked()
+
+
+async def _check_and_notify_locked():
     days_str = await get_setting("notification_days", "3,1,0")
     days = [int(d.strip()) for d in days_str.split(",") if d.strip()]
     public_base = await get_setting("public_base_url", "")
@@ -249,16 +261,15 @@ async def _check_and_notify():
             except Exception:
                 logger.exception("discount lookup failed (non-fatal) for %s", event)
 
+            # Claim today's key BEFORE pacing so nothing else picks this user.
+            await set_setting(key, "1")
+
             # Human-pacing: wait between clients (skip on the very first send
             # so the loop feels responsive when there's only one match).
             if not first_send and pacing_seconds > 0:
                 logger.info("Pacing: sleeping %ds before next reminder", pacing_seconds)
                 await asyncio.sleep(pacing_seconds)
             first_send = False
-
-            # Mark daily-key FIRST so we never re-attempt this today, even
-            # if send_notification raises or gets queued.
-            await set_setting(key, "1")
 
             sent = await send_notification(
                 event, str(phone), ctx, customer_id=user_id,

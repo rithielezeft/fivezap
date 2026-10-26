@@ -241,6 +241,13 @@ async def list_users(search: Optional[str] = None, force: bool = False,
         u["_days_until_expiry"] = exp["days_until_expiry"]
         u["_status"] = exp["status"]
 
+    try:
+        from services.upcoming import next_notification_map
+        nxt = await next_notification_map(users)
+        for u in users:
+            u["_next_notification"] = nxt.get(str(u.get("id") or u.get("user_id") or u.get("username") or ""))
+    except Exception:
+        logger.exception("next_notification_map failed (non-fatal)")
     if search:
         s = search.lower()
         def match(u):
@@ -265,6 +272,17 @@ async def list_users(search: Optional[str] = None, force: bool = False,
         "refreshing": _refresh_state["running"],
         "last_error": _refresh_state["last_error"],
     }
+
+
+@router.get("/users/{user_id}/notifications")
+async def user_notifications(user_id: str):
+    """Planned + already-sent WhatsApp notifications for one painel user."""
+    from services.upcoming import user_notifications as _build
+    users, _ = await _read_cache()
+    u = next((x for x in users if str(x.get("id") or x.get("user_id") or x.get("username")) == user_id), None)
+    if not u:
+        raise HTTPException(404, "Cliente não encontrado no cache do painel")
+    return await _build(u)
 
 
 @router.post("/users/refresh")

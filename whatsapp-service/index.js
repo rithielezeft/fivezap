@@ -481,6 +481,34 @@ app.post('/pairing-code', async (req, res) => {
   }
 });
 
+// Idempotency: the backend sends its delivery id as `idempotency_key`. A retry
+// of an already-sent (or in-flight) delivery returns the original result
+// instead of sending the same message twice. Entries live for 6h.
+const _idem = new Map();
+app.post('/send', (req, res, next) => {
+  const key = req.body && req.body.idempotency_key;
+  if (!key) return next();
+  const now = Date.now();
+  for (const [k, v] of _idem) if (now - v.ts > 6 * 3600 * 1000) _idem.delete(k);
+  const hit = _idem.get(key);
+  if (hit) {
+    console.log('[WA] Duplicate send blocked (idempotency_key=' + key + ')');
+    if (hit.done) return res.status(hit.status).json({ ...hit.body, deduplicated: true });
+    return hit.waiters.push(res);
+  }
+  const entry = { ts: now, done: false, waiters: [] };
+  _idem.set(key, entry);
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    const status = res.statusCode;
+    if (status >= 200 && status < 300) Object.assign(entry, { done: true, status, body });
+    else _idem.delete(key);
+    entry.waiters.forEach((w) => w.status(status).json({ ...body, deduplicated: true }));
+    return origJson(body);
+  };
+  next();
+});
+
 app.post('/send', async (req, res) => {
   const { phone, message, image_url } = req.body || {};
   if (!phone) return res.status(400).json({ error: 'phone required' });
