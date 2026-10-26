@@ -1,0 +1,129 @@
+"""Public endpoints: /teste form + shared."""
+import logging
+from fastapi import APIRouter, HTTPException
+import aiosqlite
+
+from database import DB_PATH
+from models import PublicTrialRequest, new_id, now_iso
+from services import painel
+from services.bot import log_activity, find_or_create_customer
+
+router = APIRouter(prefix="/api/public", tags=["public"])
+logger = logging.getLogger(__name__)
+
+
+@router.post("/trial")
+async def public_request_trial(payload: PublicTrialRequest):
+    """Public form on /teste page — creates trial and returns credentials."""
+    phone_digits = "".join(c for c in payload.whatsapp if c.isdigit())
+
+    # Find or create customer
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM customers WHERE whatsapp = ?", (phone_digits,))
+        row = await cur.fetchone()
+        if row:
+            customer_id = row["id"]
+        else:
+            customer_id = new_id()
+            now = now_iso()
+            await db.execute(
+                "INSERT INTO customers (id, name, whatsapp, system_type, mac, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'prospect', ?, ?)",
+                (customer_id, payload.name, phone_digits, payload.system_type, payload.mac, now, now),
+            )
+            await db.commit()
+
+    try:
+        result = await painel.create_trial(
+            system_type=payload.system_type,
+            mac=payload.mac,
+            name=payload.name,
+            whatsapp=phone_digits,
+        )
+    except Exception as e:
+        logger.exception("Public trial creation failed")
+        await log_activity("public_trial_error", str(e), customer_id, "error")
+        raise HTTPException(502, f"Erro ao criar teste: {e}")
+
+    painel_user = result.get("username") or result.get("user") or result.get("login")
+    painel_pass = result.get("password") or result.get("pass")
+    expires = result.get("expires_at") or result.get("expiration")
+
+    import json
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO trials (id, customer_id, system_type, mac, painel_user, painel_pass, trial_user_id, expires_at, created_at, raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (new_id(), customer_id, payload.system_type, payload.mac,
+             painel_user, painel_pass, str(result.get("id") or ""), expires, now_iso(),
+             json.dumps(result)),
+        )
+        await db.execute(
+            "UPDATE customers SET system_type = ?, mac = COALESCE(?, mac), painel_username = ?, painel_password = ?, expires_at = ?, updated_at = ? WHERE id = ?",
+            (payload.system_type, payload.mac, painel_user, painel_pass, expires, now_iso(), customer_id),
+        )
+        await db.commit()
+
+    await log_activity("public_trial_created", f"Teste solicitado por {payload.name}", customer_id, "success")
+
+    # Inject the freshly-created trial into the cache IMMEDIATELY so /pay/{id}
+    # works from any browser worldwide without waiting for the async painel
+    # refresh (30–90s Turnstile-gated).
+    try:
+        from routers.painel_users import upsert_users_in_cache, refresh_cache_task
+        trial_user_id_str = str(result.get("id") or result.get("user_id") or "")
+        trial_user_record = {
+            **(result if isinstance(result, dict) else {}),
+            "id": trial_user_id_str or None,
+            "username": painel_user,
+            "full_name": payload.name or "",
+            "whatsapp": phone_digits or "",
+            "is_trial": 1,
+            "system": {"iptv": 1, "p2p": 2, "hybrid": 3}.get(payload.system_type, 1),
+        }
+        await upsert_users_in_cache([trial_user_record])
+        import asyncio as _asyncio
+        _asyncio.create_task(refresh_cache_task())
+    except Exception:
+        logger.exception("Failed to inject trial into painel users cache")
+
+    # Persist to MongoDB Atlas — shared source of truth.
+    try:
+        from services import mongo_store
+        trial_user_id_str = str(result.get("id") or result.get("user_id") or "")
+        await mongo_store.upsert_customer({
+            "_id": trial_user_id_str,
+            "id": int(trial_user_id_str) if trial_user_id_str.isdigit() else trial_user_id_str,
+            "painel_username": painel_user,
+            "painel_password": painel_pass,
+            "full_name": payload.name or "",
+            "whatsapp": phone_digits or "",
+            "system_type": payload.system_type,
+            "is_trial": True,
+            "mac": payload.mac,
+            "exp_date_iso": expires,
+        })
+    except Exception:
+        logger.exception("Failed to persist trial to MongoDB Atlas")
+
+    # Fire trial_ready + schedule 1h/3h reminders
+    try:
+        from services.trial_flow import post_trial_flow
+        await post_trial_flow(
+            phone=phone_digits,
+            name=payload.name,
+            system_type=payload.system_type,
+            painel_user=painel_user,
+            painel_pass=painel_pass,
+            expires_at=expires,
+            mac=payload.mac,
+            painel_user_id=str(result.get("id") or result.get("user_id") or ""),
+        )
+    except Exception:
+        logger.exception("post_trial_flow failed")
+
+    return {
+        "user": painel_user,
+        "password": painel_pass,
+        "expires_at": expires,
+        "system_type": payload.system_type,
+    }

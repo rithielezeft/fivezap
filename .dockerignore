@@ -1,0 +1,35 @@
+# Docker build context — mantém a imagem enxuta e o build rápido.
+.git
+.github
+.gitignore
+.emergent
+
+# Backend
+backend/.venv
+backend/__pycache__
+backend/**/__pycache__
+backend/.pytest_cache
+backend/logs
+backend/whatsflow.db
+backend/whatsflow.db-*
+backend/tests
+
+# Frontend
+frontend/node_modules
+frontend/build
+frontend/.cache
+
+# WhatsApp service
+whatsapp-service/node_modules
+whatsapp-service/.wwebjs_auth
+whatsapp-service/.wwebjs_cache
+
+# Env files (montamos via docker-compose environment)
+**/.env
+
+# Ambiente/OS
+*.log
+*.pyc
+.DS_Store
+.idea
+.vscode
