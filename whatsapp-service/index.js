@@ -430,7 +430,7 @@ setTimeout(() => {
 
 // -------- HTTP API --------
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 
 // Reconnect state — how many retry attempts, when last ready was, etc.
 app.get('/reconnect-state', (req, res) => {
@@ -536,7 +536,7 @@ app.post('/send', async (req, res) => {
       if (image_url.startsWith('data:')) {
         const [meta, b64] = image_url.split(',');
         const mime = meta.split(':')[1].split(';')[0];
-        media = new MessageMedia(mime, b64, 'image');
+        media = new MessageMedia(mime, b64, 'imagem.' + (mime.split('/')[1] || 'jpg'));
       } else {
         media = await MessageMedia.fromUrl(image_url, { unsafeMime: true });
       }

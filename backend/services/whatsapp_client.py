@@ -76,7 +76,10 @@ async def _try_send_once(phone: str, message: str, image_url: str = None,
     async with httpx.AsyncClient(timeout=total_timeout) as client:
         payload = {"phone": phone, "message": message}
         if image_url:
-            payload["image_url"] = image_url
+            # Our own uploads are inlined (base64) so the WhatsApp service never
+            # has to download the public URL (fails behind NAT/tunnel/old host).
+            from routers.uploads import load_upload_as_data_uri
+            payload["image_url"] = (await load_upload_as_data_uri(image_url)) or image_url
         if typing_ms and typing_ms > 0:
             payload["typing_ms"] = int(typing_ms)
         resp = await client.post(f"{WA_SERVICE_URL}/send", json=payload)
