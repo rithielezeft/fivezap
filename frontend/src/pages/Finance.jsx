@@ -124,7 +124,7 @@ export default function Finance() {
                 <div key={t.login + i} className="flex items-center gap-3 py-2.5">
                   <span className="w-5 text-xs font-mono text-slate-500">{i + 1}</span>
                   <span className="flex-1 text-sm truncate">{t.login}</span>
-                  <div className="text-right"><div className="font-mono text-sm font-semibold">{formatMoney(t.amount_cents)}</div><div className="text-[10px] text-slate-500">{t.count} fatura(s)</div></div>
+                  <div className="text-right"><div className="font-mono text-sm font-semibold">{formatMoney(t.amount_cents)}</div><div className="text-[10px] text-slate-500">{t.count} {t.count === 1 ? "fatura" : "faturas"}</div></div>
                 </div>
               )} />
             </Panel>

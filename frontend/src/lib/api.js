@@ -175,7 +175,7 @@ export const painelApi = {
   notifyNow: () => api.post("/painel/notify-now", null, { timeout: 120000 }).then((r) => r.data),
   debugSample: () => api.get("/painel/debug-sample").then((r) => r.data),
   listExpired: () => api.get("/painel/expired").then((r) => r.data),
-  notifyExpired: (user_ids, force) => api.post("/painel/notify-expired", { user_ids: user_ids || [], force: !!force }, { timeout: 180000 }).then((r) => r.data),
+  notifyExpired: (user_ids, force, kind) => api.post("/painel/notify-expired", { user_ids: user_ids || [], force: !!force, kind: kind || "regular" }, { timeout: 180000 }).then((r) => r.data),
   userNotifications: (id) => api.get(`/painel/users/${id}/notifications`).then((r) => r.data),
 };
 

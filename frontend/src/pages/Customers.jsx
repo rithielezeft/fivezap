@@ -126,6 +126,16 @@ export default function Customers() {
   const [expiredOpen, setExpiredOpen] = useState(false);
   const [expiredData, setExpiredData] = useState(null);
   const [expiredSelected, setExpiredSelected] = useState({}); // { user_id: true }
+  const [expiredKind, setExpiredKind] = useState("all"); // all | trial | regular
+  const kindMatch = (u, kind) => kind === "all" || (kind === "trial" ? !!u.is_trial : !u.is_trial);
+  const expiredUsers = (expiredData?.users || []).filter((u) => kindMatch(u, expiredKind));
+  const selectExpiredKind = (kind, users = expiredData?.users || []) => {
+    setExpiredKind(kind);
+    const pre = {};
+    users.forEach((u) => { if (kindMatch(u, kind) && u.has_whatsapp) pre[u.user_id] = true; });
+    setExpiredSelected(pre);
+  };
+  const expiredSelectedIds = expiredUsers.filter((u) => expiredSelected[u.user_id]).map((u) => u.user_id);
   const [dupConfirm, setDupConfirm] = useState(null); // {duplicates, fresh_count, duplicate_count, selectedIds}
   const [editPhoneFor, setEditPhoneFor] = useState(null); // {uid, name, current}
   const [notifFor, setNotifFor] = useState(null); // painel user id
@@ -199,18 +209,14 @@ export default function Customers() {
     onSuccess: (d) => {
       setExpiredData(d);
       // Pre-select only users WITH whatsapp — no point sending to the rest.
-      const pre = {};
-      (d?.users || []).forEach((u) => {
-        if (u.has_whatsapp) pre[u.user_id] = true;
-      });
-      setExpiredSelected(pre);
+      selectExpiredKind("all", d?.users || []);
       setExpiredOpen(true);
     },
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
 
   const notifyExpiredMut = useMutation({
-    mutationFn: ({ ids, force }) => painelApi.notifyExpired(ids, !!force),
+    mutationFn: ({ ids, force }) => painelApi.notifyExpired(ids, !!force, expiredKind),
     onSuccess: (r, vars) => {
       // Two-step flow: backend returns `needs_confirmation:true` when some
       // of the selected clients already got the same template in the last
@@ -760,27 +766,35 @@ export default function Customers() {
             </DialogDescription>
           </DialogHeader>
           {expiredData && (
+            <div className="flex gap-1 p-1 rounded-lg bg-black/30 border border-white/[0.06] w-fit" data-testid="expired-kind-filter">
+              {[
+                { key: "all", label: "Todos", n: expiredData.count },
+                { key: "trial", label: "Só testes", n: expiredData.count_trial ?? 0 },
+                { key: "regular", label: "Só regulares", n: expiredData.count_regular ?? 0 },
+              ].map((k) => (
+                <button key={k.key} onClick={() => selectExpiredKind(k.key)} data-testid={`expired-kind-${k.key}`}
+                  className={`px-3 py-1.5 rounded-md text-xs transition-colors ${expiredKind === k.key ? "bg-white/10 text-white" : "text-white/50 hover:text-white"}`}>
+                  {k.label} <span className="font-mono text-white/40">{k.n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {expiredData && (
             <div className="text-xs text-white/60 mb-2 flex items-center gap-3 flex-wrap">
               <span data-testid="expired-total">
-                {expiredData.count} vencidos
+                {expiredUsers.length} vencidos
               </span>
               <span className="text-white/40">•</span>
               <span data-testid="expired-with-wa">
-                {expiredData.count_with_whatsapp} com WhatsApp
+                {expiredUsers.filter((u) => u.has_whatsapp).length} com WhatsApp
               </span>
               <span className="text-white/40">•</span>
               <span data-testid="expired-selected">
-                {Object.values(expiredSelected).filter(Boolean).length} selecionados
+                {expiredSelectedIds.length} selecionados
               </span>
               <div className="ml-auto flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    const all = {};
-                    (expiredData.users || []).forEach((u) => {
-                      if (u.has_whatsapp) all[u.user_id] = true;
-                    });
-                    setExpiredSelected(all);
-                  }}
+                  onClick={() => selectExpiredKind(expiredKind)}
                   className="px-2 py-1 rounded-md border border-white/10 hover:bg-white/[0.05] text-[11px]"
                   data-testid="btn-expired-select-all"
                 >
@@ -810,7 +824,7 @@ export default function Customers() {
                 </tr>
               </thead>
               <tbody>
-                {(expiredData?.users || []).map((u) => {
+                {expiredUsers.map((u) => {
                   const st = SYSTEM_STYLES[u.system_type];
                   const disabled = !u.has_whatsapp;
                   return (
@@ -834,7 +848,10 @@ export default function Customers() {
                         />
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{u.username || "—"}</td>
-                      <td className="px-3 py-2">{u.name || "—"}</td>
+                      <td className="px-3 py-2">
+                        {u.name || "—"}
+                        {u.is_trial && <span className="ml-2 text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded border border-[#A78BFA]/30 text-[#A78BFA]" data-testid={`expired-trial-badge-${u.user_id}`}>Teste</span>}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs text-white/70">
                         {u.whatsapp || <span className="text-[#EF4444]">sem WhatsApp</span>}
                       </td>
@@ -853,7 +870,7 @@ export default function Customers() {
                     </tr>
                   );
                 })}
-                {expiredData && (expiredData.users || []).length === 0 && (
+                {expiredData && expiredUsers.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-white/40">
                       Nenhum cliente vencido no momento 🎉
@@ -874,22 +891,14 @@ export default function Customers() {
             </Button>
             <Button
               className="bg-[#EF4444] hover:bg-[#D9251B]"
-              disabled={
-                notifyExpiredMut.isPending ||
-                Object.values(expiredSelected).filter(Boolean).length === 0
-              }
-              onClick={() => {
-                const ids = Object.entries(expiredSelected)
-                  .filter(([, v]) => v)
-                  .map(([k]) => k);
-                notifyExpiredMut.mutate({ ids, force: false });
-              }}
+              disabled={notifyExpiredMut.isPending || expiredSelectedIds.length === 0}
+              onClick={() => notifyExpiredMut.mutate({ ids: expiredSelectedIds, force: false })}
               data-testid="btn-expired-confirm"
             >
               <PaperPlaneTilt size={16} className="mr-2" />
               {notifyExpiredMut.isPending
                 ? "Enfileirando..."
-                : `Enviar para ${Object.values(expiredSelected).filter(Boolean).length}`}
+                : `Enviar para ${expiredSelectedIds.length}`}
             </Button>
           </div>
         </DialogContent>

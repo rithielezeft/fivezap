@@ -70,7 +70,7 @@ export function PaymentsTable({ payments, month, onDiag, onCustomer }) {
             </button>
           ))}
         </div>
-        <div className="md:ml-auto text-xs text-slate-500" data-testid="payments-count">{rows.length} fatura(s)</div>
+        <div className="md:ml-auto text-xs text-slate-500" data-testid="payments-count">{rows.length} {rows.length === 1 ? "fatura" : "faturas"}</div>
       </div>
 
       <div className="overflow-x-auto -mx-5">

@@ -696,7 +696,7 @@ async def get_reseller_balance() -> dict:
     # Some painel builds nest under 'user' or 'data'
     d = data.get("user") or data.get("data") or data
     if not isinstance(d, dict):
-        return {"balance": None, "currency": "BRL", "raw": str(d)[:200],
+        return {"balance": None, "currency": "CREDITS", "raw": str(d)[:200],
                 "source_endpoint": info.get("path"),
                 "note": "resposta inesperada do painel"}
 
@@ -714,14 +714,14 @@ async def get_reseller_balance() -> dict:
                 pass
 
     if balance is None:
-        return {"balance": None, "currency": "BRL",
+        return {"balance": None, "currency": "CREDITS",
                 "raw": {k: d.get(k) for k in list(d.keys())[:20]},
                 "source_endpoint": info.get("path"),
                 "note": "campo de saldo não encontrado na resposta"}
 
     result = {
         "balance": balance,
-        "currency": "BRL",
+        "currency": "CREDITS",
         "raw_field": raw_field,
         "source_endpoint": info.get("path"),
         "username": d.get("username"),

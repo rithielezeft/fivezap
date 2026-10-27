@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import aiosqlite
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -461,6 +461,7 @@ class NotifyExpiredPayload(BaseModel):
     within the past 60 minutes."""
     user_ids: list[str] = []
     force: bool = False
+    kind: Literal["all", "trial", "regular"] = "regular"
 
 
 @router.get("/expired")
@@ -469,7 +470,10 @@ async def list_expired():
     so the frontend can render a preview + selection UI before firing the
     manual-expired notification wave.
     """
+    from services.upcoming import is_trial_user
+    from database import get_setting
     users, _ = await _read_cache()
+    trial_pkg = int(await get_setting("trial_package_id", "61") or 61)
     result = []
     for u in users:
         # Cache stores raw painel data — compute status server-side here so
@@ -490,12 +494,15 @@ async def list_expired():
             "system_type": detect_system_type(u),
             "expires_at": exp.get("expires_at_iso"),
             "days_expired": abs(exp.get("days_until_expiry") or 0),
+            "is_trial": is_trial_user(u, trial_pkg),
         })
     # Sort: with-WhatsApp first, then by days_expired asc (most recent).
     result.sort(key=lambda x: (not x["has_whatsapp"], x["days_expired"]))
     return {
         "count": len(result),
         "count_with_whatsapp": sum(1 for r in result if r["has_whatsapp"]),
+        "count_trial": sum(1 for r in result if r["is_trial"]),
+        "count_regular": sum(1 for r in result if not r["is_trial"]),
         "users": result,
     }
 
@@ -548,8 +555,8 @@ async def notify_expired(payload: NotifyExpiredPayload):
         if selected_ids and uid_str not in selected_ids:
             continue
 
-        # Skip trials unless admin explicitly picked this ID.
-        if not selected_ids:
+        # Without explicit IDs, apply the kind filter (all / trial / regular).
+        if not selected_ids and payload.kind != "all":
             u_pkg = u.get("package_id") or u.get("current_package_id")
             is_trial = (
                 (u_pkg is not None and str(u_pkg).isdigit() and int(u_pkg) == trial_pkg_id)
@@ -557,7 +564,7 @@ async def notify_expired(payload: NotifyExpiredPayload):
                 or "trial" in str(u.get("type") or "").lower()
                 or "trial" in str(u.get("group") or "").lower()
             )
-            if is_trial:
+            if is_trial != (payload.kind == "trial"):
                 skipped_trial += 1
                 continue
 
