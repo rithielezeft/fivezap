@@ -7,7 +7,7 @@ import aiosqlite
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from database import DB_PATH
+from database import DB_PATH, set_setting
 from services import scheduler
 from services.upcoming import TITLES
 
@@ -122,7 +122,10 @@ async def cancel(req: CancelRequest):
     by_kind = {k: [i.id for i in items if i.kind == k] for k in ("run", "delivery", "reminder")}
     result = {"run": 0, "delivery": 0, "reminder": 0}
 
-    result["run"] = scheduler.cancel_run_items(None if req.all else set(by_kind["run"]))
+    run_keys = scheduler.cancel_run_items(None if req.all else set(by_kind["run"]))
+    for k in run_keys:  # persist now so a restart mid-run doesn't resend today
+        await set_setting(k, "cancelled")
+    result["run"] = len(run_keys)
 
     async with aiosqlite.connect(DB_PATH) as db:
         if req.all:

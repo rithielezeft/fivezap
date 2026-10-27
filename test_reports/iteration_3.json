@@ -1,0 +1,36 @@
+{
+  "summary": "Tested the 'Fila de envio' send queue end to end without sending anything. Backend: 13/13 pytest pass. New API tests: 5 against the live API using fake TESTQ_ rows, all removed afterwards. New temp-DB tests: 4. The 4 iteration-2 delivery-claim regression tests still pass. Verified: GET /api/queue structure, stats math and the rendered reminder body. Cancelling selected items touches only the chosen delivery and reminder; an already-sent row is untouched and a second cancel does nothing. {all:true} cancels every pending delivery and reminder (guarded to run only because no real pending items existed). Both endpoints return 401 without a token, and a bad payload returns 422. A delivery cancelled during the pace wait is never sent. The failure path does not overwrite 'cancelled'. In the scheduler, with fake painel users expiring in 3 days and 2s pacing, cancelling the 2nd run item skips only that client, and its daily key is set to 'cancelled'. Cancel-all interrupts the pacing wait at once (only the first client was sent). Frontend at 1920x1080, all checks pass: sidebar nav to /fila, all 4 stat cards correct (5/0/3/2), 5 rows, expand shows the WhatsApp bubble plus last error and id. The open row stays open after the 3s auto-refresh. All 4 filters show the right counts, and select-all/unselect-all update the 'Cancelar selecionados (N)' count. The dialog's 'Voltar' keeps the selection; 'Sim, cancelar' removes 2 rows, shows a toast, updates stats and adds a 'CANCELADA' history row. 'Cancelar tudo' leaves the empty state and disables the button. No JS page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/queue (history)", "issue": "History reads only notification_deliveries, so cancelled reminders (sent=3) and cancelled run items disappear with no trace. The 24h counts also leave them out. A cancelled delivery shows created_at as its time because there is no cancelled_at column."},
+      {"endpoint": "services/scheduler.py RUN_STATE", "issue": "Cancelling a run item only changes memory. The daily key is set to 'cancelled' only when the loop reaches that item. If the backend restarts mid-run, cancelled clients that were not reached yet are planned again and sent on the next hourly run. Persist the key at cancel time, e.g. have cancel_run_items return the keys and have the router call set_setting."},
+      {"endpoint": "services/scheduler.py", "issue": "When send_notification returns False (template disabled, deduped, etc.), the item is labelled 'queued', which misleads the admin. The first item of a run is sent with no wait, so it can never be cancelled."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Fila de envio, mobile 390px", "issues": ["The 12-column row grid is cramped. The status pill overlaps 'Tentativa 1/5', the 'STATUS' header is clipped, and names and titles are truncated to 3-5 chars. Use a stacked card layout below md."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_send_queue_api.py", "/app/backend/tests/test_send_queue_cancel_tempdb.py", "/app/backend/tests/testq_seed.py", "/app/test_reports/pytest/pytest_results_iter3.xml"],
+  "action_items": [
+    "Optional: show cancelled reminders and run items in the 'Últimos envios' history, and add a cancelled_at timestamp",
+    "Optional: persist the run-item cancellation (daily notified key = 'cancelled') immediately in /api/queue/cancel so it survives a restart",
+    "Optional: responsive mobile layout for queue rows"
+  ],
+  "critical_code_review_comments": [
+    "queue.py imports DB_PATH by value (from database import DB_PATH). That works in production, but patching database.DB_PATH will not reach the router.",
+    "Selection is computed from the filtered items only. Items selected under another filter are silently dropped from 'Cancelar selecionados'. That is acceptable, but the count can surprise users.",
+    "The _attempt success path writes 'sent' with no status guard. That is correct, because the message actually went out even if it was cancelled mid-send."
+  ],
+  "updated_files": ["/app/backend/tests/test_send_queue_api.py", "/app/backend/tests/test_send_queue_cancel_tempdb.py", "/app/backend/tests/testq_seed.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin password Rithi0518@ works",
+  "seed_data_creation": "TESTQ_ rows (3 deliveries, 2 reminders, 1 sent delivery) were inserted into the real whatsflow.db only during tests. All have been DELETED (verified 0 remaining). The scheduler tests used a temp DB copy.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=<url> pytest tests/test_send_queue_api.py tests/test_send_queue_cancel_tempdb.py tests/test_delivery_queue_claim_tempdb.py. To seed or clean the UI: python3 tests/testq_seed.py seed|cleanup|none. The cancel-all API test skips itself if real pending items exist. Never trigger notify endpoints, because these are production customers."
+}

@@ -80,14 +80,15 @@ RUN_STATE: dict = {"running": False, "started_at": None, "finished_at": None,
                    "pacing_seconds": 0, "items": []}
 
 
-def cancel_run_items(ids=None) -> int:
-    """Cancel waiting items of the current run (all when ids is None)."""
-    n = 0
+def cancel_run_items(ids=None) -> list:
+    """Cancel waiting items of the current run (all when ids is None).
+    Returns their daily keys so the caller can persist the cancellation."""
+    keys = []
     for it in RUN_STATE.get("items", []):
         if it["status"] == "waiting" and (ids is None or it["id"] in ids):
             it["status"] = "cancelled"
-            n += 1
-    return n
+            keys.append(it["key"])
+    return keys
 
 
 async def _check_and_notify():

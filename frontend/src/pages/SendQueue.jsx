@@ -80,20 +80,20 @@ function QueueRow({ it, idx, selected, onToggle, now }) {
         <button onClick={() => setOpen(!open)} className="text-white/40 hover:text-white" data-testid={`queue-expand-${idx}`}>
           {open ? <CaretDown size={14} /> : <CaretRight size={14} />}
         </button>
-        <div className="flex-1 min-w-0 grid grid-cols-12 gap-3 items-center text-sm">
-          <div className="col-span-3 min-w-0">
+        <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-1.5 items-center text-sm">
+          <div className="col-span-1 md:col-span-3 min-w-0">
             <div className="font-medium truncate">{it.name || it.login || "—"}</div>
             <div className="text-[11px] text-white/40 font-mono truncate">{it.login ? `${it.login} · ` : ""}{it.phone}</div>
           </div>
-          <div className="col-span-3 min-w-0">
+          <div className="col-span-1 md:col-span-3 min-w-0">
             <div className="truncate">{it.title}</div>
             <div className={`text-[10px] uppercase tracking-widest ${KIND[it.kind].cls}`}>{KIND[it.kind].label}</div>
           </div>
-          <div className="col-span-3 text-xs text-white/70">
+          <div className="col-span-1 md:col-span-3 text-xs text-white/70">
             <div><Countdown iso={eta} now={now} /></div>
             {eta && <div className="text-[10px] text-white/40 font-mono">{formatDateBR(eta)}</div>}
           </div>
-          <div className="col-span-2 text-[11px] text-white/50">
+          <div className="hidden md:block md:col-span-2 text-[11px] text-white/50">
             {it.kind === "delivery" && <>Tentativa {it.attempts}/{it.max_attempts}</>}
             {it.image_url && <div>com imagem</div>}
           </div>
@@ -103,7 +103,7 @@ function QueueRow({ it, idx, selected, onToggle, now }) {
         </div>
       </div>
       {open && (
-        <div className="px-14 pb-4 space-y-2" data-testid={`queue-detail-${idx}`}>
+        <div className="px-4 md:px-14 pb-4 space-y-2" data-testid={`queue-detail-${idx}`}>
           <div className="max-w-md"><Bubble body={it.body} image={it.image_url} /></div>
           {it.last_error && <div className="text-[11px] text-[#FF3B30]/80 break-all">Último erro: {it.last_error}</div>}
           <div className="text-[10px] text-white/30 font-mono">id {it.id}{it.created_at ? ` · criada ${formatDateBR(it.created_at)}` : ""}</div>
@@ -235,7 +235,7 @@ export default function SendQueue() {
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/10 text-[10px] uppercase tracking-widest text-white/40">
           <Checkbox checked={allChecked} onCheckedChange={toggleAll} disabled={!cancellableItems.length} data-testid="queue-select-all" />
           <span className="w-[14px]" />
-          <div className="flex-1 grid grid-cols-12 gap-3">
+          <div className="flex-1 hidden md:grid grid-cols-12 gap-3">
             <span className="col-span-3">Cliente</span><span className="col-span-3">Mensagem</span>
             <span className="col-span-3">Quando</span><span className="col-span-2">Detalhes</span>
             <span className="col-span-1 text-right">Status</span>
