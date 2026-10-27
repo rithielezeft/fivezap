@@ -90,9 +90,37 @@ async def attribution(days: int = 30):
             (since,),
         )
         rows = [dict(r) for r in await cur.fetchall()]
+        cur = await db.execute(
+            "SELECT event_key, COUNT(*) c FROM notification_deliveries "
+            "WHERE status = 'sent' AND COALESCE(sent_at, created_at) >= ? GROUP BY event_key",
+            (since,),
+        )
+        sent_by_event = {r["event_key"]: r["c"] for r in await cur.fetchall()}
+    by_bucket = {r["bucket"]: r for r in rows}
+    for ev, c in sent_by_event.items():
+        if ev.startswith(("expiration_", "expired_", "trial_", "manual_expired")) and ev not in by_bucket:
+            by_bucket[ev] = {"bucket": ev, "total": 0, "paid_count": 0, "revenue_cents": 0}
+    rows = sorted(by_bucket.values(), key=lambda r: (-r["revenue_cents"], -r["paid_count"]))
+    total_rev = sum(r["revenue_cents"] for r in rows) or 0
     for r in rows:
         r["conversion_rate"] = round(r["paid_count"] / r["total"] * 100, 1) if r["total"] else 0.0
-    return {"since": since, "buckets": rows}
+        r["messages_sent"] = sent_by_event.get(r["bucket"], 0)
+        r["message_conversion_rate"] = (
+            round(r["paid_count"] / r["messages_sent"] * 100, 1) if r["messages_sent"] else None
+        )
+        r["avg_ticket_cents"] = r["revenue_cents"] // r["paid_count"] if r["paid_count"] else 0
+        r["revenue_share"] = round(r["revenue_cents"] * 100 / total_rev, 1) if total_rev else 0.0
+    return {
+        "since": since,
+        "days": days,
+        "buckets": rows,
+        "totals": {
+            "messages_sent": sum(sent_by_event.values()),
+            "links_opened": sum(r["total"] for r in rows),
+            "paid": sum(r["paid_count"] for r in rows),
+            "revenue_cents": total_rev,
+        },
+    }
 
 
 @router.get("/revenue-by-day")

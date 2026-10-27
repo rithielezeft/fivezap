@@ -172,6 +172,8 @@ class SettingsUpdate(BaseModel):
     notification_days: Optional[str] = None
     trial_package_id: Optional[str] = None
     public_base_url: Optional[str] = None
+    brand_name: Optional[str] = None
+    brand_logo_url: Optional[str] = None
     timezone: Optional[str] = None
     plan_price_1m: Optional[str] = None
     plan_price_3m: Optional[str] = None

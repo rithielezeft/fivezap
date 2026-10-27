@@ -1796,6 +1796,22 @@ async def get_customer_payment_info(customer_id: str):
     except Exception:
         logger.exception("Failed to load messages history for %s", customer["id"])
 
+    # Login shown on the checkout ("Cobrança para <login>").
+    login = None
+    try:
+        from routers.painel_users import _read_cache
+        cached, _ = await _read_cache()
+        u = next((x for x in cached or [] if str(x.get("id") or x.get("user_id")) == str(customer["id"])), None)
+        login = u and (u.get("username") or u.get("login"))
+        if not login:
+            async with aiosqlite.connect(DB_PATH) as db:
+                cur = await db.execute("SELECT painel_username FROM customers WHERE id = ?", (customer["id"],))
+                row = await cur.fetchone()
+                login = row[0] if row else None
+    except Exception:
+        logger.exception("login lookup failed for %s", customer["id"])
+    customer["login"] = login
+
     return {
         "customer": customer,
         "prices_cents": prices,
@@ -1805,6 +1821,10 @@ async def get_customer_payment_info(customer_id: str):
         # Which payment provider is currently active. When "painel", the /pay page
         # will redirect straight to the painel-generated pagme.xyz link.
         "payment_link_provider": (await get_setting("payment_link_provider") or "infinitepay").strip().lower(),
+        "brand": {
+            "name": (await get_setting("brand_name") or "").strip() or "WhatsFlow",
+            "logo_url": (await get_setting("brand_logo_url") or "").strip() or None,
+        },
     }
 
 

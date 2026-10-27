@@ -53,7 +53,6 @@ export default function Sidebar() {
           </div>
           <div>
             <div className="font-display text-lg font-bold tracking-tight">WhatsFlow</div>
-            <div className="text-[10px] uppercase tracking-widest text-slate-500">Revenda IPTV</div>
           </div>
         </div>
         {/* Close button on mobile drawer */}

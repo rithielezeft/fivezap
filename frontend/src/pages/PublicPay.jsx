@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { paymentsApi, couponsApi, formatMoney, formatDateBR } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CheckCircle, WarningCircle, CreditCard, ArrowRight, Lock, Tag, X } from "@phosphor-icons/react";
-import { PLANS, PlanCard, CustomerHeader, PaymentsHistory } from "@/components/pay/PayParts";
+import { paymentsApi, couponsApi } from "@/lib/api";
+import { CheckCircle, WarningCircle, CreditCard } from "@phosphor-icons/react";
+import { PLANS, CheckoutBackground, MobileHeader, BrandColumn, PlanButton, CouponField, CheckoutCta, HistoryLink } from "@/components/pay/PayParts";
 import { toast } from "sonner";
 
 export default function PublicPay() {
@@ -15,7 +13,7 @@ export default function PublicPay() {
   const confirmationToken = searchParams.get("t") || "";
   const refBucket = searchParams.get("ref") || "";
 
-  const [selected, setSelected] = useState(3);
+  const [selected, setSelected] = useState(null);
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(returnedFromPay);
   const [renewalStatus, setRenewalStatus] = useState(null);
@@ -183,127 +181,77 @@ export default function PublicPay() {
     setCouponError("");
   }
 
-  const monthlyBase = prices[1] || 0;
+  const brand = data?.brand;
+  const login = customer?.login || customer?.name;
+  const original = effectivePct > 0 && selected ? rawPrice : null;
   return (
-    <div className="min-h-screen bg-[#06080D] text-white">
-      <div className="max-w-md mx-auto px-4 pt-8 pb-40 space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="font-display text-3xl font-extrabold tracking-tight">Renovar plano</h1>
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400"><Lock size={12} weight="fill" className="text-[#34D399]" /> Seguro</span>
-        </div>
+    <div className="min-h-screen relative" data-testid="pay-page">
+      <CheckoutBackground />
+      <MobileHeader login={login} />
+      <div className="relative z-10 max-w-6xl mx-auto px-4 md:px-10 py-6 md:py-24 grid md:grid-cols-[340px_1fr] gap-8 md:gap-14 items-start">
+        <BrandColumn brand={brand} login={login}>
+          <HistoryLink history={data?.payments_history} />
+        </BrandColumn>
 
-        {returnedFromPay && (
-          <div data-testid="pay-return-banner" className={"rounded-2xl p-4 border " + (renewalStatus === "renewed" ? "border-[#10B981]/40 bg-[#10B981]/10" : "border-[#3B82F6]/40 bg-[#3B82F6]/10")}>
-            {confirmingPayment && (
-              <div className="flex items-center gap-3">
-                <div className="w-4 h-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
-                <div><div className="font-medium text-sm">Confirmando seu pagamento…</div><div className="text-xs text-slate-400 mt-0.5">Verificando com o InfinitePay.</div></div>
-              </div>
-            )}
-            {!confirmingPayment && renewalStatus === "renewed" && (
-              <div className="flex items-center gap-3">
-                <CheckCircle size={24} weight="fill" className="text-[#34D399]" />
-                <div><div className="font-semibold text-[#34D399]">Renovação confirmada!</div><div className="text-xs text-slate-400 mt-0.5">Seu plano já está ativo. Enviamos a confirmação no seu WhatsApp.</div></div>
-              </div>
-            )}
-            {!confirmingPayment && renewalStatus === "still_pending" && (
-              <div className="flex items-start gap-3">
-                <WarningCircle size={24} weight="fill" className="text-[#FBBF24]" />
-                <div><div className="font-semibold text-[#FBBF24]">Pagamento em processamento</div><div className="text-xs text-slate-400 mt-0.5">Assim que o InfinitePay confirmar, você recebe a mensagem no WhatsApp — não precisa pagar de novo.</div></div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <CustomerHeader customer={customer} />
-
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2 px-1">Escolha o plano</div>
-          <div className="grid grid-cols-2 gap-3">
-            {PLANS.map((p) => (
-              <PlanCard key={p.months} plan={p} price={prices[p.months] ?? 0} monthlyBase={monthlyBase}
-                active={selected === p.months} onSelect={() => setSelected(p.months)} />
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0D111A] p-4 space-y-3" data-testid="coupon-section">
-          {!couponApplied ? (
-            <>
-              <div className="flex gap-2">
-                <Input data-testid="input-coupon" placeholder="Cupom de desconto" maxLength={40}
-                  className="flex-1 bg-[#0A0D14] border-white/[0.08] uppercase h-10 focus-visible:ring-[#10B981]/40"
-                  value={couponInput} disabled={validatingCoupon}
-                  onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(""); }}
-                  onKeyDown={(e) => e.key === "Enter" && handleApplyCoupon()} />
-                <Button onClick={handleApplyCoupon} disabled={validatingCoupon || !couponInput.trim()} variant="outline"
-                  className="h-10 border-white/10 bg-transparent hover:bg-white/5" data-testid="btn-apply-coupon">
-                  <Tag size={14} className="mr-1.5" />{validatingCoupon ? "..." : "Aplicar"}
-                </Button>
-              </div>
-              {couponError && <div className="text-xs text-[#F87171]" data-testid="coupon-error">{couponError}</div>}
-            </>
-          ) : (
-            <div data-testid="coupon-applied" className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Tag size={16} className="text-[#34D399]" />
-                <span className="font-mono font-bold">{couponApplied.code}</span>
-                <span className="text-[#34D399]">-{couponApplied.discount_percent}%</span>
-              </div>
-              <button onClick={handleRemoveCoupon} className="text-slate-400 hover:text-white p-1" aria-label="Remover cupom" data-testid="btn-remove-coupon"><X size={16} /></button>
-            </div>
-          )}
-          {autoPct > 0 && discountSource === "auto" && (
-            <div data-testid="discount-banner" className="text-xs rounded-lg bg-[#10B981]/10 text-[#34D399] px-3 py-2">
-              Pague hoje e ganhe <b>{autoPct}% de desconto</b> — válido até o fim do dia.
-            </div>
-          )}
-        </div>
-
-        <PaymentsHistory history={data?.payments_history} />
-
-        {(data?.messages_history?.length > 0) && (
-          <details className="rounded-2xl border border-white/[0.08] bg-[#0D111A]" data-testid="messages-history">
-            <summary className="cursor-pointer list-none px-5 py-4 text-sm text-slate-300">Últimas mensagens que enviamos</summary>
-            <div className="px-5 pb-4 space-y-2 max-h-80 overflow-y-auto">
-              {data.messages_history.map((m) => (
-                <div key={m.id} data-testid={`history-message-${m.id}`} className="py-2 border-t border-white/[0.05] first:border-0">
-                  <div className="text-[11px] text-slate-500 mb-1">{formatDateBR(m.timestamp)}</div>
-                  <div className="text-sm whitespace-pre-wrap text-slate-300">{m.message}</div>
+        <div className="space-y-4">
+          {returnedFromPay && (
+            <div data-testid="pay-return-banner" className={"rounded-2xl p-4 border backdrop-blur " + (renewalStatus === "renewed" ? "border-[#10B981]/40 bg-[#10B981]/15" : "border-white/15 bg-white/10")}>
+              {confirmingPayment && (
+                <div className="flex items-center gap-3 text-white">
+                  <div className="w-4 h-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
+                  <div><div className="font-medium text-sm">Confirmando seu pagamento…</div><div className="text-xs text-slate-300 mt-0.5">Verificando com o InfinitePay.</div></div>
                 </div>
-              ))}
+              )}
+              {!confirmingPayment && renewalStatus === "renewed" && (
+                <div className="flex items-center gap-3 text-white">
+                  <CheckCircle size={24} weight="fill" className="text-[#34D399]" />
+                  <div><div className="font-semibold text-[#34D399]">Renovação confirmada!</div><div className="text-xs text-slate-300 mt-0.5">Seu acesso já está liberado. Enviamos a confirmação no seu WhatsApp.</div></div>
+                </div>
+              )}
+              {!confirmingPayment && renewalStatus === "still_pending" && (
+                <div className="flex items-start gap-3 text-white">
+                  <WarningCircle size={24} weight="fill" className="text-[#FBBF24]" />
+                  <div><div className="font-semibold text-[#FBBF24]">Pagamento em processamento</div><div className="text-xs text-slate-300 mt-0.5">Assim que o InfinitePay confirmar, você recebe a mensagem no WhatsApp — não precisa pagar de novo.</div></div>
+                </div>
+              )}
             </div>
-          </details>
-        )}
-      </div>
+          )}
 
-      <div className="fixed bottom-0 inset-x-0 border-t border-white/[0.08] bg-[#06080D]/90 backdrop-blur-xl" data-testid="pay-summary-bar">
-        <div className="max-w-md mx-auto px-4 py-4">
-          <div className="flex items-end justify-between mb-3">
+          <div className="rounded-3xl bg-white shadow-2xl shadow-black/40 p-4 sm:p-6 space-y-6" data-testid="pay-card">
             <div>
-              <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Total · {PLANS.find((p) => p.months === selected)?.label}</div>
-              <div className="flex items-baseline gap-2 mt-0.5">
-                <span className={`font-mono text-3xl font-bold ${effectivePct > 0 ? "text-[#34D399]" : ""}`} data-testid="discounted-price">{formatMoney(discountedPrice)}</span>
-                {effectivePct > 0 && <span className="text-sm text-slate-500 line-through font-mono" data-testid="original-price">{formatMoney(rawPrice)}</span>}
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-900 mb-3">Escolha o plano</p>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {PLANS.map((p) => (
+                  <PlanButton key={p.months} plan={p} price={prices[p.months] ?? 0} active={selected === p.months} onSelect={() => setSelected(p.months)} />
+                ))}
               </div>
             </div>
-            <div className="text-[11px] text-slate-500 text-right">Pix ou cartão<br />em até 12x</div>
+
+            {autoPct > 0 && discountSource === "auto" && (
+              <div data-testid="discount-banner" className="rounded-xl bg-[#ECFDF5] border border-[#10B981]/30 px-4 py-3 text-sm text-slate-800">
+                Pague hoje e ganhe <b className="text-[#059669]">{autoPct}% de desconto</b> — válido até o fim do dia.
+              </div>
+            )}
+
+            <CouponField applied={couponApplied} input={couponInput} error={couponError} loading={validatingCoupon}
+              setInput={(v) => { setCouponInput(v); setCouponError(""); }} onApply={handleApplyCoupon} onRemove={handleRemoveCoupon} />
+
+            <CheckoutCta
+              disabled={!selected}
+              pending={createPayMut.isPending}
+              price={selected ? discountedPrice : null}
+              original={original}
+              onClick={() => createPayMut.mutate({
+                customer_id: customerId,
+                plan_months: selected,
+                ref: refBucket || undefined,
+                coupon_code: couponApplied?.code || undefined,
+              })}
+            />
           </div>
-          <Button
-            className="w-full h-12 rounded-xl bg-[#10B981] hover:bg-[#059669] text-[#04130D] font-semibold text-base active:scale-[0.99] transition-colors"
-            onClick={() => createPayMut.mutate({
-              customer_id: customerId,
-              plan_months: selected,
-              ref: refBucket || undefined,
-              coupon_code: couponApplied?.code || undefined,
-            })}
-            disabled={createPayMut.isPending}
-            data-testid="btn-checkout"
-          >
-            {createPayMut.isPending ? "Abrindo pagamento..." : "Pagar agora"}
-            <ArrowRight size={18} className="ml-2" weight="bold" />
-          </Button>
-          <div className="text-[10px] text-slate-600 text-center mt-2">Processado com segurança pela InfinitePay · ativação automática</div>
+
+          <div className="md:hidden"><HistoryLink history={data?.payments_history} /></div>
+          <p className="text-center text-[11px] text-slate-500">Processado com segurança pela InfinitePay · Pix ou cartão</p>
         </div>
       </div>
     </div>
