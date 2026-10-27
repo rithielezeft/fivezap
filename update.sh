@@ -224,7 +224,7 @@ if [ ! -d .venv ]; then
   sudo -u "$APP_USER" python3 -m venv .venv
 fi
 sudo -u "$APP_USER" ./.venv/bin/pip install --upgrade pip wheel --quiet 2>&1 | tee -a "$LOG_FILE" || true
-sudo -u "$APP_USER" ./.venv/bin/pip install -r requirements.txt --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ --quiet 2>&1 | tee -a "$LOG_FILE"
+sudo -u "$APP_USER" ./.venv/bin/pip install -r requirements-pi.txt --quiet 2>&1 | tee -a "$LOG_FILE"
 # Garante curl_cffi (bypass Cloudflare TLS)
 sudo -u "$APP_USER" ./.venv/bin/pip install "curl_cffi>=0.7.4" --quiet 2>&1 | tee -a "$LOG_FILE" || true
 
