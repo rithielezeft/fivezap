@@ -18,7 +18,7 @@ from database import init_db
 from services.scheduler import check_expirations_loop
 from services.reminders import reminder_loop
 from services.auth import seed_admin_password, is_public, require_admin
-from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads, reminders, coupons, analytics, system_update
+from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads, reminders, coupons, analytics, system_update, queue
 
 logging.basicConfig(
     level=logging.INFO,
@@ -224,6 +224,7 @@ app.include_router(reminders.router)
 app.include_router(coupons.router)
 app.include_router(analytics.router)
 app.include_router(system_update.router)
+app.include_router(queue.router)
 
 
 @app.get("/api/")

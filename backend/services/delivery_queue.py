@@ -325,6 +325,15 @@ async def _attempt(delivery_id: str) -> bool:
         # Global pacer — enforce `send_min_gap_seconds` between any two
         # actual WhatsApp sends. Callers into the queue don't burst.
         await _wait_for_pace_slot()
+        # Admin may have cancelled it from the Fila de envio while it waited.
+        async with aiosqlite.connect(database.DB_PATH) as db:
+            cur = await db.execute(
+                "SELECT status FROM notification_deliveries WHERE id = ?", (delivery_id,)
+            )
+            row = await cur.fetchone()
+        if not row or row[0] != "sending":
+            logger.info("delivery id=%s cancelled before send — skipping", delivery_id)
+            return False
         await whatsapp_client.send_message(
             d["phone"], d["body"], image_url=d["image_url"] or None,
             typing_ms=typing_ms, idempotency_key=delivery_id,
@@ -352,7 +361,7 @@ async def _attempt(delivery_id: str) -> bool:
                     "UPDATE notification_deliveries "
                     "SET status = 'failed_permanent', attempts = ?, "
                     "    last_error = ?, next_retry_at = NULL "
-                    "WHERE id = ?",
+                    "WHERE id = ? AND status = 'sending'",
                     (attempts, err, delivery_id),
                 )
                 await db.commit()
@@ -385,7 +394,7 @@ async def _attempt(delivery_id: str) -> bool:
                 await db.execute(
                     "UPDATE notification_deliveries "
                     "SET status = 'pending', attempts = ?, last_error = ?, next_retry_at = ? "
-                    "WHERE id = ?",
+                    "WHERE id = ? AND status = 'sending'",
                     (attempts, err, next_at, delivery_id),
                 )
                 await db.commit()

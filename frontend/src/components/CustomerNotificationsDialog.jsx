@@ -12,12 +12,13 @@ const STATUS = {
   sending: { label: "Enviando", cls: "bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30" },
   sent: { label: "Enviada", cls: "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30" },
   missed: { label: "Não enviada", cls: "bg-white/[0.04] text-white/50 border-white/10" },
+  waiting: { label: "Aguardando", cls: "bg-[#007AFF]/10 text-[#5AC8FA] border-[#007AFF]/30" },
   disabled: { label: "Desativada", cls: "bg-white/[0.04] text-white/40 border-white/10" },
   cancelled: { label: "Cancelada", cls: "bg-white/[0.04] text-white/50 border-white/10" },
   failed_permanent: { label: "Falhou", cls: "bg-[#FF3B30]/10 text-[#FF3B30] border-[#FF3B30]/30" },
 };
 
-function StatusPill({ status, testId }) {
+export function StatusPill({ status, testId }) {
   const s = STATUS[status] || { label: status, cls: "bg-white/[0.04] text-white/60 border-white/10" };
   return (
     <span data-testid={testId} className={`text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full border ${s.cls}`}>
@@ -32,7 +33,7 @@ function fmtWhen(when) {
   return formatDateBR(when);
 }
 
-function Bubble({ body, image }) {
+export function Bubble({ body, image }) {
   if (!body && !image) return <div className="text-xs text-white/40 italic">Modelo desativado — nada será enviado.</div>;
   return (
     <div className="bg-[#005C4B] rounded-lg rounded-tr-none p-2 text-[13px] text-white/95 whitespace-pre-wrap break-words max-w-[95%] ml-auto">

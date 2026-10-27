@@ -151,6 +151,11 @@ export const notificationsApi = {
   retryDelivery: (id) => api.post(`/notifications/deliveries/${id}/retry`).then((r) => r.data),
 };
 
+export const queueApi = {
+  get: () => api.get("/queue").then((r) => r.data),
+  cancel: (payload) => api.post("/queue/cancel", payload).then((r) => r.data),
+};
+
 export const painelApi = {
   listUsers: (params) => api.get("/painel/users", { params }).then((r) => r.data),
   refresh: () => api.post("/painel/users/refresh").then((r) => r.data),

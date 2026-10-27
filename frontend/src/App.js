@@ -13,6 +13,7 @@ import Messages from "@/pages/Messages";
 import Payments from "@/pages/Payments";
 import Settings from "@/pages/Settings";
 import Notifications from "@/pages/Notifications";
+import SendQueue from "@/pages/SendQueue";
 import Coupons from "@/pages/Coupons";
 import Geography from "@/pages/Geography";
 import ApiDocs from "@/pages/ApiDocs";
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/messages" element={<P><Messages /></P>} />
           <Route path="/payments" element={<P><Payments /></P>} />
           <Route path="/notifications" element={<P><Notifications /></P>} />
+          <Route path="/fila" element={<P><SendQueue /></P>} />
           <Route path="/coupons" element={<P><Coupons /></P>} />
           <Route path="/geografia" element={<P><Geography /></P>} />
           <Route path="/documentacao" element={<P><ApiDocs /></P>} />

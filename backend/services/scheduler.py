@@ -7,7 +7,7 @@ image support and per-user personalization (name, expires, pay_link).
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import aiosqlite
@@ -75,6 +75,20 @@ async def check_expirations_loop():
 
 _check_lock = asyncio.Lock()
 
+# Live state of the current/last expiration run — read by /api/queue.
+RUN_STATE: dict = {"running": False, "started_at": None, "finished_at": None,
+                   "pacing_seconds": 0, "items": []}
+
+
+def cancel_run_items(ids=None) -> int:
+    """Cancel waiting items of the current run (all when ids is None)."""
+    n = 0
+    for it in RUN_STATE.get("items", []):
+        if it["status"] == "waiting" and (ids is None or it["id"] in ids):
+            it["status"] = "cancelled"
+            n += 1
+    return n
+
 
 async def _check_and_notify():
     # Hourly loop + "Notificar vencendo" button must never run concurrently.
@@ -134,6 +148,7 @@ async def _check_and_notify_locked():
 
     sent_count = 0
     first_send = True
+    planned = []
     for u in users:
         try:
             # Skip trial users — they have their own 1h/3h reminder flow.
@@ -261,29 +276,62 @@ async def _check_and_notify_locked():
             except Exception:
                 logger.exception("discount lookup failed (non-fatal) for %s", event)
 
-            # Claim today's key BEFORE pacing so nothing else picks this user.
-            await set_setting(key, "1")
-
-            # Human-pacing: wait between clients (skip on the very first send
-            # so the loop feels responsive when there's only one match).
-            if not first_send and pacing_seconds > 0:
-                logger.info("Pacing: sleeping %ds before next reminder", pacing_seconds)
-                await asyncio.sleep(pacing_seconds)
-            first_send = False
-
-            sent = await send_notification(
-                event, str(phone), ctx, customer_id=user_id,
-                typing_ms=typing_ms,
-            )
-            if sent:
-                sent_count += 1
-                logger.info("Sent %s reminder to %s (%s)", event, name, phone)
-            else:
-                logger.info(
-                    "Queued %s for %s (%s) — delivery_queue will retry",
-                    event, name, phone,
-                )
+            planned.append({
+                "id": f"{user_id}:{event}",
+                "user_id": user_id, "name": name, "login": painel_login,
+                "phone": str(phone), "event_key": event, "key": key, "ctx": ctx,
+                "status": "waiting", "eta": None, "sent_at": None,
+            })
         except Exception:
             logger.exception("Failed to process user for notification")
+
+    # Publish the plan so the admin can watch/cancel it in "Fila de envio".
+    from services.notifier import get_template, render
+    for i, it in enumerate(planned):
+        tpl = await get_template(it["event_key"])
+        it["body"] = render(tpl["body"], it["ctx"]) if tpl else None
+        it["image_url"] = (tpl or {}).get("image_url") or None
+        it["eta"] = (now_utc + timedelta(seconds=i * max(pacing_seconds, 0))).isoformat()
+    RUN_STATE.update({
+        "running": True, "started_at": now_utc.isoformat(), "finished_at": None,
+        "pacing_seconds": pacing_seconds, "items": planned,
+    })
+
+    try:
+        for it in planned:
+            if it["status"] == "cancelled":
+                await set_setting(it["key"], "cancelled")
+                continue
+            # Human-pacing: wait between clients (interruptible by cancel).
+            if not first_send and pacing_seconds > 0:
+                it["eta"] = (datetime.now(timezone.utc) + timedelta(seconds=pacing_seconds)).isoformat()
+                for _ in range(pacing_seconds):
+                    if it["status"] == "cancelled":
+                        break
+                    await asyncio.sleep(1)
+            if it["status"] == "cancelled":
+                await set_setting(it["key"], "cancelled")
+                continue
+            first_send = False
+            it["status"] = "sending"
+            await set_setting(it["key"], "1")
+            try:
+                sent = await send_notification(
+                    it["event_key"], it["phone"], it["ctx"], customer_id=it["user_id"],
+                    typing_ms=typing_ms,
+                )
+            except Exception:
+                logger.exception("send_notification failed for %s", it["phone"])
+                sent = False
+            it["status"] = "sent" if sent else "queued"
+            it["sent_at"] = datetime.now(timezone.utc).isoformat()
+            if sent:
+                sent_count += 1
+                logger.info("Sent %s reminder to %s (%s)", it["event_key"], it["name"], it["phone"])
+            else:
+                logger.info("Queued/skipped %s for %s (%s)", it["event_key"], it["name"], it["phone"])
+    finally:
+        RUN_STATE["running"] = False
+        RUN_STATE["finished_at"] = datetime.now(timezone.utc).isoformat()
 
     logger.info("Notification check complete: %d messages sent", sent_count)

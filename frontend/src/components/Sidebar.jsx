@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ChartLineUp, Users, Ticket, ChatText, Command,
-  WhatsappLogo, CreditCard, Bell, Gear, List, X, Tag, Globe, Code,
+  WhatsappLogo, CreditCard, Bell, Gear, List, X, Tag, Globe, Code, Queue,
 } from "@phosphor-icons/react";
 import { whatsappApi } from "@/lib/api";
 
@@ -18,6 +18,7 @@ const NAV = [
   { to: "/payments", icon: CreditCard, label: "Pagamentos", testid: "nav-payments" },
   { to: "/coupons", icon: Tag, label: "Cupons", testid: "nav-coupons" },
   { to: "/notifications", icon: Bell, label: "Notificações", testid: "nav-notifications" },
+  { to: "/fila", icon: Queue, label: "Fila de envio", testid: "nav-send-queue" },
   { to: "/documentacao", icon: Code, label: "API", testid: "nav-api-docs" },
   { to: "/settings", icon: Gear, label: "Configurações", testid: "nav-settings" },
 ];
