@@ -33,6 +33,7 @@ export function RegionCustomers() {
   const [region, setRegion] = useState(null);
   const [tab, setTab] = useState("active");
   const [q, setQ] = useState("");
+  const [manualTab, setManualTab] = useState(false);
   const regions = data?.regions || [];
   const ql = q.trim().toLowerCase();
   const match = (c) => [c.login, c.name, c.phone].some((v) => (v || "").toLowerCase().includes(ql));
@@ -41,7 +42,7 @@ export function RegionCustomers() {
   const sel = (region && filteredRegions.some((r) => r.key === region)) ? region : filteredRegions[0]?.key;
   const selRegion = regions.find((r) => r.key === sel);
   const regionHits = useMemo(() => (ql && hitRegions.has(sel) ? (data?.customers || []).filter((c) => c.region_key === sel && match(c)) : []), [data, sel, ql, hitRegions]); // eslint-disable-line react-hooks/exhaustive-deps
-  const effTab = regionHits.length && !regionHits.some((c) => c.status === tab) ? regionHits[0].status : tab;
+  const effTab = !manualTab && regionHits.length && !regionHits.some((c) => c.status === tab) ? regionHits[0].status : tab;
 
   const list = useMemo(() => (data?.customers || []).filter((c) =>
     c.region_key === sel && c.status === effTab &&
@@ -58,7 +59,7 @@ export function RegionCustomers() {
         </div>
         <div className="relative md:w-72">
           <MagnifyingGlass size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar região ou cliente..." data-testid="region-search"
+          <input value={q} onChange={(e) => { setQ(e.target.value); setManualTab(false); }} placeholder="Buscar região ou cliente..." data-testid="region-search"
             className="w-full h-9 rounded-lg bg-[#0A0D14] border border-white/[0.08] pl-9 pr-3 text-sm outline-none focus:border-[#3B82F6]/50" />
         </div>
       </div>
@@ -72,7 +73,7 @@ export function RegionCustomers() {
               <div className="text-sm font-medium" data-testid="region-selected">{selRegion?.label}{selRegion?.region ? ` — ${selRegion.region}` : ""}</div>
               <div className="flex gap-1 p-1 rounded-lg bg-[#0A0D14] border border-white/[0.06]">
                 {TABS.map((t) => (
-                  <button key={t.key} onClick={() => setTab(t.key)} data-testid={`region-tab-${t.key}`}
+                  <button key={t.key} onClick={() => { setTab(t.key); setManualTab(true); }} data-testid={`region-tab-${t.key}`}
                     className={`px-3 py-1 rounded-md text-xs transition-colors ${effTab === t.key ? "bg-white/10 text-white" : "text-slate-400 hover:text-white"}`}>
                     {t.label} <span className={t.cls}>{selRegion?.[t.key] ?? 0}</span>
                   </button>

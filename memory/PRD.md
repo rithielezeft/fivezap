@@ -31,3 +31,10 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 ## Backlog
 - P0 Phase 2: scan QR, end-to-end trial creation + InfinitePay link test
 - P1 Phase 3: owner-requested changes (e.g. Dashboard "Clientes ativos" counts local table, shows 0 vs 13 painel users)
+
+## 2026-06 — Filtro "Notificar vencidos" + correções
+- Diálogo "Notificar vencidos" com filtro Todos / Só testes / Só regulares (contagens, selo "Teste", seleção por filtro). API: GET /api/painel/expired retorna is_trial, count_trial, count_regular; POST /api/painel/notify-expired aceita kind (all|trial|regular) quando user_ids vazio.
+- Geografia: busca por cliente seleciona a região e a aba do status do cliente; clique manual na aba é respeitado.
+- Saldo do painel confirmado em créditos (currency=CREDITS). Pluralização "fatura/faturas".
+- Pagamentos TESTR_ já não existem no banco.
+- Backlog: test_delivery_dedup::test_send_hardcoded_no_dedup falha (já falhava antes, não relacionado).

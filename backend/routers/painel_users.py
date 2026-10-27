@@ -524,6 +524,7 @@ async def notify_expired(payload: NotifyExpiredPayload):
        enqueued (used by the confirmation button in the UI).
     """
     from services.notifier import send_notification
+    from services.upcoming import is_trial_user
     from services.delivery_queue import find_recent_delivery, _resolve_dedup_config, _USE_SETTING
     from database import get_setting
 
@@ -557,14 +558,7 @@ async def notify_expired(payload: NotifyExpiredPayload):
 
         # Without explicit IDs, apply the kind filter (all / trial / regular).
         if not selected_ids and payload.kind != "all":
-            u_pkg = u.get("package_id") or u.get("current_package_id")
-            is_trial = (
-                (u_pkg is not None and str(u_pkg).isdigit() and int(u_pkg) == trial_pkg_id)
-                or bool(u.get("is_trial"))
-                or "trial" in str(u.get("type") or "").lower()
-                or "trial" in str(u.get("group") or "").lower()
-            )
-            if is_trial != (payload.kind == "trial"):
+            if is_trial_user(u, trial_pkg_id) != (payload.kind == "trial"):
                 skipped_trial += 1
                 continue
 

@@ -1,0 +1,37 @@
+{
+  "summary": "Read-only tests on PRODUCTION data (nothing was sent: btn-expired-confirm was never clicked and nothing was POSTed to notify-expired except one call with an invalid kind, which the server rejects with a 422). 1) Notify-expired dialog: the 3 kind buttons show the right counts (Todos 1 / Só testes 1 / Só regulares 0). Switching kind filters the rows and the trial badge, and updates the total, with-WhatsApp and selected counts. 'Só regulares' shows 0 rows and the empty state. The confirm button says 'Enviar para 0' and is disabled, which is correct because the only expired user has no WhatsApp. 2) GET /api/painel/expired returns count_trial=1, count_regular=0 and is_trial per user. 3) Geografia search: oscarnew (now active, BR-67), alvarotv and carmoviz23new (expired), mateus54new and joilson83new (cancelled). Each keeps its region visible, the region is auto-selected, the tab switches to the customer's status and only that customer is listed. Clearing the search restores all 59 regions. 4) Financeiro 'Saldo no painel' shows '0,26 créd.'. /api/dashboard/balances returns painel.currency='CREDITS'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/painel/notify-expired", "issue": "The trial check is copied inline instead of calling services.upcoming.is_trial_user. It also checks a 'group' field that is_trial_user does not check, so the list endpoint and the send endpoint can classify a user differently. skipped_trial is counted before the expired check, so it also counts active users that are not expired."},
+      {"endpoint": "NotifyExpiredPayload.kind", "issue": "The default is 'regular' (the backend model and api.js both fall back to 'regular'), but the UI default is 'all'. Today the UI always sends explicit user_ids, so kind is ignored and this causes no bug. Any API caller that sends empty user_ids without a kind will silently skip trials."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "RegionCustomers", "issue": "While a search matches customers who are only in one status (e.g. 'alvarotv' is expired), effTab overrides the tab state. Clicking 'Ativos' does nothing because tab is already 'active' and effTab keeps forcing 'expired'. The user cannot look at other tabs until the search is cleared.", "selector": "[data-testid=region-tab-active]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Expired dialog, 'Só regulares' filter with 0 rows", "issues": ["The empty-state text 'Nenhum cliente vencido no momento 🎉' is misleading when a filter is active and expired trials exist. Use a per-kind message such as 'Nenhum cliente regular vencido'."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter7_expired_kind.py", "/app/test_reports/pytest/pytest_iter7.xml"],
+  "action_items": [
+    "Optional: have notify_expired call is_trial_user (single source of truth) and count skipped_trial only for expired users",
+    "Optional: make the NotifyExpiredPayload.kind default 'all' (or require it)",
+    "Optional: let manual tab clicks override the auto-switch in RegionCustomers (e.g. reset the override whenever setTab is called)",
+    "Optional: show a per-kind empty-state message in the expired dialog"
+  ],
+  "critical_code_review_comments": [
+    "painel_users.py duplicates the is_trial logic between list_expired (is_trial_user) and notify_expired (inline, with an extra 'group' check). DRY risk: the counts shown in the dialog may not match the users targeted when kind is used without ids.",
+    "Data observation: the painel cache shows 14 users and 1 expired (Clientes page, and the Geography header '13 clientes mapeados'). The region section built from the geography history shows 277 active, 16 expired and 82 cancelled. These are different sources; check whether the painel cache is incomplete."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter7_expired_kind.py"],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% of requested flows"},
+  "test_credentials": "Admin password Rithi0518@ (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "PRODUCTION data: never click btn-expired-confirm and never POST valid payloads to /api/painel/notify-expired. The only expired painel user is 228443077 (918231): a trial without WhatsApp. Geography test logins: oscarnew (active, BR-67), alvarotv (expired, BR-24), mateus54new (cancelled, BR-19). The geography endpoint is /api/analytics/geography/customers."
+}

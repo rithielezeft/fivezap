@@ -873,7 +873,7 @@ export default function Customers() {
                 {expiredData && expiredUsers.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-white/40">
-                      Nenhum cliente vencido no momento 🎉
+                      {expiredKind === "trial" ? "Nenhum teste vencido" : expiredKind === "regular" ? "Nenhum cliente regular vencido" : "Nenhum cliente vencido no momento"}
                     </td>
                   </tr>
                 )}
