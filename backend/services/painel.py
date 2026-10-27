@@ -69,16 +69,21 @@ async def solve_turnstile() -> str:
     return token
 
 
-async def login(force: bool = False) -> str:
-    """Login to painel.fun and return JWT bearer token."""
+async def login(force: bool = False, username: Optional[str] = None, password: Optional[str] = None) -> str:
+    """Login to painel.fun and return JWT bearer token.
+
+    Explicit username/password (used by "Testar conexão") bypass the cache."""
     import time
 
-    if not force and _token_cache["token"] and _token_cache["expires_at"] > time.time():
-        return _token_cache["token"]
-
-    username = await get_setting("painel_username")
-    password = await get_setting("painel_password")
+    override = bool(username or password)
+    username = username or await get_setting("painel_username")
+    password = password or await get_setting("painel_password")
     base = await get_setting("painel_base_url")
+    cache_key = f"{username}\0{password}"
+
+    if (not force and not override and _token_cache["token"]
+            and _token_cache.get("key") == cache_key and _token_cache["expires_at"] > time.time()):
+        return _token_cache["token"]
 
     if not username or not password:
         raise RuntimeError("Painel credentials not configured")
@@ -139,8 +144,10 @@ async def login(force: bool = False) -> str:
     if not token:
         raise RuntimeError(f"Painel login: no token in response. Keys={list(data.keys())} Body={str(data)[:300]}")
 
-    _token_cache["token"] = token
-    _token_cache["expires_at"] = time.time() + 20 * 60  # 20 min cache
+    if not override:
+        _token_cache["token"] = token
+        _token_cache["key"] = cache_key
+        _token_cache["expires_at"] = time.time() + 20 * 60  # 20 min cache
     return token
 
 
@@ -647,9 +654,9 @@ async def resync_user(user_id: str, system_type: Optional[str] = None) -> dict:
 
 
 
-async def get_account_info() -> dict:
+async def get_account_info(username: Optional[str] = None, password: Optional[str] = None) -> dict:
     """Fetch account info + credits from painel.fun."""
-    token = await login()
+    token = await login(username=username, password=password)
     base = await get_setting("painel_base_url")
 
     def _get(path, tok):

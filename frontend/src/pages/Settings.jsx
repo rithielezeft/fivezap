@@ -584,7 +584,7 @@ export default function Settings() {
                 <Button
                   variant="outline"
                   className="border-white/10 hover:bg-white/[0.05]"
-                  onClick={() => { setTestResult(null); testMut.mutate(); }}
+                  onClick={() => { setTestResult(null); testMut.mutate({ username: form.painel_username || "", password: form.painel_password || "" }); }}
                   disabled={testMut.isPending}
                   data-testid="btn-test-painel"
                 >

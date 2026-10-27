@@ -39,3 +39,4 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - Pagamentos TESTR_ já não existem no banco.
 - Backlog: test_delivery_dedup::test_send_hardcoded_no_dedup falha (já falhava antes, não relacionado).
 - 2026-10-27: Raspberry: requirements-pi.txt (deps mínimas), update.sh rebuilda frontend se src mais novo que build (ou FORCE_REBUILD=1). Prévia de links (og:title/description/image) — "Pagamento seguro e liberação na hora" + /og-image.jpg (terno). DNS whatsflow.zeferius.com ainda apontando para Hostinger (usuário precisa ajustar A → 187.121.232.128).
+- 2026-10-27: 'Testar conexão' (POST /api/painel/test-connection {username,password}) usa as credenciais digitadas no formulário; cache de token do painel agora é por usuário+senha (troca de usuário salva força novo login).

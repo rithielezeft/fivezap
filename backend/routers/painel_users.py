@@ -311,11 +311,20 @@ async def status():
     }
 
 
+class TestConnectionPayload(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
 @router.get("/test-connection")
-async def test_connection():
-    """Log into painel.fun and return credits + account info."""
+@router.post("/test-connection")
+async def test_connection(payload: Optional[TestConnectionPayload] = None):
+    """Log into painel.fun (with the typed credentials, if given) and return credits + account info."""
     try:
-        info = await painel.get_account_info()
+        p = payload or TestConnectionPayload()
+        info = await painel.get_account_info(
+            username=(p.username or "").strip() or None, password=p.password or None,
+        )
         data = info.get("data", {})
 
         # Try common credit field names
