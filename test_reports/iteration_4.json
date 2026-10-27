@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the Financeiro redesign, the public checkout and the global restyle. Backend: 10/10 pytest pass for /api/finance/summary. Covered: the 401 without a token, 400 for bad months, the full key structure, and one daily entry per day of the month (31 for Oct and Dec, 29 for Feb 2024). The daily sums match the received totals, by_period sums to the paid count, ticket = total//count, top_clients is sorted, and latest has at most 10 items with no _ fields. The figures match the seeded TESTF_ rows in sqlite (22 paid = R$2.610,00, 3 pending). An empty month returns zeros, null conversion and empty lists. Frontend at 1920: the Financeiro page shows every KPI with correct values (ticket R$118,63, conversion 88%), the periods 12/2/3/5, the area and bar charts (31 bars), latest (10) and top clients (3). The table filters give all 25 / paid 22 / pending 3 / cancelled 0. Search narrows the rows, and a search with no match shows payments-empty. The month picker goes back to Setembro 2026: zeros, '—' and the empty states render with no errors. Next works too. Checkout /pay/227427597 at 390 and 1920: customer card OK. Plans 1/3/6/12 are selectable with correct savings badges (-14/-24/-33% vs R$35/month), and discounted-price updates (35/90/160/280). The sticky summary bar has btn-checkout visible and enabled; it was NOT clicked. An invalid coupon shows 'Cupom não encontrado' in coupon-error. The only non-GET API call was coupons/validate. All 13 sidebar nav testids work at 1920 and through the mobile drawer at 390. No JS page errors and no horizontal overflow (scrollWidth equals the viewport) on any page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/finance/summary?month=9999-12 | 0001-01", "issue": "Returns 500 instead of 400. In _month_bounds only the start date is inside the try. The end date (year 10000) or prev date (year 0) raises a ValueError outside it. Move the end and prev computation into the try, or limit the year to 2000-2100."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Sidebar mobile drawer", "issue": "Tapping the nav item for the page you are already on (e.g. nav-dashboard while on /) does not close the drawer. It closes only on a pathname change (useEffect on location.pathname). Add onClick={() => setMobileOpen(false)} to the NavLink.", "selector": "[data-testid='app-sidebar-mobile'] [data-testid='nav-dashboard']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Financeiro, previous or other month", "issues": ["The 'Hoje' and 'Semana' KPI stays at today's real values (R$170 / R$745) when viewing Setembro. It is not month-scoped, which is confusing; hide it or label it when month != current.", "The empty-month revenue chart's Y axis shows 'R$0' on all 5 ticks (Math.round(v/100) on small ticks). Set domain [0, 'auto'] with a minimum, or use allowDecimals."]},
+      {"screen": "Financeiro mobile 390", "issues": ["The payments table needs horizontal scroll (min-w 760). Status and amount are off-screen until scrolled; consider a stacked card layout below md.", "The KPI label 'CANCELADO/EXPIRADO · 0' wraps onto two lines in the 2-column grid."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_finance_summary.py", "/app/test_reports/pytest/pytest_results_iter4.xml"],
+  "action_items": [
+    "Make /api/finance/summary return 400 (not 500) for out-of-range years such as 9999-12 or 0001-01",
+    "Close the mobile drawer when tapping the nav item of the current route",
+    "IMPORTANT before release: delete the TESTF_ payments. They are attached to the real customer_id 227427597 (9 rows), so the public page /pay/227427597 currently shows 'Seus pagamentos e comprovantes (9)' with fake history to a real customer",
+    "Optional: scope or label the Hoje/Semana KPI when viewing a month other than the current one; fix the empty-chart Y ticks; mobile card layout for the payments table"
+  ],
+  "critical_code_review_comments": [
+    "PaymentsTable filters by month with (paid_at||created_at).slice(0,7), which is a UTC string, while the backend uses the display timezone. Payments near midnight at a month boundary can appear in a different month in the table than in the KPIs. Pending rows are counted by created_at in the backend but by paid_at||created_at in the table (same thing for pending, but inconsistent for paid).",
+    "Finance.jsx initialises the month from the browser's local date, while the backend default uses the display timezone, so they can disagree on the first or last day of a month.",
+    "useQuery calls in Finance.jsx have no error or loading state. A failed summary just renders zeros, with no error message.",
+    "finance.summary loads ALL payments from sqlite and filters them in Python on every call (30s refetch). That is fine now, but add a WHERE on the date range as volume grows."
+  ],
+  "updated_files": ["/app/backend/tests/test_finance_summary.py"],
+  "success_rate": {"backend": "100% (10/10; 1 minor edge-case 500 found manually)", "frontend": "97% (1 low-priority drawer bug)"},
+  "test_credentials": "Admin password Rithi0518@ works (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None created. The 25 TESTF_ payments seeded by the main agent were left untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=<url> pytest tests/test_finance_summary.py. test_seeded_testf_counts compares against sqlite, so it still works after TESTF_ cleanup (the expected value becomes 0). Never click btn-checkout, resend-notif-*, Renovar, Teste or Notificar: these are production customers. The system date in the container is Oct 2026."
+}

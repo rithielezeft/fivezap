@@ -80,6 +80,7 @@ export default function Sidebar() {
                     key={item.to}
                     to={item.to}
                     data-testid={item.testid}
+                    onClick={() => setMobileOpen(false)}
                     className={
                       "relative flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] transition-colors duration-200 " +
                       (active

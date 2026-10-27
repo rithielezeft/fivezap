@@ -24,6 +24,8 @@ def _parse(iso: Optional[str]):
 def _month_bounds(month: str, tz):
     try:
         y, m = (int(x) for x in month.split("-"))
+        if not (2000 <= y <= 2100 and 1 <= m <= 12):
+            raise ValueError
         start = datetime(y, m, 1, tzinfo=tz)
     except Exception:
         raise HTTPException(400, "month deve ser YYYY-MM")
