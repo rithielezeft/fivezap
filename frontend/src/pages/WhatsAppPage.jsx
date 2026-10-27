@@ -86,7 +86,7 @@ export default function WhatsAppPage() {
           </Button>
           <Button
             variant="outline"
-            className="border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10"
+            className="border-[#F59E0B]/30 text-[#F59E0B] hover:bg-[#F59E0B]/10"
             onClick={() => {
               if (window.confirm("Reiniciar o serviço WhatsApp?\n\nUse para resolver erros como 'All connection attempts failed'. A sessão fica salva — provavelmente não precisa escanear QR de novo.")) {
                 restartMut.mutate();
@@ -99,7 +99,7 @@ export default function WhatsAppPage() {
             {restartMut.isPending ? "Reiniciando..." : "Reiniciar serviço"}
           </Button>
           {ready && (
-            <Button variant="outline" className="border-[#FF3B30]/30 text-[#FF3B30] hover:bg-[#FF3B30]/10" onClick={() => logoutMut.mutate()} data-testid="btn-wa-logout">
+            <Button variant="outline" className="border-[#EF4444]/30 text-[#EF4444] hover:bg-[#EF4444]/10" onClick={() => logoutMut.mutate()} data-testid="btn-wa-logout">
               <SignOut size={16} className="mr-2" /> Desconectar
             </Button>
           )}
@@ -109,7 +109,7 @@ export default function WhatsAppPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="surface rounded-xl p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className={"w-10 h-10 rounded-lg flex items-center justify-center " + (ready ? "bg-[#25D366]/15 text-[#25D366]" : "bg-[#FF9F0A]/15 text-[#FF9F0A]")}>
+            <div className={"w-10 h-10 rounded-lg flex items-center justify-center " + (ready ? "bg-[#25D366]/15 text-[#25D366]" : "bg-[#F59E0B]/15 text-[#F59E0B]")}>
               <WhatsappLogo size={22} weight="fill" />
             </div>
             <div>
@@ -123,7 +123,7 @@ export default function WhatsAppPage() {
           </div>
 
           {status?.error && (
-            <div className="p-3 rounded-md bg-[#FF3B30]/10 border border-[#FF3B30]/20 text-[#FF3B30] text-xs mb-4 flex items-start gap-2">
+            <div className="p-3 rounded-md bg-[#EF4444]/10 border border-[#EF4444]/20 text-[#EF4444] text-xs mb-4 flex items-start gap-2">
               <WarningCircle size={16} className="shrink-0 mt-0.5" />
               <span className="font-mono break-all">{status.error}</span>
             </div>
@@ -136,7 +136,7 @@ export default function WhatsAppPage() {
             </div>
             <div className="flex justify-between border-b border-white/5 pb-2">
               <span className="text-white/50">Pronto</span>
-              <span>{ready ? <CheckCircle className="text-[#34C759]" size={16} /> : "—"}</span>
+              <span>{ready ? <CheckCircle className="text-[#10B981]" size={16} /> : "—"}</span>
             </div>
           </div>
 

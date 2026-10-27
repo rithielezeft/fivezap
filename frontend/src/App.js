@@ -10,7 +10,7 @@ import Trials from "@/pages/Trials";
 import Templates from "@/pages/Templates";
 import WhatsAppPage from "@/pages/WhatsAppPage";
 import Messages from "@/pages/Messages";
-import Payments from "@/pages/Payments";
+import Finance from "@/pages/Finance";
 import Settings from "@/pages/Settings";
 import Notifications from "@/pages/Notifications";
 import SendQueue from "@/pages/SendQueue";
@@ -48,7 +48,7 @@ export default function App() {
           <Route path="/templates" element={<P><Templates /></P>} />
           <Route path="/whatsapp" element={<P><WhatsAppPage /></P>} />
           <Route path="/messages" element={<P><Messages /></P>} />
-          <Route path="/payments" element={<P><Payments /></P>} />
+          <Route path="/payments" element={<P><Finance /></P>} />
           <Route path="/notifications" element={<P><Notifications /></P>} />
           <Route path="/fila" element={<P><SendQueue /></P>} />
           <Route path="/coupons" element={<P><Coupons /></P>} />

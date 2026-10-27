@@ -17,7 +17,7 @@ import {
   BarChart, Bar, Cell,
 } from "recharts";
 
-function StatCard({ icon: Icon, label, value, hint, color = "#007AFF", testid }) {
+function StatCard({ icon: Icon, label, value, hint, color = "#3B82F6", testid }) {
   return (
     <div className="surface rounded-xl p-5" data-testid={testid}>
       <div className="flex items-center justify-between">
@@ -36,14 +36,14 @@ function StatCard({ icon: Icon, label, value, hint, color = "#007AFF", testid })
 }
 
 const REF_COLORS = {
-  expiration_7d: "#007AFF",
-  expiration_3d: "#5AC8FA",
-  expiration_1d: "#FF9F0A",
-  expiration_0d: "#FF3B30",
+  expiration_7d: "#3B82F6",
+  expiration_3d: "#60A5FA",
+  expiration_1d: "#F59E0B",
+  expiration_0d: "#EF4444",
   expired_1d: "#8E8E93",
   expired_3d: "#636366",
   expired_7d: "#48484A",
-  trial_ready: "#34C759",
+  trial_ready: "#10B981",
   manual: "#AF52DE",
   direct: "#FFCC00",
   other: "#666",
@@ -100,9 +100,9 @@ export default function Dashboard() {
   return (
     <Layout title="Dashboard" subtitle="Visão geral em tempo real do seu revendedor">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Ticket} label="Testes hoje" value={stats?.trials_today ?? "—"} color="#007AFF" testid="stat-trials-today" />
-        <StatCard icon={Users} label="Clientes ativos" value={stats?.active_customers ?? "—"} hint={`${stats?.total_customers ?? 0} no total`} color="#34C759" testid="stat-active-customers" />
-        <StatCard icon={Warning} label="Vencendo em 3d" value={stats?.expiring_soon ?? "—"} color="#FF9F0A" testid="stat-expiring" />
+        <StatCard icon={Ticket} label="Testes hoje" value={stats?.trials_today ?? "—"} color="#3B82F6" testid="stat-trials-today" />
+        <StatCard icon={Users} label="Clientes ativos" value={stats?.active_customers ?? "—"} hint={`${stats?.total_customers ?? 0} no total`} color="#10B981" testid="stat-active-customers" />
+        <StatCard icon={Warning} label="Vencendo em 3d" value={stats?.expiring_soon ?? "—"} color="#F59E0B" testid="stat-expiring" />
         <StatCard icon={CurrencyDollar} label="Receita 7 dias" value={formatMoney(stats?.revenue_week_cents ?? 0)} color="#25D366" testid="stat-revenue" />
       </div>
 
@@ -119,7 +119,7 @@ export default function Dashboard() {
             <div className="mt-4 text-white/40 text-sm">Carregando...</div>
           ) : painelBalance.error ? (
             <div className="mt-4">
-              <div className="text-[#FF3B30] font-mono text-xs">Erro: {painelBalance.error}</div>
+              <div className="text-[#EF4444] font-mono text-xs">Erro: {painelBalance.error}</div>
               <div className="text-white/40 text-xs mt-1">Verifique credenciais painel em Configurações</div>
             </div>
           ) : painelBalance.balance != null ? (
@@ -163,7 +163,7 @@ export default function Dashboard() {
             <div className="mt-4 text-white/40 text-sm">Carregando...</div>
           ) : twocap.error ? (
             <div className="mt-4">
-              <div className="text-[#FF3B30] font-mono text-xs">Erro: {twocap.error}</div>
+              <div className="text-[#EF4444] font-mono text-xs">Erro: {twocap.error}</div>
               <div className="text-white/40 text-xs mt-1">Configure `twocaptcha_key` em Configurações</div>
             </div>
           ) : (
@@ -191,8 +191,8 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                 <XAxis dataKey="day" tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
                 <YAxis tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: "#121212", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} labelStyle={{ color: "#fff" }} />
-                <Line type="monotone" dataKey="count" stroke="#007AFF" strokeWidth={2} dot={{ r: 4, fill: "#007AFF" }} />
+                <Tooltip contentStyle={{ background: "#0D111A", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} labelStyle={{ color: "#fff" }} />
+                <Line type="monotone" dataKey="count" stroke="#3B82F6" strokeWidth={2} dot={{ r: 4, fill: "#3B82F6" }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -208,7 +208,7 @@ export default function Dashboard() {
               const count = stats?.by_system_type?.[type] ?? 0;
               const total = Object.values(stats?.by_system_type || {}).reduce((a, b) => a + b, 0) || 1;
               const pct = Math.round((count / total) * 100);
-              const color = type === "iptv" ? "#007AFF" : type === "p2p" ? "#25D366" : "#FF9F0A";
+              const color = type === "iptv" ? "#3B82F6" : type === "p2p" ? "#25D366" : "#F59E0B";
               return (
                 <div key={type} data-testid={`type-row-${type}`}>
                   <div className="flex items-center justify-between text-sm mb-1">
@@ -247,7 +247,7 @@ export default function Dashboard() {
                   <XAxis dataKey="bucket" tick={{ fill: "#71717A", fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
                   <YAxis tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
                   <Tooltip
-                    contentStyle={{ background: "#121212", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                    contentStyle={{ background: "#0D111A", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
                     labelStyle={{ color: "#fff" }}
                     formatter={(v, k, entry) =>
                       k === "revenue" ? [`R$ ${v.toFixed(2)}`, "Receita"] :
@@ -292,7 +292,7 @@ export default function Dashboard() {
                 <XAxis dataKey="day" tick={{ fill: "#71717A", fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
                 <YAxis tick={{ fill: "#71717A", fontSize: 12 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} />
                 <Tooltip
-                  contentStyle={{ background: "#121212", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                  contentStyle={{ background: "#0D111A", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
                   labelStyle={{ color: "#fff" }}
                   formatter={(v, k) => k === "revenue" ? [`R$ ${v.toFixed(2)}`, "Receita"] : [v, "Pagamentos"]}
                 />
@@ -316,11 +316,11 @@ export default function Dashboard() {
                 className={
                   "text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " +
                   (a.status === "success"
-                    ? "border-[#34C759]/30 text-[#34C759] bg-[#34C759]/10"
+                    ? "border-[#10B981]/30 text-[#10B981] bg-[#10B981]/10"
                     : a.status === "error"
-                    ? "border-[#FF3B30]/30 text-[#FF3B30] bg-[#FF3B30]/10"
+                    ? "border-[#EF4444]/30 text-[#EF4444] bg-[#EF4444]/10"
                     : a.status === "warning"
-                    ? "border-[#FF9F0A]/30 text-[#FF9F0A] bg-[#FF9F0A]/10"
+                    ? "border-[#F59E0B]/30 text-[#F59E0B] bg-[#F59E0B]/10"
                     : "border-white/10 text-white/60")
                 }
               >

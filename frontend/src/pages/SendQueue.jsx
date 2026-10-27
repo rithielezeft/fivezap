@@ -17,8 +17,8 @@ import {
 } from "@phosphor-icons/react";
 
 const KIND = {
-  run: { label: "Vencimento", cls: "text-[#FF9F0A]" },
-  delivery: { label: "Fila / retentativa", cls: "text-[#5AC8FA]" },
+  run: { label: "Vencimento", cls: "text-[#F59E0B]" },
+  delivery: { label: "Fila / retentativa", cls: "text-[#60A5FA]" },
   reminder: { label: "Lembrete de teste", cls: "text-[#AF52DE]" },
 };
 const FILTERS = [
@@ -40,7 +40,7 @@ function useNow() {
 function Countdown({ iso, now }) {
   if (!iso) return <span className="text-white/40">agora</span>;
   const diff = Math.round((new Date(iso).getTime() - now) / 1000);
-  if (diff <= 0) return <span className="text-[#FF9F0A]">agora</span>;
+  if (diff <= 0) return <span className="text-[#F59E0B]">agora</span>;
   const h = Math.floor(diff / 3600), m = Math.floor((diff % 3600) / 60), s = diff % 60;
   const txt = h > 0 ? `${h}h ${m}min` : m > 0 ? `${m}min ${s}s` : `${s}s`;
   return <span className="font-mono">em {txt}</span>;
@@ -105,7 +105,7 @@ function QueueRow({ it, idx, selected, onToggle, now }) {
       {open && (
         <div className="px-4 md:px-14 pb-4 space-y-2" data-testid={`queue-detail-${idx}`}>
           <div className="max-w-md"><Bubble body={it.body} image={it.image_url} /></div>
-          {it.last_error && <div className="text-[11px] text-[#FF3B30]/80 break-all">Último erro: {it.last_error}</div>}
+          {it.last_error && <div className="text-[11px] text-[#EF4444]/80 break-all">Último erro: {it.last_error}</div>}
           <div className="text-[10px] text-white/30 font-mono">id {it.id}{it.created_at ? ` · criada ${formatDateBR(it.created_at)}` : ""}</div>
         </div>
       )}
@@ -138,7 +138,7 @@ function RunBanner({ run, now }) {
     <div className="surface rounded-xl p-4 mb-6" data-testid="run-banner">
       <div className="flex items-center justify-between text-sm mb-2">
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${run.running ? "bg-[#34C759] animate-pulse" : "bg-white/30"}`} />
+          <span className={`w-2 h-2 rounded-full ${run.running ? "bg-[#10B981] animate-pulse" : "bg-white/30"}`} />
           {run.running ? "Rodada de avisos de vencimento em andamento" : "Última rodada de avisos de vencimento"}
           <span className="text-white/40 text-xs">· intervalo de {run.pacing_seconds}s entre clientes</span>
         </div>
@@ -203,8 +203,8 @@ export default function SendQueue() {
     <Layout title="Fila de envio" subtitle="Tudo que está para sair no WhatsApp — veja, confira a mensagem e cancele">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <Stat icon={Queue} label="Total na fila" value={st.total_pending ?? "—"} testId="stat-total" accent="text-white/70" />
-        <Stat icon={Hourglass} label="Vencimentos aguardando" value={st.waiting_run ?? "—"} testId="stat-run" accent="text-[#FF9F0A]" />
-        <Stat icon={ArrowClockwise} label="Fila / retentativas" value={st.in_queue ?? "—"} testId="stat-deliveries" accent="text-[#5AC8FA]" />
+        <Stat icon={Hourglass} label="Vencimentos aguardando" value={st.waiting_run ?? "—"} testId="stat-run" accent="text-[#F59E0B]" />
+        <Stat icon={ArrowClockwise} label="Fila / retentativas" value={st.in_queue ?? "—"} testId="stat-deliveries" accent="text-[#60A5FA]" />
         <Stat icon={CalendarBlank} label="Lembretes de teste" value={st.scheduled_reminders ?? "—"} testId="stat-reminders" accent="text-[#AF52DE]" />
       </div>
 
@@ -222,11 +222,11 @@ export default function SendQueue() {
           <ArrowClockwise size={14} className={`mr-1.5 ${isFetching ? "animate-spin" : ""}`} /> Atualizar
         </Button>
         <Button size="sm" variant="outline" disabled={!selItems.length || cancelMut.isPending}
-          className="border-[#FF9F0A]/40 text-[#FF9F0A] hover:bg-[#FF9F0A]/10" onClick={() => setConfirm("selected")} data-testid="queue-cancel-selected-btn">
+          className="border-[#F59E0B]/40 text-[#F59E0B] hover:bg-[#F59E0B]/10" onClick={() => setConfirm("selected")} data-testid="queue-cancel-selected-btn">
           <XCircle size={14} className="mr-1.5" /> Cancelar selecionados ({selItems.length})
         </Button>
         <Button size="sm" disabled={!st.total_pending || cancelMut.isPending}
-          className="bg-[#FF3B30] hover:bg-[#FF3B30]/80 text-white" onClick={() => setConfirm("all")} data-testid="queue-cancel-all-btn">
+          className="bg-[#EF4444] hover:bg-[#EF4444]/80 text-white" onClick={() => setConfirm("all")} data-testid="queue-cancel-all-btn">
           <XCircle size={14} className="mr-1.5" /> Cancelar tudo
         </Button>
       </div>
@@ -261,9 +261,9 @@ export default function SendQueue() {
       </div>
 
       <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
-        <AlertDialogContent className="bg-[#121212] border-white/10 text-white" data-testid="queue-cancel-dialog">
+        <AlertDialogContent className="bg-[#0D111A] border-white/10 text-white" data-testid="queue-cancel-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><WarningCircle size={18} className="text-[#FF3B30]" />
+            <AlertDialogTitle className="flex items-center gap-2"><WarningCircle size={18} className="text-[#EF4444]" />
               {confirm === "all" ? "Cancelar todos os envios?" : `Cancelar ${selItems.length} envio(s)?`}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-white/60">
@@ -275,7 +275,7 @@ export default function SendQueue() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="bg-transparent border-white/10" data-testid="queue-cancel-dialog-no">Voltar</AlertDialogCancel>
-            <AlertDialogAction className="bg-[#FF3B30] hover:bg-[#FF3B30]/80" onClick={doCancel} data-testid="queue-cancel-dialog-yes">Sim, cancelar</AlertDialogAction>
+            <AlertDialogAction className="bg-[#EF4444] hover:bg-[#EF4444]/80" onClick={doCancel} data-testid="queue-cancel-dialog-yes">Sim, cancelar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

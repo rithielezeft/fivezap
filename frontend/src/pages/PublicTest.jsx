@@ -26,7 +26,7 @@ export default function PublicTest() {
   const needsMac = form.system_type !== "p2p";
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white relative overflow-hidden">
+    <div className="min-h-screen bg-[#06080D] text-white relative overflow-hidden">
       <div
         className="absolute inset-0 opacity-30 pointer-events-none"
         style={{
@@ -35,7 +35,7 @@ export default function PublicTest() {
           backgroundPosition: "center",
         }}
       />
-      <div className="absolute top-40 left-20 ambient-glow" style={{ background: "#007AFF", width: 400, height: 400 }} />
+      <div className="absolute top-40 left-20 ambient-glow" style={{ background: "#3B82F6", width: 400, height: 400 }} />
       <div className="absolute bottom-20 right-20 ambient-glow" style={{ background: "#25D366", width: 350, height: 350 }} />
 
       <div className="relative max-w-lg mx-auto pt-20 px-6 pb-20">
@@ -46,7 +46,7 @@ export default function PublicTest() {
           </div>
           <h1 className="font-display text-5xl sm:text-6xl font-bold tracking-tight leading-none">
             Ative seu <br />
-            <span className="text-[#007AFF]">teste agora</span>
+            <span className="text-[#3B82F6]">teste agora</span>
           </h1>
           <p className="text-white/50 mt-4 text-sm max-w-sm mx-auto">
             Receba suas credenciais em segundos direto pelo WhatsApp.
@@ -55,7 +55,7 @@ export default function PublicTest() {
 
         {result ? (
           <div className="surface rounded-2xl p-8 animate-fade-slide" data-testid="trial-result">
-            <CheckCircle size={48} weight="duotone" className="text-[#34C759] mx-auto" />
+            <CheckCircle size={48} weight="duotone" className="text-[#10B981] mx-auto" />
             <h2 className="font-display text-2xl font-bold text-center mt-4">Teste criado!</h2>
             <p className="text-center text-white/50 text-sm mt-1">Guarde suas credenciais:</p>
 
@@ -125,7 +125,7 @@ export default function PublicTest() {
                 </div>
               )}
 
-              <Button type="submit" className="w-full bg-[#007AFF] hover:bg-[#005BB5] h-11" disabled={mut.isPending} data-testid="btn-public-submit">
+              <Button type="submit" className="w-full bg-[#3B82F6] hover:bg-[#2563EB] h-11" disabled={mut.isPending} data-testid="btn-public-submit">
                 {mut.isPending ? "Criando..." : <>Ativar teste <ArrowRight size={16} className="ml-2" weight="bold" /></>}
               </Button>
             </form>

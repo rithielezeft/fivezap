@@ -1,119 +1,109 @@
 {
-  "theme_strategy": {
-    "theme": "dark",
-    "archetype": "Archetype 2: The Performance Pro (Tech/Data Focus)",
-    "description": "A high-visibility, technical command-center look optimized for IPTV resellers. Sharp lines, deep dark backgrounds, and vibrant accents to highlight critical data like active tests and WhatsApp connection status."
+  "project_name": "WhatsFlow - Dashboard Financeiro IPTV & Checkout Moderno Minimalista",
+  "theme": "Dark Tactical Financial Minimalist",
+  "language": "pt-BR",
+  "overview": "Redesign completo do sistema WhatsFlow e da página pública de checkout (/pay/{cliente}), evoluindo a interface para um visual Dark Minimalista e de alta precisão (Performance Pro / Swiss Finance). O painel 'Pagamentos' é transformado em um 'Dashboard Financeiro' completo com KPIs de alto impacto, gráfico de receita diária, divisão de renovações por ciclo (1, 3, 6, 12 meses), métricas por método de pagamento, ranking de top clientes, feed de últimas receitas e tabela financeira avançada.",
+  "color_palette": {
+    "background_base": "#06080D",
+    "background_surface": "#0D111A",
+    "background_surface_hover": "#141926",
+    "background_card": "#0F1420",
+    "border_subtle": "rgba(255, 255, 255, 0.08)",
+    "border_active": "rgba(59, 130, 246, 0.4)",
+    "border_success": "rgba(16, 185, 129, 0.4)",
+    "text_primary": "#F8FAFC",
+    "text_secondary": "#94A3B8",
+    "text_muted": "#64748B",
+    "accents": {
+      "emerald_finance": "#10B981",
+      "emerald_bg": "rgba(16, 185, 129, 0.12)",
+      "electric_blue": "#3B82F6",
+      "blue_bg": "rgba(59, 130, 246, 0.12)",
+      "warning_amber": "#F59E0B",
+      "amber_bg": "rgba(245, 158, 11, 0.12)",
+      "danger_rose": "#EF4444",
+      "rose_bg": "rgba(239, 68, 68, 0.12)",
+      "pix_teal": "#00BDAE"
+    }
   },
   "typography": {
     "headings": {
-      "family": "Cabinet Grotesk",
-      "weights": ["700", "800"],
-      "usage": "Dashboard titles, metric numbers, landing page heroes. Tightly tracked (tracking-tight)."
+      "font_family": "Cabinet Grotesk, IBM Plex Sans, sans-serif",
+      "hero_h1": "text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white",
+      "section_h2": "text-xl sm:text-2xl font-bold tracking-tight text-white",
+      "widget_h3": "text-base font-semibold text-slate-200"
     },
     "body": {
-      "family": "IBM Plex Sans",
-      "weights": ["400", "500"],
-      "usage": "Data tables, forms, sidebar navigation, standard text. Geometrically precise and highly legible for data."
+      "font_family": "IBM Plex Sans, sans-serif",
+      "regular": "text-sm text-slate-300 leading-relaxed",
+      "small": "text-xs text-slate-400 font-medium"
     },
-    "mono": {
-      "family": "JetBrains Mono",
-      "weights": ["400"],
-      "usage": "MAC addresses, command templates, API logs, and WhatsApp technical statuses."
+    "monospaced_financial": {
+      "font_family": "JetBrains Mono, monospace",
+      "kpi_value": "font-mono font-bold tracking-tight text-white",
+      "table_currency": "font-mono font-semibold text-emerald-400",
+      "badge_code": "font-mono text-xs uppercase tracking-wider"
     }
   },
-  "colors": {
-    "background": {
-      "default": "#050505",
-      "surface": "#121212",
-      "surface_hover": "#1A1A1A",
-      "surface_active": "#222222"
+  "layout_and_bento_grid": {
+    "dashboard_grid_mode": "High Density Financial Grid (Mode B)",
+    "container_padding": "p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6",
+    "hero_kpi_row": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6",
+    "analytics_split": "grid grid-cols-1 lg:grid-cols-3 gap-6",
+    "table_section_container": "rounded-xl border border-white/10 bg-[#0D111A] p-5 shadow-2xl space-y-4"
+  },
+  "key_components_specifications": {
+    "kpi_cards": {
+      "style": "bg-[#0F1420] border border-white/10 rounded-xl p-5 relative overflow-hidden transition-all duration-200 hover:border-blue-500/40 hover:shadow-lg hover:shadow-blue-500/5",
+      "glow_effect": "Linha decorativa superior de 2px com gradiente de destaque (Verde para Recebido, Amarelo para Pendente, Vermelho para Expirado, Azul para Ticket Médio).",
+      "structure": "Título pequeno uppercase com tracking em cima, valor GIGANTE em JetBrains Mono no centro, indicador de variação em badge (% de conversão ou comparação mensal) no rodape."
     },
-    "text": {
-      "primary": "#FFFFFF",
-      "secondary": "#A1A1AA",
-      "tertiary": "#71717A",
-      "inverse": "#000000"
+    "finance_charts": {
+      "area_chart_daily": "Gráfico de área com gradiente vertical (Emerald/Blue fill 0.3 para 0.0), stroke 2px, sem grid poluído, tooltip customizado escuro com backdrop-blur.",
+      "bar_chart_confirmed": "Gráficos de barras arredondadas (radius [4, 4, 0, 0]) indicando quantidade de confirmações por dia.",
+      "renovation_period_chips": "Tabs minimalistas para alternar períodos (Mensal, Trimestral, Semestral, Anual) atualizando visualmente métricas de renovação."
     },
-    "brand": {
-      "primary": "#007AFF",
-      "primary_hover": "#005BB5",
-      "secondary": "#0A84FF"
+    "payments_table": {
+      "search_and_filter": "Barra de busca com ícone MagnifyingGlass, filtros por Status (Todos, Pago, Pendente, Expirado), filtro por Método (Pix, Cartão, Boleto, Manual) e seletor de Período.",
+      "status_badges": {
+        "pago": "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5",
+        "pendente": "bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5",
+        "expirado": "bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5"
+      },
+      "actions": "Botão de copiar link do recibo, reenviar cobrança/notificação via WhatsApp e visualizar detalhes do cliente."
     },
-    "status": {
-      "success": "#34C759",
-      "success_bg": "rgba(52, 199, 89, 0.1)",
-      "warning": "#FF9F0A",
-      "error": "#FF3B30",
-      "error_bg": "rgba(255, 59, 48, 0.1)",
-      "whatsapp": "#25D366"
-    },
-    "borders": {
-      "default": "rgba(255, 255, 255, 0.1)",
-      "focus": "rgba(0, 122, 255, 0.5)"
+    "public_checkout_pay_page": {
+      "layout": "Mobile-first centrado, container max-w-md mx-auto p-4 sm:p-6 space-y-6",
+      "header_card": "Avatar/Logo do servidor IPTV, nome do cliente, vencimento atual e status da conta.",
+      "plan_selector": "Grid de 2x2 com cards interativos de planos (1 Mês, 3 Meses [-10%], 6 Meses [-20%], 12 Meses [-35%]). O plano selecionado ganha borda emerald-500 glow.",
+      "coupon_input": "Campo com validação dinâmica de cupom de desconto com aplicar automático.",
+      "payment_method_toggle": "Tabs minimalistas trocando entre PIX (com QR Code estático/dinâmico e botão Copiar Cola) e Cartão de Crédito via InfinitePay.",
+      "guarantee_badges": "Selos de segurança e ativação instantânea automática após pagamento."
     }
   },
-  "visual_enhancers": {
-    "surfaces": "Tactile minimalism. Use flat dark backgrounds (`bg-[#121212]`) with a crisp 1px border (`border-white/10`). Avoid soft heavy shadows. For elevated elements like dropdowns, use Glassmorphism (`backdrop-blur-xl bg-black/80 border-white/10`).",
-    "whatsapp_qr": "CRITICAL: The WhatsApp QR code container MUST have a pure white background with padding (`bg-white p-4 rounded-xl`) to ensure phone cameras can scan it effectively, regardless of the dark theme.",
-    "buttons": "Pill-shaped or sharp slightly-rounded (`rounded-md`) buttons. Primary buttons use `bg-brand-primary text-white hover:bg-brand-primary_hover transition-colors`. No excessive gradients.",
-    "badges": "For Client Status (Ativo, Vencido) or System Type (IPTV, P2P, Hybrid), use solid or tinted badges (e.g., `bg-success_bg text-success border border-success/20`).",
-    "payment_card": "For the InfinitePay checkout block on `/pay/{customer_id}`, use 'The Tracing Beam' or a subtle glow effect behind the selected plan to drive conversion."
+  "interactive_rules_and_microanimations": {
+    "hover_states": "Hover em cards de plano ou tabela ativam transição suave de background (#141926) e border-color.",
+    "button_states": "Botões primários utilizam verde esmeralda (#10B981) ou azul elétrico (#3B82F6) com hover shadow e active scale-95.",
+    "focus_states": "Focus ring visível em inputs com ring-2 ring-emerald-500/50 outline-none.",
+    "transitions": "Usar apenas `transition-colors duration-200` ou `transition-all duration-200` sem `transition: all` genérico."
   },
-  "layouts": {
-    "admin_dashboard": {
-      "structure": "Sidebar navigation (left) + Main content area. Mobile: Hamburger to slide-out drawer.",
-      "dashboard_grid": "Bento-style High Density Grid. Metrics: `grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4`. Recent activity/tables: `col-span-full xl:col-span-3`.",
-      "spacing": "Dense inside cards (`p-4` or `p-6`), generous between sections (`gap-6` or `gap-8`)."
-    },
-    "public_landing_teste": {
-      "structure": "Single column, deeply centered. `max-w-lg mx-auto pt-24 px-4`.",
-      "hero": "Bold H1 heading, tech-focused background, clean and trustworthy form asking for Name, WhatsApp, System Type (IPTV/P2P/Hybrid)."
-    },
-    "public_payment": {
-      "structure": "Split screen or centered focused container. Show Plan options (1m, 3m, 6m, 12m) as large toggleable cards, followed by InfinitePay action."
+  "general_ui_ux_guidelines": {
+    "data_testid_requirement": "TODOS os botões, inputs, cards interativos, linhas de tabela e links devem ter data-testid em kebab-case (ex: data-testid='kpi-recebido-mes', data-testid='checkout-select-plan-3m', data-testid='copy-pix-code-button').",
+    "no_transparent_overlays": "Menus suspensos (DropdownMenu), diálogos (Dialog), sheets e popovers devem utilizar background sólido escuro #0F1420 com border border-white/10 e backdrop-blur-md.",
+    "language": "100% em Português do Brasil (pt-BR) com termos financeiros precisos (Recebido no Mês, Ticket Médio, Taxa de Renovação, Copiar Código PIX, Reenviar Comprovante)."
+  },
+  "image_urls": [
+    {
+      "category": "abstract_dark_texture",
+      "url": "https://images.unsplash.com/photo-1637946175559-22c4fe13fc54?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjh8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwZGFyayUyMHRlY2glMjBhYnN0cmFjdCUyMHRleHR1cmV8ZW58MHx8fHwxNzkzMTAxMjgzfDA&ixlib=rb-4.1.0&q=85",
+      "usage": "Fundo sutil decorativo para a tela pública de checkout /pay/{cliente}"
     }
-  },
-  "components": {
-    "forms": "Use Shadcn UI Inputs and Selects. Ensure high contrast focus states (`focus:ring-2 focus:ring-brand-primary`).",
-    "tables": "Shadcn Table. Flat, dense. Use mono font for MAC addresses. Align numbers to the right, text to the left.",
-    "tabs": "Use Shadcn Tabs to switch between System Types (IPTV, P2P, Hybrid) in the client list.",
-    "modals": "Shadcn Dialog for 'Create Manual Test' and 'WhatsApp Chat History'. Overlay must be dark (`bg-black/80 backdrop-blur-sm`)."
-  },
-  "motion": {
-    "interactions": "Hover states on rows: `hover:bg-white/[0.02] transition-colors`. Button clicks: subtle scale down (`active:scale-95`).",
-    "page_transitions": "Fade in and slight slide up (`framer-motion`: `initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}`).",
-    "reduced_motion": "Respect `prefers-reduced-motion`."
-  },
-  "libraries": {
-    "icons": "@phosphor-icons/react (best for dense tech dashboards, use Duotone or Regular weights)",
-    "charts": "recharts (for displaying daily created tests and revenue metrics in the dashboard)",
-    "3d_and_effects": "react-tsparticles for the `/teste` public landing page to add a subtle drifting node/tech background, avoiding blank empty spaces."
-  },
-  "images": {
-    "public_background": {
-      "url": "https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHRlY2glMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4NDI4NzY4Nnww&ixlib=rb-4.1.0&q=85",
-      "description": "Abstract blue lines and dots background. Use as a low-opacity fixed background layer on the public `/teste` and `/pay` routes.",
-      "category": "background"
-    },
-    "default_avatar": {
-      "url": "https://images.pexels.com/photos/27304923/pexels-photo-27304923.jpeg",
-      "description": "Default avatar for clients in the dashboard.",
-      "category": "avatar"
-    }
-  },
-  "accessibility": {
-    "contrast": "Ensure APCA/WCAG AA contrast. Text must be perfectly readable against #050505 and #121212 surfaces.",
-    "testing_attributes": "All inputs, buttons, and row actions MUST have `data-testid` (e.g., `data-testid='btn-create-test'`, `data-testid='input-whatsapp'`).",
-    "transparency_rule": "CRITICAL: Do not use fully transparent backgrounds for dropdowns, tooltips, or modals."
-  },
-  "universal_guidelines_for_main_agent": [
-    "Prioritize using pre-existing components from src/components/ui.",
-    "Do not apply global `transition: all` as it breaks specific transform animations.",
-    "Use 2-3x more spacing for structural layout gaps, but keep data tables dense.",
-    "Do not center-align everything; keep forms and data tables strictly left-aligned.",
-    "Never use generic AI emojis for icons. Use Phosphor Icons instead.",
-    "Use `sonner` for all toast notifications (success, error, payment updates).",
-    "For the dashboard layout, ensure the sidebar is fixed or sticky, and the main content scrolls independently.",
-    "Ensure all text is in Portuguese as requested by the problem statement."
+  ],
+  "instructions_to_main_agent": [
+    "1. Atualizar o index.css com as variáveis de cores dark minimalista (#06080D background e #0D111A surface).",
+    "2. Redesenhar a página de Pagamentos (/payments) para ser o novo 'Dashboard Financeiro', incorporando os 4 KPIs principais, gráficos de área e barras para receitas/confirmações, renovações por período, ranking de clientes e tabela filtrável.",
+    "3. Redesenhar a página pública de pagamento (/pay/:cliente ou /pay) para ter uma experiência de checkout móvel ultra limpa com escolha de planos (1, 3, 6, 12 meses), cupom de desconto, cópia do PIX via um clique e checkout via InfinitePay.",
+    "4. Garantir que todas as telas existentes utilizem a classe `.surface` renovada e bordas suaves `border-white/10` para manter coesão em todo o site.",
+    "5. Adicionar atributos data-testid em todos os elementos principais."
   ]
 }

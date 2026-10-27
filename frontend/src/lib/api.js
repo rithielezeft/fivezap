@@ -151,6 +151,10 @@ export const notificationsApi = {
   retryDelivery: (id) => api.post(`/notifications/deliveries/${id}/retry`).then((r) => r.data),
 };
 
+export const financeApi = {
+  summary: (month) => api.get("/finance/summary", { params: { month } }).then((r) => r.data),
+};
+
 export const queueApi = {
   get: () => api.get("/queue").then((r) => r.data),
   cancel: (payload) => api.post("/queue/cancel", payload).then((r) => r.data),

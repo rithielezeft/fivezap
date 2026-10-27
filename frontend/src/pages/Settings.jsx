@@ -68,7 +68,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: Tag, color: "#34C759",
+    icon: Tag, color: "#10B981",
     title: "Descontos automáticos por vencimento",
     desc: "Configure % de desconto para cada evento (7 dias antes, 3 dias antes, no dia, ou após vencer). Quando o cliente abre o link no mesmo dia, o % é aplicado no checkout automaticamente e o lembrete usa {discount_line} / {discount_percent} na mensagem.",
     settings: [
@@ -76,7 +76,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: Lightning, color: "#007AFF",
+    icon: Lightning, color: "#3B82F6",
     title: "Anti-duplicação de mensagens",
     desc: "3 redes de segurança: dedup por (telefone+evento), por conteúdo (body_hash) e pacer global entre sends.",
     settings: [
@@ -93,7 +93,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: ArrowsClockwise, color: "#5AC8FA",
+    icon: ArrowsClockwise, color: "#60A5FA",
     title: "Sincronia com painel.fun",
     desc: "Intervalo de refresh do cache painel + credenciais de bypass do Turnstile (2Captcha).",
     settings: [
@@ -104,7 +104,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: CreditCard, color: "#FF3B30",
+    icon: CreditCard, color: "#EF4444",
     title: "Pagamentos & Preços",
     desc: "Preços por plano + integração InfinitePay (checkout + webhook). Retry automático nos erros transitórios.",
     settings: [
@@ -146,11 +146,11 @@ function scrollToSetting(key) {
 
 function DiscountRow({ event, onToggle, onChangePercent, saving }) {
   const active = event.enabled && event.percent > 0;
-  const badgeColor = event.kind === "before" ? "#FF9500" : "#FF3B30";
+  const badgeColor = event.kind === "before" ? "#FF9500" : "#EF4444";
   return (
     <div
       className={"rounded-lg border transition p-3 flex items-center gap-3 " +
-        (active ? "border-[#34C759]/40 bg-[#34C759]/5" : "border-white/10 bg-white/[0.02]")}
+        (active ? "border-[#10B981]/40 bg-[#10B981]/5" : "border-white/10 bg-white/[0.02]")}
       data-testid={`discount-row-${event.event_key}`}
     >
       <span
@@ -186,7 +186,7 @@ function DiscountRow({ event, onToggle, onChangePercent, saving }) {
             className="sr-only peer"
             data-testid={`discount-toggle-${event.event_key}`}
           />
-          <div className="w-11 h-6 bg-white/10 peer-checked:bg-[#34C759] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          <div className="w-11 h-6 bg-white/10 peer-checked:bg-[#10B981] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
         </label>
       </div>
     </div>
@@ -221,18 +221,18 @@ function DiscountsPanel() {
   return (
     <div className="surface rounded-xl p-6" data-testid="settings-discounts">
       <div className="flex items-center gap-2 mb-1">
-        <Tag size={18} className="text-[#34C759]" weight="duotone" />
+        <Tag size={18} className="text-[#10B981]" weight="duotone" />
         <h2 className="font-display text-lg font-bold">Descontos automáticos por vencimento</h2>
         {activeCount > 0 && (
-          <span className="ml-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#34C759]/15 text-[#34C759] border border-[#34C759]/30">
+          <span className="ml-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
             {activeCount} ativo{activeCount > 1 ? "s" : ""}
           </span>
         )}
       </div>
       <p className="text-xs text-white/50 mb-4 leading-relaxed">
         Configure um <b className="text-white/80">% de desconto</b> para cada evento de vencimento.
-        Quando ativo, a notificação usa as variáveis <code className="text-[#34C759] bg-[#34C759]/10 px-1 rounded">{`{discount_line}`}</code> e{" "}
-        <code className="text-[#34C759] bg-[#34C759]/10 px-1 rounded">{`{discount_percent}`}</code>{" "}
+        Quando ativo, a notificação usa as variáveis <code className="text-[#10B981] bg-[#10B981]/10 px-1 rounded">{`{discount_line}`}</code> e{" "}
+        <code className="text-[#10B981] bg-[#10B981]/10 px-1 rounded">{`{discount_percent}`}</code>{" "}
         automaticamente, e o link de pagamento aplica o % <b>no mesmo dia</b> em que a mensagem foi disparada.
         No dia seguinte, o desconto expira.
       </p>
@@ -260,7 +260,7 @@ function DiscountsPanel() {
           </div>
           <div>
             <div className="text-xs font-medium text-white/60 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FF3B30]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
               Após o vencimento (recuperação)
             </div>
             <div className="space-y-2">
@@ -278,7 +278,7 @@ function DiscountsPanel() {
         </div>
       )}
 
-      <div className="mt-4 p-3 rounded-md bg-[#007AFF]/5 border border-[#007AFF]/20 text-xs text-white/70">
+      <div className="mt-4 p-3 rounded-md bg-[#3B82F6]/5 border border-[#3B82F6]/20 text-xs text-white/70">
         💡 <b>Dica:</b> use % pequenos (5-10%) para lembretes <i>antes</i> do vencimento e maiores (15-25%) para
         recuperação <i>após</i> vencer — quanto mais tempo o cliente fica sem renovar, mais desconto ele precisa
         pra voltar.
@@ -376,12 +376,12 @@ function UpdatePiCard() {
             </span>
           )}
           {state === "success" && (
-            <span className="text-xs px-2 py-1 rounded-full bg-[#34C759]/15 text-[#34C759] border border-[#34C759]/30">
+            <span className="text-xs px-2 py-1 rounded-full bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
               Concluído
             </span>
           )}
           {state === "error" && (
-            <span className="text-xs px-2 py-1 rounded-full bg-[#FF3B30]/15 text-[#FF3B30] border border-[#FF3B30]/30">
+            <span className="text-xs px-2 py-1 rounded-full bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30">
               Erro
             </span>
           )}
@@ -509,7 +509,7 @@ export default function Settings() {
       title="Configurações"
       subtitle="Credenciais e parâmetros do sistema"
       actions={
-        <Button className="bg-[#007AFF] hover:bg-[#005BB5]" onClick={handleSave} disabled={saveMut.isPending} data-testid="btn-save-settings">
+        <Button className="bg-[#3B82F6] hover:bg-[#2563EB]" onClick={handleSave} disabled={saveMut.isPending} data-testid="btn-save-settings">
           <FloppyDisk size={16} className="mr-2" />
           {saveMut.isPending ? "Salvando..." : "Salvar tudo"}
         </Button>
@@ -525,7 +525,7 @@ export default function Settings() {
         {/* PLAYBOOK — visual map of settings → app flows */}
         <div className="surface rounded-xl p-6" data-testid="settings-playbook">
           <div className="flex items-center gap-2 mb-2">
-            <MapTrifold size={18} className="text-[#34C759]" weight="duotone" />
+            <MapTrifold size={18} className="text-[#10B981]" weight="duotone" />
             <h2 className="font-display text-lg font-bold">Como cada configuração é usada</h2>
           </div>
           <p className="text-xs text-white/50 mb-4">
@@ -561,7 +561,7 @@ export default function Settings() {
                       >
                         {s.key}
                         {s.note.startsWith("⚡") && (
-                          <span className="ml-1 text-[#FF9F0A]">{s.note.slice(0, 2)}</span>
+                          <span className="ml-1 text-[#F59E0B]">{s.note.slice(0, 2)}</span>
                         )}
                       </button>
                     ))}
@@ -606,12 +606,12 @@ export default function Settings() {
               <div className={
                 "mb-4 p-3 rounded-lg border text-xs " +
                 (payTestResult.success !== false
-                  ? "border-[#34C759]/30 bg-[#34C759]/5"
-                  : "border-[#FF3B30]/30 bg-[#FF3B30]/5")
+                  ? "border-[#10B981]/30 bg-[#10B981]/5"
+                  : "border-[#EF4444]/30 bg-[#EF4444]/5")
               }>
                 {payTestResult.success !== false ? (
                   <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 text-[#34C759] font-medium">
+                    <div className="flex items-center gap-2 text-[#10B981] font-medium">
                       <CheckCircle size={14} /> Link gerado com sucesso (HTTP {payTestResult.http_status})
                     </div>
                     <div className="font-mono text-white/60 text-[10px]">
@@ -621,7 +621,7 @@ export default function Settings() {
                       href={payTestResult.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-block text-[#5AC8FA] underline break-all"
+                      className="inline-block text-[#60A5FA] underline break-all"
                       data-testid="test-link-url"
                     >
                       {payTestResult.url}
@@ -635,7 +635,7 @@ export default function Settings() {
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 text-[#FF3B30] font-medium">
+                    <div className="flex items-center gap-2 text-[#EF4444] font-medium">
                       <WarningCircle size={14} /> {payTestResult.error}
                     </div>
                     <div className="text-[10px] text-white/50">
@@ -651,19 +651,19 @@ export default function Settings() {
               <div className={
                 "mb-4 p-3 rounded-md border " +
                 (testResult.success
-                  ? "bg-[#34C759]/10 border-[#34C759]/30"
-                  : "bg-[#FF3B30]/10 border-[#FF3B30]/30")
+                  ? "bg-[#10B981]/10 border-[#10B981]/30"
+                  : "bg-[#EF4444]/10 border-[#EF4444]/30")
               } data-testid="painel-test-result">
                 {testResult.success ? (
                   <div className="flex items-center gap-3 text-sm">
-                    <CheckCircle size={20} className="text-[#34C759] shrink-0" weight="fill" />
+                    <CheckCircle size={20} className="text-[#10B981] shrink-0" weight="fill" />
                     <div className="flex-1">
-                      <div className="font-medium text-[#34C759]">Conectado com sucesso ao painel.fun</div>
+                      <div className="font-medium text-[#10B981]">Conectado com sucesso ao painel.fun</div>
                       <div className="text-white/70 text-xs mt-1 flex flex-wrap gap-4">
                         {testResult.username && <span>👤 <b>{testResult.username}</b></span>}
                         {testResult.credits != null && (
                           <span className="flex items-center gap-1">
-                            <Coin size={12} weight="fill" className="text-[#FF9F0A]" />
+                            <Coin size={12} weight="fill" className="text-[#F59E0B]" />
                             <b>{testResult.credits}</b> créditos disponíveis
                           </span>
                         )}
@@ -672,9 +672,9 @@ export default function Settings() {
                   </div>
                 ) : (
                   <div className="flex items-start gap-3 text-sm">
-                    <WarningCircle size={20} className="text-[#FF3B30] shrink-0 mt-0.5" weight="fill" />
+                    <WarningCircle size={20} className="text-[#EF4444] shrink-0 mt-0.5" weight="fill" />
                     <div className="flex-1">
-                      <div className="font-medium text-[#FF3B30]">Falha na conexão</div>
+                      <div className="font-medium text-[#EF4444]">Falha na conexão</div>
                       <div className="text-white/60 text-xs mt-1 break-all font-mono">{testResult.error}</div>
                     </div>
                   </div>

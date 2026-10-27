@@ -125,7 +125,7 @@ function CouponForm({ initial, onSubmit, onCancel }) {
       <div className="col-span-2 flex justify-end gap-2 mt-2">
         <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
         <Button
-          className="bg-[#007AFF] hover:bg-[#005BB5]"
+          className="bg-[#3B82F6] hover:bg-[#2563EB]"
           onClick={submit}
           data-testid="btn-save-coupon"
         >
@@ -145,10 +145,10 @@ function UsagesDialog({ coupon, open, onOpenChange }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#121212] border-white/10 text-white max-w-2xl">
+      <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-2xl">
         <DialogHeader>
           <DialogTitle className="font-display">
-            Usos do cupom <span className="text-[#007AFF]">{coupon?.code}</span>
+            Usos do cupom <span className="text-[#3B82F6]">{coupon?.code}</span>
           </DialogTitle>
           <DialogDescription className="text-white/50">
             Lista dos clientes que já aplicaram este cupom em pagamentos confirmados.
@@ -176,7 +176,7 @@ function UsagesDialog({ coupon, open, onOpenChange }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full bg-[#34C759]/10 text-[#34C759] border border-[#34C759]/30">
+                  <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/30">
                     -{u.discount_percent}%
                   </span>
                   {u.receipt_url && (
@@ -184,7 +184,7 @@ function UsagesDialog({ coupon, open, onOpenChange }) {
                       href={u.receipt_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[#007AFF] text-xs hover:underline"
+                      className="text-[#3B82F6] text-xs hover:underline"
                       data-testid={`usage-receipt-${u.id}`}
                     >
                       comprovante ↗
@@ -289,7 +289,7 @@ export default function Coupons() {
               Limpar
             </Button>
             <Button
-              className="bg-[#FF3B30] hover:bg-[#D70015]"
+              className="bg-[#EF4444] hover:bg-[#D70015]"
               onClick={handleBulkDelete}
               disabled={selectedIds.size === 0 || bulkDeleteMut.isPending}
               data-testid="btn-bulk-delete"
@@ -315,13 +315,13 @@ export default function Coupons() {
             <Dialog open={creating} onOpenChange={setCreating}>
               <DialogTrigger asChild>
                 <Button
-                  className="bg-[#007AFF] hover:bg-[#005BB5]"
+                  className="bg-[#3B82F6] hover:bg-[#2563EB]"
                   data-testid="btn-new-coupon"
                 >
                   <Plus size={16} className="mr-2" /> Novo cupom
                 </Button>
               </DialogTrigger>
-              <DialogContent className="bg-[#121212] border-white/10 text-white max-w-lg">
+              <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-lg">
                 <DialogHeader>
                   <DialogTitle className="font-display">Novo cupom</DialogTitle>
                   <DialogDescription className="text-white/50">
@@ -347,7 +347,7 @@ export default function Coupons() {
             onClick={() => { if (selectMode) toggleSelect(c.id); }}
             className={"surface rounded-xl p-5 flex flex-col relative transition-all " + (
               selectMode
-                ? "cursor-pointer " + (isSelected ? "ring-2 ring-[#007AFF] bg-[#007AFF]/5" : "hover:ring-1 hover:ring-white/20")
+                ? "cursor-pointer " + (isSelected ? "ring-2 ring-[#3B82F6] bg-[#3B82F6]/5" : "hover:ring-1 hover:ring-white/20")
                 : ""
             )}
             data-testid={`coupon-card-${c.id}`}
@@ -356,7 +356,7 @@ export default function Coupons() {
               <div
                 className={"absolute top-3 right-3 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all " + (
                   isSelected
-                    ? "bg-[#007AFF] border-[#007AFF] text-white"
+                    ? "bg-[#3B82F6] border-[#3B82F6] text-white"
                     : "border-white/20 bg-white/5"
                 )}
                 data-testid={`checkbox-${c.id}`}
@@ -366,7 +366,7 @@ export default function Coupons() {
             )}
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-md bg-[#007AFF]/15 text-[#007AFF] flex items-center justify-center">
+                <div className="w-8 h-8 rounded-md bg-[#3B82F6]/15 text-[#3B82F6] flex items-center justify-center">
                   <Tag size={16} weight="duotone" />
                 </div>
                 <div>
@@ -380,7 +380,7 @@ export default function Coupons() {
                 className={
                   "text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " +
                   (c.active
-                    ? "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30"
+                    ? "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/30"
                     : "bg-white/5 text-white/40 border-white/10")
                 }
                 data-testid={`coupon-status-${c.id}`}
@@ -389,7 +389,7 @@ export default function Coupons() {
               </span>
             </div>
 
-            <div className="font-display text-4xl font-bold text-[#34C759] mb-3">
+            <div className="font-display text-4xl font-bold text-[#10B981] mb-3">
               -{c.discount_percent}%
             </div>
 
@@ -433,7 +433,7 @@ export default function Coupons() {
               <Button
                 size="sm"
                 variant="ghost"
-                className="text-xs text-[#FF3B30]"
+                className="text-xs text-[#EF4444]"
                 disabled={selectMode}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -460,7 +460,7 @@ export default function Coupons() {
       </div>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-lg">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-display">Editar cupom</DialogTitle>
             <DialogDescription className="text-white/50">

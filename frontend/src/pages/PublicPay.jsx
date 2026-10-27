@@ -5,14 +5,8 @@ import { paymentsApi, couponsApi, formatMoney, formatDateBR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckCircle, WarningCircle, CreditCard, ArrowRight, Lock, Tag, X } from "@phosphor-icons/react";
+import { PLANS, PlanCard, CustomerHeader, PaymentsHistory } from "@/components/pay/PayParts";
 import { toast } from "sonner";
-
-const PLANS = [
-  { months: 1, label: "1 mês", savings: null },
-  { months: 3, label: "3 meses", savings: "14%" },
-  { months: 6, label: "6 meses", savings: "24%" },
-  { months: 12, label: "12 meses", savings: "33%" },
-];
 
 export default function PublicPay() {
   const { customerId } = useParams();
@@ -109,11 +103,11 @@ export default function PublicPay() {
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
 
-  if (isLoading) return <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center">Carregando...</div>;
+  if (isLoading) return <div className="min-h-screen bg-[#06080D] text-white flex items-center justify-center">Carregando...</div>;
 
   if (painelRedirecting) {
     return (
-      <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-4" data-testid="painel-redirect">
+      <div className="min-h-screen bg-[#06080D] text-white flex items-center justify-center px-4" data-testid="painel-redirect">
         <div className="surface rounded-2xl p-8 text-center max-w-md">
           <CreditCard size={48} weight="duotone" className="text-[#00C853] mx-auto animate-pulse" />
           <h2 className="font-display text-2xl font-bold mt-3">Abrindo checkout do painel…</h2>
@@ -125,9 +119,9 @@ export default function PublicPay() {
 
   if (painelError) {
     return (
-      <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-4">
+      <div className="min-h-screen bg-[#06080D] text-white flex items-center justify-center px-4">
         <div className="surface rounded-2xl p-8 text-center max-w-md">
-          <WarningCircle size={48} weight="duotone" className="text-[#FF3B30] mx-auto" />
+          <WarningCircle size={48} weight="duotone" className="text-[#EF4444] mx-auto" />
           <h2 className="font-display text-2xl font-bold mt-3">Erro no link do painel</h2>
           <p className="text-white/50 text-sm mt-2">{painelError}</p>
           <p className="text-white/40 text-xs mt-4">Tente novamente ou entre em contato com o suporte.</p>
@@ -138,9 +132,9 @@ export default function PublicPay() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-4">
+      <div className="min-h-screen bg-[#06080D] text-white flex items-center justify-center px-4">
         <div className="surface rounded-2xl p-8 text-center max-w-md">
-          <WarningCircle size={48} weight="duotone" className="text-[#FF3B30] mx-auto" />
+          <WarningCircle size={48} weight="duotone" className="text-[#EF4444] mx-auto" />
           <h2 className="font-display text-2xl font-bold mt-3">Link inválido</h2>
           <p className="text-white/50 text-sm mt-2">Este link de pagamento não é válido ou expirou.</p>
         </div>
@@ -189,213 +183,114 @@ export default function PublicPay() {
     setCouponError("");
   }
 
+  const monthlyBase = prices[1] || 0;
   return (
-    <div className="min-h-screen bg-[#050505] text-white relative overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{
-          backgroundImage: `url(https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHRlY2glMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4NDI4NzY4Nnww&ixlib=rb-4.1.0&q=85)`,
-          backgroundSize: "cover",
-        }}
-      />
-      <div className="absolute top-32 left-1/3 ambient-glow" style={{ background: "#007AFF", width: 500, height: 500 }} />
+    <div className="min-h-screen bg-[#06080D] text-white">
+      <div className="max-w-md mx-auto px-4 pt-8 pb-40 space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="font-display text-3xl font-extrabold tracking-tight">Renovar plano</h1>
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400"><Lock size={12} weight="fill" className="text-[#34D399]" /> Seguro</span>
+        </div>
 
-      <div className="relative max-w-2xl mx-auto pt-16 px-6 pb-16">
-        {/* Banner de confirmação quando cliente volta do InfinitePay */}
         {returnedFromPay && (
-          <div
-            data-testid="pay-return-banner"
-            className={
-              "mb-8 rounded-xl p-5 border " +
-              (renewalStatus === "renewed"
-                ? "border-green-500/50 bg-green-500/10"
-                : "border-[#007AFF]/50 bg-[#007AFF]/10")
-            }
-          >
+          <div data-testid="pay-return-banner" className={"rounded-2xl p-4 border " + (renewalStatus === "renewed" ? "border-[#10B981]/40 bg-[#10B981]/10" : "border-[#3B82F6]/40 bg-[#3B82F6]/10")}>
             {confirmingPayment && (
               <div className="flex items-center gap-3">
                 <div className="w-4 h-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
-                <div>
-                  <div className="font-medium">Confirmando seu pagamento…</div>
-                  <div className="text-xs text-white/60 mt-1">
-                    Verificando com o InfinitePay. Isto leva alguns segundos.
-                  </div>
-                </div>
+                <div><div className="font-medium text-sm">Confirmando seu pagamento…</div><div className="text-xs text-slate-400 mt-0.5">Verificando com o InfinitePay.</div></div>
               </div>
             )}
             {!confirmingPayment && renewalStatus === "renewed" && (
               <div className="flex items-center gap-3">
-                <CheckCircle size={24} weight="fill" className="text-green-400" />
-                <div>
-                  <div className="font-semibold text-green-300">Renovação confirmada!</div>
-                  <div className="text-xs text-white/60 mt-1">
-                    Seu plano já foi ativado. Uma confirmação também foi enviada no seu WhatsApp. 🎉
-                  </div>
-                </div>
+                <CheckCircle size={24} weight="fill" className="text-[#34D399]" />
+                <div><div className="font-semibold text-[#34D399]">Renovação confirmada!</div><div className="text-xs text-slate-400 mt-0.5">Seu plano já está ativo. Enviamos a confirmação no seu WhatsApp.</div></div>
               </div>
             )}
             {!confirmingPayment && renewalStatus === "still_pending" && (
               <div className="flex items-start gap-3">
-                <WarningCircle size={24} weight="fill" className="text-[#FF9F0A]" />
-                <div>
-                  <div className="font-semibold text-[#FF9F0A]">Pagamento em processamento</div>
-                  <div className="text-xs text-white/60 mt-1">
-                    Ainda não recebemos a confirmação do InfinitePay. Assim que chegar,
-                    você receberá a mensagem no WhatsApp automaticamente — não precisa pagar de novo.
-                  </div>
-                </div>
+                <WarningCircle size={24} weight="fill" className="text-[#FBBF24]" />
+                <div><div className="font-semibold text-[#FBBF24]">Pagamento em processamento</div><div className="text-xs text-slate-400 mt-0.5">Assim que o InfinitePay confirmar, você recebe a mensagem no WhatsApp — não precisa pagar de novo.</div></div>
               </div>
             )}
           </div>
         )}
 
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-xs uppercase tracking-widest text-white/60 mb-4">
-            <Lock size={12} weight="fill" />
-            Pagamento seguro
+        <CustomerHeader customer={customer} />
+
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2 px-1">Escolha o plano</div>
+          <div className="grid grid-cols-2 gap-3">
+            {PLANS.map((p) => (
+              <PlanCard key={p.months} plan={p} price={prices[p.months] ?? 0} monthlyBase={monthlyBase}
+                active={selected === p.months} onSelect={() => setSelected(p.months)} />
+            ))}
           </div>
-          <h1 className="font-display text-5xl font-bold tracking-tight">
-            Renovar plano
-          </h1>
-          <p className="text-white/50 mt-2 text-sm">
-            Olá <b className="text-white">{customer?.name}</b>, escolha seu plano abaixo:
-          </p>
-          {customer?.expires_at && (
-            <p className="text-xs text-[#FF9F0A] mt-2">
-              Expira em: {formatDateBR(customer.expires_at)}
-            </p>
+        </div>
+
+        <div className="rounded-2xl border border-white/[0.08] bg-[#0D111A] p-4 space-y-3" data-testid="coupon-section">
+          {!couponApplied ? (
+            <>
+              <div className="flex gap-2">
+                <Input data-testid="input-coupon" placeholder="Cupom de desconto" maxLength={40}
+                  className="flex-1 bg-[#0A0D14] border-white/[0.08] uppercase h-10 focus-visible:ring-[#10B981]/40"
+                  value={couponInput} disabled={validatingCoupon}
+                  onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleApplyCoupon()} />
+                <Button onClick={handleApplyCoupon} disabled={validatingCoupon || !couponInput.trim()} variant="outline"
+                  className="h-10 border-white/10 bg-transparent hover:bg-white/5" data-testid="btn-apply-coupon">
+                  <Tag size={14} className="mr-1.5" />{validatingCoupon ? "..." : "Aplicar"}
+                </Button>
+              </div>
+              {couponError && <div className="text-xs text-[#F87171]" data-testid="coupon-error">{couponError}</div>}
+            </>
+          ) : (
+            <div data-testid="coupon-applied" className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Tag size={16} className="text-[#34D399]" />
+                <span className="font-mono font-bold">{couponApplied.code}</span>
+                <span className="text-[#34D399]">-{couponApplied.discount_percent}%</span>
+              </div>
+              <button onClick={handleRemoveCoupon} className="text-slate-400 hover:text-white p-1" aria-label="Remover cupom" data-testid="btn-remove-coupon"><X size={16} /></button>
+            </div>
           )}
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          {PLANS.map((p) => {
-            const price = prices[p.months] ?? 0;
-            const active = selected === p.months;
-            return (
-              <button
-                key={p.months}
-                onClick={() => setSelected(p.months)}
-                className={
-                  "relative rounded-xl p-4 text-left transition-all " +
-                  (active
-                    ? "bg-[#007AFF]/10 border-2 border-[#007AFF] shadow-[0_0_30px_rgba(0,122,255,0.25)]"
-                    : "surface hover:bg-white/[0.03]")
-                }
-                data-testid={`plan-${p.months}`}
-              >
-                {p.savings && (
-                  <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#34C759]/20 text-[#34C759]">
-                    -{p.savings}
-                  </span>
-                )}
-                <div className="text-xs text-white/50 uppercase tracking-widest">{p.label}</div>
-                <div className="font-display text-2xl font-bold mt-2">{formatMoney(price)}</div>
-                {active && <CheckCircle size={18} weight="fill" className="text-[#007AFF] mt-2" />}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="surface rounded-2xl p-6">
-          {/* Cupom de desconto */}
-          <div className="mb-4" data-testid="coupon-section">
-            {!couponApplied ? (
-              <div>
-                <div className="flex gap-2">
-                  <Input
-                    data-testid="input-coupon"
-                    placeholder="Tem um cupom? Digite aqui"
-                    className="flex-1 bg-white/[0.03] border-white/10 uppercase"
-                    value={couponInput}
-                    onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(""); }}
-                    onKeyDown={(e) => e.key === "Enter" && handleApplyCoupon()}
-                    disabled={validatingCoupon}
-                    maxLength={40}
-                  />
-                  <Button
-                    onClick={handleApplyCoupon}
-                    disabled={validatingCoupon || !couponInput.trim()}
-                    variant="outline"
-                    className="border-white/10 hover:bg-white/5"
-                    data-testid="btn-apply-coupon"
-                  >
-                    <Tag size={14} className="mr-1.5" />
-                    {validatingCoupon ? "..." : "Aplicar"}
-                  </Button>
-                </div>
-                {couponError && (
-                  <div className="mt-2 text-xs text-[#FF3B30]" data-testid="coupon-error">
-                    {couponError}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                data-testid="coupon-applied"
-                className="p-3 rounded-xl border border-[#34C759]/40 bg-[#34C759]/5 flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-2">
-                  <Tag size={16} className="text-[#34C759]" />
-                  <div>
-                    <div className="text-xs uppercase tracking-widest text-[#34C759]">
-                      Cupom aplicado
-                    </div>
-                    <div className="text-sm mt-0.5">
-                      <span className="font-mono font-bold">{couponApplied.code}</span> —{" "}
-                      <span className="font-bold">{couponApplied.discount_percent}% off</span>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={handleRemoveCoupon}
-                  className="text-white/50 hover:text-white p-1"
-                  aria-label="Remover cupom"
-                  data-testid="btn-remove-coupon"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-          </div>
-
           {autoPct > 0 && discountSource === "auto" && (
-            <div
-              data-testid="discount-banner"
-              className="mb-4 p-3 rounded-xl border border-[#34C759]/40 bg-[#34C759]/5"
-            >
-              <div className="text-xs uppercase tracking-widest text-[#34C759]">
-                🎁 Desconto especial ativo
-              </div>
-              <div className="text-sm mt-1">
-                Pague <span className="font-bold">hoje</span> e ganhe{" "}
-                <span className="font-bold">{autoPct}% off</span> — válido até o fim do dia.
-              </div>
+            <div data-testid="discount-banner" className="text-xs rounded-lg bg-[#10B981]/10 text-[#34D399] px-3 py-2">
+              Pague hoje e ganhe <b>{autoPct}% de desconto</b> — válido até o fim do dia.
             </div>
           )}
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-xs uppercase tracking-widest text-white/40">Total a pagar</div>
-              {effectivePct > 0 ? (
-                <div className="flex items-baseline gap-3 mt-1">
-                  <div className="font-display text-4xl font-bold text-[#34C759]" data-testid="discounted-price">
-                    {formatMoney(discountedPrice)}
-                  </div>
-                  <div className="text-lg text-white/40 line-through" data-testid="original-price">
-                    {formatMoney(rawPrice)}
-                  </div>
-                </div>
-              ) : (
-                <div className="font-display text-4xl font-bold mt-1">{formatMoney(rawPrice)}</div>
-              )}
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-white/40">Sistema</div>
-              <div className="uppercase font-medium">{customer?.system_type}</div>
-            </div>
-          </div>
+        </div>
 
+        <PaymentsHistory history={data?.payments_history} />
+
+        {(data?.messages_history?.length > 0) && (
+          <details className="rounded-2xl border border-white/[0.08] bg-[#0D111A]" data-testid="messages-history">
+            <summary className="cursor-pointer list-none px-5 py-4 text-sm text-slate-300">Últimas mensagens que enviamos</summary>
+            <div className="px-5 pb-4 space-y-2 max-h-80 overflow-y-auto">
+              {data.messages_history.map((m) => (
+                <div key={m.id} data-testid={`history-message-${m.id}`} className="py-2 border-t border-white/[0.05] first:border-0">
+                  <div className="text-[11px] text-slate-500 mb-1">{formatDateBR(m.timestamp)}</div>
+                  <div className="text-sm whitespace-pre-wrap text-slate-300">{m.message}</div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
+      <div className="fixed bottom-0 inset-x-0 border-t border-white/[0.08] bg-[#06080D]/90 backdrop-blur-xl" data-testid="pay-summary-bar">
+        <div className="max-w-md mx-auto px-4 py-4">
+          <div className="flex items-end justify-between mb-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Total · {PLANS.find((p) => p.months === selected)?.label}</div>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className={`font-mono text-3xl font-bold ${effectivePct > 0 ? "text-[#34D399]" : ""}`} data-testid="discounted-price">{formatMoney(discountedPrice)}</span>
+                {effectivePct > 0 && <span className="text-sm text-slate-500 line-through font-mono" data-testid="original-price">{formatMoney(rawPrice)}</span>}
+              </div>
+            </div>
+            <div className="text-[11px] text-slate-500 text-right">Pix ou cartão<br />em até 12x</div>
+          </div>
           <Button
-            className="w-full h-12 bg-[#007AFF] hover:bg-[#005BB5] font-semibold"
+            className="w-full h-12 rounded-xl bg-[#10B981] hover:bg-[#059669] text-[#04130D] font-semibold text-base active:scale-[0.99] transition-colors"
             onClick={() => createPayMut.mutate({
               customer_id: customerId,
               plan_months: selected,
@@ -405,143 +300,11 @@ export default function PublicPay() {
             disabled={createPayMut.isPending}
             data-testid="btn-checkout"
           >
-            <CreditCard size={18} className="mr-2" />
-            {createPayMut.isPending ? "Redirecionando..." : "Pagar com InfinitePay"}
+            {createPayMut.isPending ? "Abrindo pagamento..." : "Pagar agora"}
             <ArrowRight size={18} className="ml-2" weight="bold" />
           </Button>
-
-          <p className="text-[11px] text-white/40 mt-4 text-center">
-            Pagamento processado pela InfinitePay · Pix ou Cartão em até 12x
-          </p>
+          <div className="text-[10px] text-slate-600 text-center mt-2">Processado com segurança pela InfinitePay · ativação automática</div>
         </div>
-
-        {/* Histórico de pagamentos + comprovantes */}
-        {(data?.payments_history?.length > 0) && (
-          <div className="surface rounded-2xl p-6 mt-6" data-testid="payments-history">
-            <h3 className="text-sm uppercase tracking-widest text-white/50 mb-4">
-              Seus pagamentos e comprovantes
-            </h3>
-
-            {/* Destaque no último pagamento pago */}
-            {(() => {
-              const latestPaid = data.payments_history.find((p) => p.status === "paid");
-              if (!latestPaid) return null;
-              const receiptLink = latestPaid.receipt_url || latestPaid.infinitepay_url;
-              return (
-                <div
-                  data-testid="latest-receipt-highlight"
-                  className="mb-4 p-4 rounded-xl border border-[#34C759]/40 bg-[#34C759]/5"
-                >
-                  <div className="text-xs uppercase tracking-widest text-[#34C759] mb-2">
-                    Último pagamento confirmado
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-lg font-semibold">
-                        {formatMoney(latestPaid.amount_cents)} · {latestPaid.plan_months} mês
-                        {latestPaid.plan_months > 1 ? "es" : ""}
-                      </div>
-                      <div className="text-xs text-white/50 mt-1">
-                        {formatDateBR(latestPaid.paid_at || latestPaid.created_at)}
-                      </div>
-                    </div>
-                    {receiptLink && (
-                      <a
-                        href={receiptLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        data-testid="latest-receipt-link"
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#34C759] text-black text-xs font-semibold hover:bg-[#34C759]/90 transition-colors"
-                      >
-                        {latestPaid.receipt_url ? "Ver comprovante" : "Ver pagamento"} ↗
-                      </a>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className="space-y-3">
-              {data.payments_history.map((p) => {
-                const link = p.receipt_url || p.infinitepay_url;
-                return (
-                  <div
-                    key={p.id}
-                    data-testid={`history-payment-${p.id}`}
-                    className="flex items-center justify-between p-3 rounded-lg border border-white/[0.05] bg-white/[0.02]"
-                  >
-                  <div>
-                    <div className="text-sm font-medium">
-                      {p.plan_months} mês{p.plan_months > 1 ? "es" : ""} — {formatMoney(p.amount_cents)}
-                    </div>
-                    <div className="text-xs text-white/40 mt-0.5">
-                      {p.status === "paid"
-                        ? `Pago em ${formatDateBR(p.paid_at || p.created_at)}`
-                        : p.status === "pending"
-                        ? "Aguardando pagamento"
-                        : p.status}
-                      {p.coupon_code && (
-                        <span
-                          className="ml-2 inline-flex items-center gap-1 text-[#34C759]"
-                          data-testid={`history-coupon-${p.id}`}
-                        >
-                          · <Tag size={10} /> {p.coupon_code} (-{p.discount_percent}%)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={
-                          "text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " +
-                          (p.status === "paid"
-                            ? "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30"
-                            : "bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30")
-                        }
-                      >
-                        {p.status === "paid" ? "Confirmado" : p.status}
-                      </span>
-                      {link && (
-                        <a
-                          href={link}
-                          target="_blank"
-                          rel="noreferrer"
-                          data-testid={`receipt-link-${p.id}`}
-                          className="text-[#007AFF] text-xs hover:underline"
-                        >
-                          {p.receipt_url ? "Comprovante" : "Detalhes"} ↗
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Histórico de mensagens enviadas ao cliente */}
-        {(data?.messages_history?.length > 0) && (
-          <div className="surface rounded-2xl p-6 mt-6" data-testid="messages-history">
-            <h3 className="text-sm uppercase tracking-widest text-white/50 mb-4">
-              Últimas mensagens que enviamos
-            </h3>
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {data.messages_history.map((m) => (
-                <div
-                  key={m.id}
-                  data-testid={`history-message-${m.id}`}
-                  className="p-3 rounded-lg border border-white/[0.05] bg-white/[0.02]"
-                >
-                  <div className="text-xs text-white/40 mb-1">
-                    {formatDateBR(m.timestamp)}
-                  </div>
-                  <div className="text-sm whitespace-pre-wrap text-white/80">{m.message}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

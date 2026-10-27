@@ -32,31 +32,31 @@ const VAR_HELP = {
 const EVENT_META = {
   expiration_7d: {
     icon: "📅",
-    color: "#5AC8FA",
+    color: "#60A5FA",
     description: "Enviado 7 dias antes do vencimento",
     vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}", "{discount_line}", "{discount_percent}"],
   },
   expiration_3d: {
     icon: "🕒",
-    color: "#FF9F0A",
+    color: "#F59E0B",
     description: "Enviado 3 dias antes do vencimento",
     vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
   expiration_1d: {
     icon: "⏰",
-    color: "#FF9F0A",
+    color: "#F59E0B",
     description: "Enviado 1 dia antes do vencimento",
     vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
   expiration_0d: {
     icon: "🚨",
-    color: "#FF3B30",
+    color: "#EF4444",
     description: "Enviado no dia do vencimento",
     vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}"],
   },
   expired_1d: {
     icon: "😢",
-    color: "#FF3B30",
+    color: "#EF4444",
     description: "Enviado 1 dia após o vencimento",
     vars: ["{name}", "{user}", "{user_id}", "{expires_at}", "{pay_link}", "{days}"],
   },
@@ -74,25 +74,25 @@ const EVENT_META = {
   },
   renewal_success: {
     icon: "✅",
-    color: "#34C759",
+    color: "#10B981",
     description: "Enviado após confirmação do pagamento InfinitePay",
     vars: ["{name}", "{user}", "{plan_months}", "{new_expires_at}", "{system_type}"],
   },
   trial_ready: {
     icon: "🎁",
-    color: "#007AFF",
+    color: "#3B82F6",
     description: "Enviado quando um teste é criado (via /teste ou WhatsApp)",
     vars: ["{name}", "{user}", "{pass}", "{expires}", "{system_type}", "{mac}", "{pay_link}"],
   },
   trial_1h_reminder: {
     icon: "⏱️",
-    color: "#5AC8FA",
+    color: "#60A5FA",
     description: "Enviado 1 hora após a criação do teste (upsell)",
     vars: ["{name}", "{user}", "{pass}", "{system_type}", "{pay_link}"],
   },
   trial_expired: {
     icon: "🏁",
-    color: "#FF9F0A",
+    color: "#F59E0B",
     description: "Enviado 3 horas após a criação (fim do teste)",
     vars: ["{name}", "{system_type}", "{pay_link}"],
   },
@@ -206,7 +206,7 @@ function NotificationCard({ notif, onSave, onRestore, testPhone, onSendTest }) {
                 <Button
                   type="button"
                   variant="outline"
-                  className="border-white/10 shrink-0 text-[#FF3B30] hover:bg-[#FF3B30]/10"
+                  className="border-white/10 shrink-0 text-[#EF4444] hover:bg-[#EF4444]/10"
                   onClick={() => setForm({ ...form, image_url: "" })}
                   data-testid={`notif-remove-image-${notif.event_key}`}
                 >
@@ -235,7 +235,7 @@ function NotificationCard({ notif, onSave, onRestore, testPhone, onSendTest }) {
                 <button
                   key={v}
                   onClick={() => setForm({ ...form, body: form.body + v })}
-                  className="text-[10px] font-mono px-2 py-1 rounded bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.1] hover:border-[#007AFF]/40 hover:text-[#007AFF] transition-colors"
+                  className="text-[10px] font-mono px-2 py-1 rounded bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.1] hover:border-[#3B82F6]/40 hover:text-[#3B82F6] transition-colors"
                   type="button"
                   title={VAR_HELP[v] || v}
                   data-testid={`var-chip-${notif.event_key}-${v.replace(/[{}]/g, '')}`}
@@ -321,7 +321,7 @@ function NotificationCard({ notif, onSave, onRestore, testPhone, onSendTest }) {
           Restaurar padrão
         </Button>
         <Button
-          className="bg-[#007AFF] hover:bg-[#005BB5]"
+          className="bg-[#3B82F6] hover:bg-[#2563EB]"
           disabled={!dirty}
           onClick={() => onSave(notif.event_key, form)}
           data-testid={`notif-save-${notif.event_key}`}
@@ -400,7 +400,7 @@ export default function Notifications() {
         <>
           <div className="surface rounded-xl p-4 mb-4">
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-md bg-[#007AFF]/15 text-[#007AFF] flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-md bg-[#3B82F6]/15 text-[#3B82F6] flex items-center justify-center shrink-0">
                 <Bell size={16} weight="duotone" />
               </div>
               <div className="text-sm text-white/70 leading-relaxed">
@@ -412,7 +412,7 @@ export default function Notifications() {
           </div>
 
           <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="bg-[#121212] border border-white/10 flex-wrap h-auto">
+            <TabsList className="bg-[#0D111A] border border-white/10 flex-wrap h-auto">
               {(notifs || []).map((n) => (
                 <TabsTrigger key={n.event_key} value={n.event_key} data-testid={`notif-tab-${n.event_key}`}>
                   {EVENT_META[n.event_key]?.icon || "🔔"} {n.title}
@@ -448,9 +448,9 @@ export default function Notifications() {
 
 function StatusBadge({ status }) {
   const map = {
-    sent: { bg: "#34C759", icon: <CheckCircle size={12} weight="fill" />, label: "Enviada" },
-    pending: { bg: "#FF9F0A", icon: <Clock size={12} weight="fill" />, label: "Pendente" },
-    failed_permanent: { bg: "#FF3B30", icon: <WarningCircle size={12} weight="fill" />, label: "Falhou" },
+    sent: { bg: "#10B981", icon: <CheckCircle size={12} weight="fill" />, label: "Enviada" },
+    pending: { bg: "#F59E0B", icon: <Clock size={12} weight="fill" />, label: "Pendente" },
+    failed_permanent: { bg: "#EF4444", icon: <WarningCircle size={12} weight="fill" />, label: "Falhou" },
   };
   const s = map[status] || { bg: "#8E8E93", icon: null, label: status };
   return (
@@ -496,10 +496,10 @@ function DeliveriesPanel() {
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { label: "Enviadas", value: counts.sent || 0, color: "#34C759" },
-          { label: "Pendentes", value: counts.pending || 0, color: "#FF9F0A" },
-          { label: "Falhou", value: counts.failed_permanent || 0, color: "#FF3B30" },
-          { label: "Duplicatas bloqueadas", value: dedupStats.total_blocked || 0, color: "#5AC8FA" },
+          { label: "Enviadas", value: counts.sent || 0, color: "#10B981" },
+          { label: "Pendentes", value: counts.pending || 0, color: "#F59E0B" },
+          { label: "Falhou", value: counts.failed_permanent || 0, color: "#EF4444" },
+          { label: "Duplicatas bloqueadas", value: dedupStats.total_blocked || 0, color: "#60A5FA" },
           { label: "Bloqueadas (24h)", value: dedupStats.blocked_24h || 0, color: "#AF52DE" },
         ].map((s) => (
           <div key={s.label} className="surface rounded-xl p-3" data-testid={`stat-${s.label.toLowerCase().replace(/ /g, '-')}`}>
@@ -653,7 +653,7 @@ function NumericSetting({ testId, label, hint, initialValue, min, max, step,
   };
 
   const borderColor = dirty
-    ? (highlight || "#FF9F0A")
+    ? (highlight || "#F59E0B")
     : (highlight ? `${highlight}30` : "rgba(255,255,255,0.1)");
 
   return (
@@ -676,14 +676,14 @@ function NumericSetting({ testId, label, hint, initialValue, min, max, step,
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && dirty) doSave(); }}
-          className={"bg-white/5 h-8 text-sm font-mono " + (dirty ? "border-[#FF9F0A]/50" : "border-white/10")}
+          className={"bg-white/5 h-8 text-sm font-mono " + (dirty ? "border-[#F59E0B]/50" : "border-white/10")}
           data-testid={testId}
         />
         <Button
           size="sm"
           onClick={doSave}
           disabled={!dirty || saving}
-          className={"h-8 px-2 text-xs shrink-0 " + (dirty ? "bg-[#FF9F0A] hover:bg-[#FF9500] text-black" : "bg-white/10")}
+          className={"h-8 px-2 text-xs shrink-0 " + (dirty ? "bg-[#F59E0B] hover:bg-[#FF9500] text-black" : "bg-white/10")}
           data-testid={`${testId}-save`}
           title={dirty ? "Salvar (Enter)" : "Sem alterações"}
         >
@@ -691,7 +691,7 @@ function NumericSetting({ testId, label, hint, initialValue, min, max, step,
         </Button>
       </div>
       <div className="text-[10px] text-white/40 mt-1">
-        {dirty ? <span className="text-[#FF9F0A]">Não salvo — clique no ícone ou Enter</span> : hint}
+        {dirty ? <span className="text-[#F59E0B]">Não salvo — clique no ícone ou Enter</span> : hint}
       </div>
     </div>
   );
@@ -738,7 +738,7 @@ function DedupPanel() {
   const counts = data?.counts_by_reason || {};
 
   const REASON_META = {
-    phone_event: { label: "Mesmo evento", color: "#FF9F0A", desc: "Bloqueado pois mesmo evento já foi enviado neste telefone recentemente" },
+    phone_event: { label: "Mesmo evento", color: "#F59E0B", desc: "Bloqueado pois mesmo evento já foi enviado neste telefone recentemente" },
     body_hash: { label: "Mesmo conteúdo", color: "#AF52DE", desc: "Bloqueado pois um texto idêntico já foi enviado (evento diferente, mesma mensagem)" },
   };
 
@@ -752,10 +752,10 @@ function DedupPanel() {
       {/* Rules config — the actual settings powering the anti-dupe system */}
       <div className="surface rounded-xl p-4" data-testid="dedup-rules-config">
         <div className="flex items-center gap-2 mb-3">
-          <ShieldCheck size={18} className="text-[#5AC8FA]" weight="duotone" />
+          <ShieldCheck size={18} className="text-[#60A5FA]" weight="duotone" />
           <h3 className="font-display text-base font-bold">Regras da fila anti-duplicação</h3>
           {saveSettingMut.isPending && (
-            <span className="text-[10px] text-[#FF9F0A] animate-pulse">Salvando...</span>
+            <span className="text-[10px] text-[#F59E0B] animate-pulse">Salvando...</span>
           )}
         </div>
         <p className="text-xs text-white/50 mb-4 leading-relaxed">
@@ -776,7 +776,7 @@ function DedupPanel() {
                   className="sr-only peer"
                   data-testid="dedup-toggle-enabled"
                 />
-                <div className="w-9 h-5 bg-white/10 peer-checked:bg-[#34C759] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                <div className="w-9 h-5 bg-white/10 peer-checked:bg-[#10B981] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
               </label>
             </div>
             <div className="text-[10px] text-white/40">{dedupEnabled ? "Sistema ativo — regras obedecidas" : "Bypass — todos são enviados"}</div>
@@ -808,7 +808,7 @@ function DedupPanel() {
             testId="send-gap-input"
             label="⏱️ Espera entre envios (seg)"
             hint="Cada envio espera N seg — anti-spam do WA"
-            highlight="#FF9F0A"
+            highlight="#F59E0B"
             initialValue={sendGap}
             step={0.5}
             min={0}
@@ -819,12 +819,12 @@ function DedupPanel() {
           />
         </div>
 
-        <div className="mt-3 p-2.5 rounded-md bg-[#5AC8FA]/5 border border-[#5AC8FA]/20 text-[11px] text-white/70 leading-relaxed">
-          <b className="text-[#5AC8FA]">Como funciona:</b> quando várias notificações precisam sair juntas (ex: 500 clientes vencendo hoje),
+        <div className="mt-3 p-2.5 rounded-md bg-[#60A5FA]/5 border border-[#60A5FA]/20 text-[11px] text-white/70 leading-relaxed">
+          <b className="text-[#60A5FA]">Como funciona:</b> quando várias notificações precisam sair juntas (ex: 500 clientes vencendo hoje),
           a fila envia uma de cada vez, esperando <b>{sendGap}s entre elas</b>. Isso evita bloqueio de anti-spam do WhatsApp e reduz duplicações.
           Se durante essa espera outra notificação idêntica entrar na fila, ela é <b>bloqueada</b> pelas regras acima e aparece na lista abaixo.
           <br /><br />
-          <b className="text-[#34C759]">✅ Aplicação em tempo real:</b> o sistema lê estes valores no banco a cada envio — assim que você salvar,
+          <b className="text-[#10B981]">✅ Aplicação em tempo real:</b> o sistema lê estes valores no banco a cada envio — assim que você salvar,
           a próxima mensagem já respeita a nova regra. Nada de reiniciar serviço.
         </div>
       </div>
@@ -832,7 +832,7 @@ function DedupPanel() {
       {/* Info card */}
       <div className="surface rounded-xl p-4">
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-md bg-[#5AC8FA]/15 text-[#5AC8FA] flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-md bg-[#60A5FA]/15 text-[#60A5FA] flex items-center justify-center shrink-0">
             <ShieldCheck size={16} weight="duotone" />
           </div>
           <div className="text-sm text-white/70 leading-relaxed">
@@ -840,8 +840,8 @@ function DedupPanel() {
             Toda vez que uma notificação tentou ser enviada mas o sistema detectou que seria uma <b>duplicata</b>,
             o envio foi bloqueado e registrado aqui. As duas regras ativas:
             <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-              <div className="p-2 rounded bg-[#FF9F0A]/10 border border-[#FF9F0A]/20">
-                <b className="text-[#FF9F0A]">Mesmo evento</b>: mesmo <code>event_key</code> + mesmo telefone dentro da janela ({dedupWindow} min).
+              <div className="p-2 rounded bg-[#F59E0B]/10 border border-[#F59E0B]/20">
+                <b className="text-[#F59E0B]">Mesmo evento</b>: mesmo <code>event_key</code> + mesmo telefone dentro da janela ({dedupWindow} min).
               </div>
               <div className="p-2 rounded bg-[#AF52DE]/10 border border-[#AF52DE]/20">
                 <b className="text-[#AF52DE]">Mesmo conteúdo</b>: mesmo texto renderizado + mesmo telefone ({bodyWindow} min).
@@ -855,13 +855,13 @@ function DedupPanel() {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div className="surface rounded-xl p-3">
           <div className="text-xs text-white/50">Total bloqueado</div>
-          <div className="text-2xl font-display font-bold mt-1 text-[#5AC8FA]">
+          <div className="text-2xl font-display font-bold mt-1 text-[#60A5FA]">
             {(counts.phone_event || 0) + (counts.body_hash || 0)}
           </div>
         </div>
         <div className="surface rounded-xl p-3">
           <div className="text-xs text-white/50">Por mesmo evento</div>
-          <div className="text-2xl font-display font-bold mt-1 text-[#FF9F0A]">{counts.phone_event || 0}</div>
+          <div className="text-2xl font-display font-bold mt-1 text-[#F59E0B]">{counts.phone_event || 0}</div>
         </div>
         <div className="surface rounded-xl p-3">
           <div className="text-xs text-white/50">Por mesmo conteúdo</div>
