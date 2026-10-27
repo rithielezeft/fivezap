@@ -22,6 +22,7 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - 2026-10-27 Redesign moderno/minimalista: nova paleta global (#06080D/#0D111A, azul #3B82F6, verde #10B981), sidebar agrupada, página Financeiro (/payments, GET /api/finance/summary) com KPIs, gráficos, renovações por período, top clientes, últimas receitas, tabela filtrável; checkout público /pay mobile-first com barra fixa de total.
 - 2026-10-27 Mongo do usuário: mongo_store usa WHATSFLOW_MONGO_URL (+ WHATSFLOW_DB_NAME=whatsflow) quando definido; MONGO_URL/DB_NAME da plataforma intocados.
 - 2026-10-27 Sidebar só 'WhatsFlow'; checkout /pay no estilo pagme.xyz (coluna da marca + card branco de planos, cupom, 'Ir para pagamento'), marca configurável (brand_name/brand_logo_url em Configurações); painel 'Qual mensagem gera mais pagamento?' com períodos 7/30/90, funil (enviadas→checkouts→pagos→receita), campeã, ranking com conversão/ticket/participação.
+- 2026-10-27 Financeiro: comprovantes por cliente (diálogo), painel de créditos (gastos por plano x custo por crédito configurável, lucro, saldo/última recarga), PDF mensal (reportlab) com download/envio manual e envio automático ao admin_whatsapp (cron platform .emergent/crons.yml dia 1 12:00 UTC + loop horário na Raspberry, idempotente por mês, só dias 1-3). Geografia: Clientes por região (ativos/vencidos/cancelados; cancelado = histórico Atlas/SQLite fora do painel e sem sync há 3+ dias, dedupe por login/telefone).
 
 ## Notes
 - ADMIN_PASSWORD in .env is re-applied on every backend restart (password changed in UI resets on restart).

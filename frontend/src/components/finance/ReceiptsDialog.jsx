@@ -17,7 +17,7 @@ export function ReceiptsDialog({ customerId, onClose }) {
         <DialogHeader>
           <DialogTitle className="font-display">Comprovantes de {data?.login || "cliente"}</DialogTitle>
           <DialogDescription className="text-slate-400 text-xs">
-            {list.length} fatura(s) · total pago {formatMoney(data?.total_paid_cents || 0)}
+            {list.length} {list.length === 1 ? "fatura" : "faturas"} · total pago {formatMoney(data?.total_paid_cents || 0)}
           </DialogDescription>
         </DialogHeader>
         {isLoading && <div className="py-8 text-center text-sm text-slate-500">Carregando...</div>}
@@ -26,7 +26,7 @@ export function ReceiptsDialog({ customerId, onClose }) {
           {list.map((p, i) => (
             <div key={p.id} className="flex items-center gap-3 py-3" data-testid={`receipt-item-${i}`}>
               <div className="flex-1 min-w-0">
-                <div className="font-mono text-sm font-semibold">{formatMoney(p.amount_cents)} <span className="font-sans font-normal text-slate-500 text-xs">· {p.plan_months} mês(es)</span></div>
+                <div className="font-mono text-sm font-semibold">{formatMoney(p.amount_cents)} <span className="font-sans font-normal text-slate-500 text-xs">· {p.plan_months} {p.plan_months === 1 ? "mês" : "meses"}</span></div>
                 <div className="text-[11px] text-slate-500">{formatDateBR(p.paid_at || p.created_at)}{p.coupon_code ? ` · cupom ${p.coupon_code}` : ""}</div>
               </div>
               <StatusBadge status={p.status} />

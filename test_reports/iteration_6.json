@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 6 tested Financeiro (receipts, credits, PDF, WhatsApp send), the cron monthly-report endpoint and Geografia customers-by-region, all read-only against production. Backend: 20/20 pytest pass. GET /api/finance/customer/227427597/payments returns the 4 TESTR_ payments, login andrecartv, total_paid 44000; an unknown id returns an empty list; the endpoint needs auth. summary.credits = {used:17 (2x1m + 1x3m + 1x12m), per_plan default 1:1..12:12, unit_cost 0, cost 0, profit null}. report.pdf returns a %PDF with filename financeiro-2026-10.pdf, 400 for abc/2026-00/2026-13/1999-01 and 401 without a token. report/send returns {sent:false, reason:'WhatsApp do admin não configurado em Configurações'}. The cron endpoint returns 401 with no token, a wrong token or the admin JWT, and 200 {accepted:true} with WEBHOOK_CRON_SECRET. geography/customers: totals match both the customer list and the region sums (13 active / 1 expired / 428 cancelled, 59 regions), and the endpoint needs auth. Frontend: credits-item-0..3 show 17 / — / — / 0,26 créd. plus the recharge hint. receipts-btn-TESTR_0 and customer-login-TESTR_1 both open receipts-dialog (4 items, 4 receipt-open links, Esc closes it). report-download-btn downloads a valid PDF. report-send-btn shows the toast 'Não enviado — WhatsApp do admin não configurado em Configurações'. Geografia region list, region selection, the Ativos/Vencidos/Cancelados tabs and region search all work. Settings shows both new fields, empty with placeholders; nothing was saved. No JS errors. The only non-GET calls were auth/login and report/send.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/analytics/geography/customers", "issue": "Cancelled customers are deduped only by id. The same person recreated with a new painel id (same login + phone, e.g. alissonnew 228105837/228408447, macedotv, reynaldo...) appears twice as cancelled. That is 17 duplicate logins and 57 duplicate phones in the current data, so the 428 cancelled count is inflated. A former id of a customer who is now active under a new id would also show as 'cancelled'. Dedupe by normalized login (and/or phone) against the current painel users."},
+      {"endpoint": "POST /api/cron/monthly-report", "issue": "Dedupe on X-Webhook-Id calls set_setting('cron_run_<id>'), which mirrors to Mongo Atlas (database.set_setting → mongo_store.upsert_setting). Every cron run adds a permanent settings key in both SQLite and Atlas, which bloats the table without bound. Consider a TTL'd/separate collection, or keep only the last N ids. The duplicate:true path was NOT exercised for that reason (it would write to production Atlas)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "RegionCustomers search", "issue": "The placeholder says 'Buscar região ou cliente...', but filteredRegions filters only by region label/name. Typing a customer login (e.g. 'oscarnew', a cancelled customer in BR-67) hides every region (0 shown), so customer search never works. Fix: keep regions that contain a matching customer (or auto-select the region of the first match).", "selector": "[data-testid='region-search']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Financeiro credits panel", "issues": ["Saldo no painel shows '0,26 créd.' while the balances API reports currency 'BRL'. If the balance is actually R$, both the 'créd.' label and the '49,74 gastos desde então' math (last_recharge_credits − balance) are wrong. Please verify the unit.", "Receipts dialog: '1 mês(es)' / 'fatura(s)' — pluralise properly."]},
+      {"screen": "Routing", "issues": ["Unknown routes such as /geography render a completely blank page; add a catch-all 404 or a redirect."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter6_finance_geo.py", "/app/test_reports/pytest/pytest_results_iter6.xml"],
+  "action_items": [
+    "Fix region-search so it also matches customers (login/name/phone) and keeps or selects their region",
+    "Dedupe geography cancelled customers by login/phone, not only by id",
+    "Avoid writing a permanent cron_run_<id> setting (mirrored to Atlas) on every cron call",
+    "Verify the painel balance unit (credits vs BRL) in the CreditsPanel",
+    "Remove the TESTR_ seeded payments before release"
+  ],
+  "critical_code_review_comments": [
+    "ReportActions download: URL.revokeObjectURL is called synchronously right after a.click(), and the <a> is never attached to the DOM, so the download can fail in Firefox/Safari. Append the anchor and revoke inside a setTimeout.",
+    "ReceiptsDialog has no error state; a failed request shows 'Nenhum pagamento deste cliente.'",
+    "finance._load_rows loads ALL payments plus the whole painel cache on every call (summary, PDF, receipts). build_pdf calls summary() and then paid_rows_for(), which loads everything twice. Acceptable at the current scale.",
+    "maybe_send_previous_month only sends on days 1-3 after 09:00 in the display tz. If the cron fires at 12:00 UTC (09:00 SP) it is right on the boundary. That works, but any tz drift would skip the month; the in-process hourly loop is the fallback.",
+    "The geography_customers SQLite rows always set is_trial False, so SQLite-only trial customers that left the painel would be counted as 'cancelled'."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter6_finance_geo.py"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "95% (customer search in region-search broken)"},
+  "test_credentials": "Admin password Rithi0518@ works; WEBHOOK_CRON_SECRET read from backend/.env",
+  "seed_data_creation": "None. The TESTR_ payments were left untouched. Nothing was saved in Settings and admin_whatsapp was not configured.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=<url> pytest tests/test_iter6_finance_geo.py. The geography route is /geografia (not /geography). Do not send cron requests with X-Webhook-Id: it writes to Atlas. The painel cache currently holds only 14 users, so most known customers show as cancelled.",
+  "rca of the issue": "region-search: in RegionCustomers.jsx, filteredRegions = regions.filter(r => label/region includes q). The customer list filter also uses q, but it only runs for the selected region, and the region list is emptied first. Duplicate cancelled customers: in analytics.geography_customers, the `seen` set holds painel/Mongo ids; Mongo keeps old docs for re-created users under their old ids, so each old doc becomes an extra 'cancelled' entry."
+}

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useEffect } from "react";
 import "@/App.css";
@@ -51,6 +51,7 @@ export default function App() {
           <Route path="/payments" element={<P><Finance /></P>} />
           <Route path="/notifications" element={<P><Notifications /></P>} />
           <Route path="/fila" element={<P><SendQueue /></P>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
           <Route path="/coupons" element={<P><Coupons /></P>} />
           <Route path="/geografia" element={<P><Geography /></P>} />
           <Route path="/documentacao" element={<P><ApiDocs /></P>} />

@@ -136,6 +136,16 @@ async def geography(
     }
 
 
+def _recent(iso, days: int = 3) -> bool:
+    from datetime import datetime, timedelta, timezone
+    try:
+        d = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        d = d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - d < timedelta(days=days)
+    except Exception:
+        return False
+
+
 def _region_of(phone: str):
     digits = "".join(c for c in (phone or "") if c.isdigit())
     if len(digits) < 8:
@@ -188,10 +198,29 @@ async def geography_customers():
         for r in await cur.fetchall():
             known.append({"id": str(r["id"]), "login": r["painel_username"], "name": r["name"], "phone": r["whatsapp"] or "",
                           "expires_at": r["expires_at"], "system_type": r["system_type"], "is_trial": False, "last_seen": None})
+    def norm_phone(v):
+        d = "".join(c for c in str(v or "") if c.isdigit())
+        return d[-10:] if len(d) >= 10 else None
+
+    seen_logins = {(c["login"] or "").strip().lower() for c in out if c.get("login")}
+    seen_phones = {norm_phone(c["phone"]) for c in out} - {None}
+    # Newest record first so a re-created customer keeps its latest data.
+    known.sort(key=lambda k: str(k.get("last_seen") or ""), reverse=True)
     for k in known:
-        if k["id"] in seen or k["is_trial"]:
+        login = (k["login"] or "").strip().lower()
+        ph = norm_phone(k["phone"])
+        if k["id"] in seen or k["is_trial"] or (login and login in seen_logins) or (ph and ph in seen_phones):
             continue
         seen.add(k["id"])
+        if login:
+            seen_logins.add(login)
+        if ph:
+            seen_phones.add(ph)
+        # Still being synced to Atlas (e.g. by the Raspberry's painel refresh) → still on a painel.
+        if _recent(k.get("last_seen")):
+            info = compute_expiration_info({"exp_date_iso": k.get("expires_at"), "expires_at": k.get("expires_at")})
+            out.append({**k, "status": "expired" if info.get("status") == "expired" else "active"})
+            continue
         out.append({**k, "status": "cancelled"})
 
     regions = {}

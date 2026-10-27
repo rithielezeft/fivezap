@@ -34,14 +34,16 @@ export function RegionCustomers() {
   const [tab, setTab] = useState("active");
   const [q, setQ] = useState("");
   const regions = data?.regions || [];
-  const sel = region || regions[0]?.key;
+  const ql = q.trim().toLowerCase();
+  const match = (c) => [c.login, c.name, c.phone].some((v) => (v || "").toLowerCase().includes(ql));
+  const hitRegions = useMemo(() => new Set(ql ? (data?.customers || []).filter(match).map((c) => c.region_key) : []), [data, ql]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filteredRegions = regions.filter((r) => !ql || r.label.toLowerCase().includes(ql) || (r.region || "").toLowerCase().includes(ql) || hitRegions.has(r.key));
+  const sel = (region && filteredRegions.some((r) => r.key === region)) ? region : filteredRegions[0]?.key;
   const selRegion = regions.find((r) => r.key === sel);
 
   const list = useMemo(() => (data?.customers || []).filter((c) =>
     c.region_key === sel && c.status === tab &&
-    (!q || [c.login, c.name, c.phone].some((v) => (v || "").toLowerCase().includes(q.toLowerCase())))), [data, sel, tab, q]);
-
-  const filteredRegions = regions.filter((r) => !q || r.label.toLowerCase().includes(q.toLowerCase()) || (r.region || "").toLowerCase().includes(q.toLowerCase()));
+    (!ql || !hitRegions.has(sel) || match(c))), [data, sel, tab, ql, hitRegions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="surface rounded-2xl p-5 mt-6" data-testid="region-customers">

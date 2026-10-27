@@ -6,10 +6,10 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from database import get_setting, set_setting
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
 logger = logging.getLogger(__name__)
+_seen_runs: list = []
 
 
 @router.post("/monthly-report")
@@ -25,10 +25,12 @@ async def monthly_report(request: Request):
     except Exception:
         raise HTTPException(400, "invalid body")
     run_id = request.headers.get("x-webhook-id") or (body or {}).get("run_id") or ""
-    if run_id and await get_setting(f"cron_run_{run_id}"):
+    # In-memory run-id dedupe; send_report itself is idempotent per month.
+    if run_id and run_id in _seen_runs:
         return {"accepted": True, "duplicate": True}
     if run_id:
-        await set_setting(f"cron_run_{run_id}", "1")
+        _seen_runs.append(run_id)
+        del _seen_runs[:-200]
 
     from services.finance_report import maybe_send_previous_month
     asyncio.create_task(maybe_send_previous_month())
