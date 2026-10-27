@@ -1,0 +1,8 @@
+crons:
+  - name: monthly-finance-pdf
+    description: "Envia ao WhatsApp do admin o PDF financeiro do mês anterior, todo dia 1 às 9h (SP)"
+    cron: "0 12 1 * *"
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    endpoint: "{{BASE_URL}}/api/cron/monthly-report"
+    method: POST
+    enabled: true

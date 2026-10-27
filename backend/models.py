@@ -174,6 +174,8 @@ class SettingsUpdate(BaseModel):
     public_base_url: Optional[str] = None
     brand_name: Optional[str] = None
     brand_logo_url: Optional[str] = None
+    credit_unit_cost: Optional[str] = None
+    credits_per_plan: Optional[str] = None
     timezone: Optional[str] = None
     plan_price_1m: Optional[str] = None
     plan_price_3m: Optional[str] = None

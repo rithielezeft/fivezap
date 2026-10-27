@@ -4,6 +4,8 @@ import Layout from "@/components/Layout";
 import { paymentsApi, financeApi, formatMoney, formatDateBR } from "@/lib/api";
 import { KpiCard, Panel, RevenueChart, CountChart } from "@/components/finance/FinanceWidgets";
 import { PaymentsTable } from "@/components/finance/PaymentsTable";
+import { ReceiptsDialog } from "@/components/finance/ReceiptsDialog";
+import { CreditsPanel, ReportActions } from "@/components/finance/CreditsPanel";
 import {
   CaretLeft, CaretRight, CurrencyCircleDollar, Lightning, Hourglass, XCircle, Receipt,
   Target, Tag, TrendUp, TrendDown, X,
@@ -75,13 +77,14 @@ export default function Finance() {
   const now = new Date();
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [diag, setDiag] = useState(null);
+  const [receiptsFor, setReceiptsFor] = useState(null);
 
   const { data: s } = useQuery({ queryKey: ["finance", month], queryFn: () => financeApi.summary(month), refetchInterval: 30000 });
   const { data: payments } = useQuery({ queryKey: ["payments"], queryFn: paymentsApi.list, refetchInterval: 15000 });
   const periodTotal = Object.values(s?.by_period || {}).reduce((a, b) => a + b, 0);
 
   return (
-    <Layout title="Financeiro" subtitle="Renovações pagas pelo link InfinitePay" actions={<MonthPicker month={month} setMonth={setMonth} />}>
+    <Layout title="Financeiro" subtitle="Renovações pagas pelo link InfinitePay" actions={<><ReportActions month={month} /><MonthPicker month={month} setMonth={setMonth} /></>}>
       <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <HeroReceived s={s} />
@@ -95,6 +98,8 @@ export default function Finance() {
           <KpiCard label={`Cancelado/expirado · ${s?.failed.count ?? 0}`} value={formatMoney(s?.failed.amount_cents || 0)} accent="#EF4444" icon={XCircle} testId="kpi-failed" />
           <KpiCard label={`Cupons usados · ${s?.coupons.count ?? 0}`} value={formatMoney(s?.coupons.discount_cents || 0)} hint="desconto concedido" accent="#10B981" icon={Tag} testId="kpi-coupons" />
         </div>
+
+        <CreditsPanel credits={s?.credits} received={s?.received?.amount_cents || 0} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
@@ -126,7 +131,8 @@ export default function Finance() {
           </div>
         </div>
 
-        <PaymentsTable payments={payments} month={month} onDiag={setDiag} />
+        <PaymentsTable payments={payments} month={month} onDiag={setDiag} onCustomer={setReceiptsFor} />
+        <ReceiptsDialog customerId={receiptsFor} onClose={() => setReceiptsFor(null)} />
       </div>
 
       {diag && (

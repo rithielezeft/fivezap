@@ -115,6 +115,7 @@ export const settingsApi = {
 export const analyticsApi = {
   geography: (scope = "all") =>
     api.get("/analytics/geography", { params: { scope } }).then((r) => r.data),
+  geographyCustomers: () => api.get("/analytics/geography/customers", { timeout: 60000 }).then((r) => r.data),
 };
 
 export const systemApi = {
@@ -153,6 +154,9 @@ export const notificationsApi = {
 
 export const financeApi = {
   summary: (month) => api.get("/finance/summary", { params: { month } }).then((r) => r.data),
+  customerPayments: (id) => api.get(`/finance/customer/${id}/payments`).then((r) => r.data),
+  reportPdf: (month) => api.get("/finance/report.pdf", { params: { month }, responseType: "blob", timeout: 60000 }).then((r) => r.data),
+  sendReport: (month) => api.post("/finance/report/send", null, { params: { month }, timeout: 120000 }).then((r) => r.data),
 };
 
 export const queueApi = {

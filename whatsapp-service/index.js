@@ -510,7 +510,7 @@ app.post('/send', (req, res, next) => {
 });
 
 app.post('/send', async (req, res) => {
-  const { phone, message, image_url } = req.body || {};
+  const { phone, message, image_url, filename } = req.body || {};
   if (!phone) return res.status(400).json({ error: 'phone required' });
   if (!ready) return res.status(503).json({ error: 'whatsapp not ready', state });
   try {
@@ -564,7 +564,7 @@ app.post('/send', async (req, res) => {
       if (image_url.startsWith('data:')) {
         const [meta, b64] = image_url.split(',');
         const mime = meta.split(':')[1].split(';')[0];
-        media = new MessageMedia(mime, b64, 'imagem.' + (mime.split('/')[1] || 'jpg'));
+        media = new MessageMedia(mime, b64, filename || ('imagem.' + (mime.split('/')[1] || 'jpg')));
       } else {
         media = await MessageMedia.fromUrl(image_url, { unsafeMime: true });
       }

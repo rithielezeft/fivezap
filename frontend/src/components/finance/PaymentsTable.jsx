@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { paymentsApi, formatDateBR, formatMoney } from "@/lib/api";
 import { Input } from "@/components/ui/input";
-import { MagnifyingGlass, Receipt, PaperPlaneTilt, ArrowSquareOut } from "@phosphor-icons/react";
+import { MagnifyingGlass, Receipt, PaperPlaneTilt, ArrowSquareOut, Files } from "@phosphor-icons/react";
 
 export const STATUS = {
   paid: { label: "Pago", cls: "bg-[#10B981]/10 text-[#34D399] border-[#10B981]/20" },
@@ -30,7 +30,7 @@ export function StatusBadge({ status, testId }) {
   );
 }
 
-export function PaymentsTable({ payments, month, onDiag }) {
+export function PaymentsTable({ payments, month, onDiag, onCustomer }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
 
@@ -91,7 +91,7 @@ export function PaymentsTable({ payments, month, onDiag }) {
               <tr key={p.id} className="border-t border-white/[0.05] hover:bg-white/[0.02] transition-colors" data-testid={`payment-row-${p.id}`}>
                 <td className="px-5 py-3 text-xs text-slate-400 font-mono whitespace-nowrap">{formatDateBR(p.paid_at || p.created_at)}</td>
                 <td className="px-3 py-3">
-                  <div className="font-medium" data-testid={`customer-login-${p.id}`}>{p.customer_login || p.customer_id?.slice(0, 12)}</div>
+                  <button onClick={() => onCustomer?.(p.customer_id)} className="font-medium hover:text-[#60A5FA] transition-colors text-left" title="Ver comprovantes do cliente" data-testid={`customer-login-${p.id}`}>{p.customer_login || p.customer_id?.slice(0, 12)}</button>
                   {p.customer_name && <div className="text-[11px] text-slate-500">{p.customer_name}</div>}
                 </td>
                 <td className="px-3 py-3 text-slate-300">{periodLabel(p.plan_months)}</td>
@@ -105,6 +105,8 @@ export function PaymentsTable({ payments, month, onDiag }) {
                 </td>
                 <td className="px-5 py-3">
                   <div className="flex justify-end gap-1">
+                    <button title="Comprovantes do cliente" onClick={() => onCustomer?.(p.customer_id)} data-testid={`receipts-btn-${p.id}`}
+                      className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/5 transition-colors"><Files size={16} /></button>
                     {p.infinitepay_url && (
                       <a href={p.infinitepay_url} target="_blank" rel="noreferrer" title="Abrir link de pagamento" data-testid={`link-${p.id}`}
                         className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/5 transition-colors"><ArrowSquareOut size={16} /></a>

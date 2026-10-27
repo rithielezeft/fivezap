@@ -24,6 +24,8 @@ const FIELDS = [
     help: "infinitepay = usa a página /pay do WhatsFlow (checkout InfinitePay direto). painel = pega o link pagme.xyz gerado pelo próprio painel.fun (bypass total do bloqueio sessao_nao_renderizada)." },
   { key: "brand_name", label: "Página de pagamento — Nome da marca (aparece no checkout)", group: "pay", placeholder: "Zeferius" },
   { key: "brand_logo_url", label: "Página de pagamento — URL do logo (quadrado)", group: "pay", placeholder: "https://.../logo.png" },
+  { key: "credit_unit_cost", label: "Financeiro — Custo de 1 crédito do painel (R$), pela sua última recarga", group: "pay", placeholder: "2,40" },
+  { key: "credits_per_plan", label: "Financeiro — Créditos gastos por plano (meses:créditos)", group: "pay", placeholder: "1:1,3:3,6:6,12:12" },
   { key: "plan_price_1m", label: "Preço 1 mês (R$)", group: "pay", placeholder: "35,00" },
   { key: "plan_price_3m", label: "Preço 3 meses (R$)", group: "pay", placeholder: "90,00" },
   { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },

@@ -7,6 +7,7 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException
 
 from database import DB_PATH
+from services.finance_report import credits_for
 
 router = APIRouter(prefix="/api/finance", tags=["finance"])
 
@@ -46,6 +47,61 @@ async def _logins() -> dict:
     }
 
 
+async def _load_rows(where: str = "", params: tuple = ()) -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT p.id, p.customer_id, p.plan_months, p.amount_cents, p.status, p.paid_at, "
+            "p.created_at, p.coupon_code, p.discount_percent, p.original_amount_cents, p.receipt_url, "
+            "p.infinitepay_url, c.painel_username, c.name FROM payments p "
+            "LEFT JOIN customers c ON c.id = p.customer_id " + where + " ORDER BY p.created_at DESC",
+            params,
+        )
+        rows = [dict(r) for r in await cur.fetchall()]
+    logins = await _logins()
+    for r in rows:
+        r["login"] = r.get("painel_username") or logins.get(str(r["customer_id"])) or r["customer_id"]
+        r["_paid"] = _parse(r["paid_at"]) or (_parse(r["created_at"]) if r["status"] == "paid" else None)
+        r["_created"] = _parse(r["created_at"])
+    return rows
+
+
+async def paid_rows_for(month: str) -> list:
+    from services.scheduler import _get_display_tz
+    tz = await _get_display_tz()
+    start, end, _ = _month_bounds(month, tz)
+    rows = [r for r in await _load_rows() if r["status"] == "paid" and r["_paid"] and start <= r["_paid"].astimezone(tz) < end]
+    for r in rows:
+        r["_paid"] = r["_paid"].astimezone(tz)
+    return sorted(rows, key=lambda r: r["_paid"])
+
+
+@router.get("/customer/{customer_id}/payments")
+async def customer_payments(customer_id: str):
+    """All payments + receipts of one customer (Financeiro → Comprovantes)."""
+    rows = await _load_rows("WHERE p.customer_id = ?", (customer_id,))
+    return {"customer_id": customer_id, "login": rows[0]["login"] if rows else customer_id,
+            "payments": [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows],
+            "total_paid_cents": sum(r["amount_cents"] for r in rows if r["status"] == "paid")}
+
+
+@router.get("/report.pdf")
+async def report_pdf(month: str):
+    from fastapi.responses import Response
+    from services.finance_report import build_pdf
+    _month_bounds(month, timezone.utc)
+    pdf = await build_pdf(month)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="financeiro-{month}.pdf"'})
+
+
+@router.post("/report/send")
+async def report_send(month: str):
+    from services.finance_report import send_report
+    _month_bounds(month, timezone.utc)
+    return await send_report(month, force=True)
+
+
 @router.get("/summary")
 async def summary(month: Optional[str] = None):
     from services.scheduler import _get_display_tz
@@ -54,20 +110,7 @@ async def summary(month: Optional[str] = None):
     month = month or now.strftime("%Y-%m")
     start, end, prev_start = _month_bounds(month, tz)
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT p.id, p.customer_id, p.plan_months, p.amount_cents, p.status, p.paid_at, "
-            "p.created_at, p.coupon_code, p.discount_percent, p.original_amount_cents, p.receipt_url, "
-            "c.painel_username, c.name FROM payments p LEFT JOIN customers c ON c.id = p.customer_id"
-        )
-        rows = [dict(r) for r in await cur.fetchall()]
-
-    logins = await _logins()
-    for r in rows:
-        r["login"] = r.get("painel_username") or logins.get(str(r["customer_id"])) or r["customer_id"]
-        r["_paid"] = _parse(r["paid_at"]) or (_parse(r["created_at"]) if r["status"] == "paid" else None)
-        r["_created"] = _parse(r["created_at"])
+    rows = await _load_rows()
 
     def in_range(d, a, b):
         return d is not None and a <= d.astimezone(tz) < b
@@ -122,6 +165,7 @@ async def summary(month: Optional[str] = None):
         "conversion_percent": round(sum(1 for r in created if r["status"] == "paid") * 100 / len(created), 1) if created else None,
         "coupons": {"count": sum(1 for r in paid if r.get("coupon_code")),
                     "discount_cents": sum(max(0, (r.get("original_amount_cents") or r["amount_cents"]) - r["amount_cents"]) for r in paid)},
+        "credits": await credits_for(paid),
         "by_period": by_period,
         "daily": daily,
         "top_clients": top_clients,

@@ -70,6 +70,11 @@ async def check_expirations_loop():
             await _check_and_notify()
         except Exception:
             logger.exception("Notification loop error")
+        try:
+            from services.finance_report import maybe_send_previous_month
+            await maybe_send_previous_month()
+        except Exception:
+            logger.exception("Monthly report error")
         await asyncio.sleep(60 * 60)  # every hour
 
 

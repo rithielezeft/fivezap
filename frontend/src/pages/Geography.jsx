@@ -4,6 +4,7 @@ import Globe from "react-globe.gl";
 import Layout from "@/components/Layout";
 import { analyticsApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { RegionCustomers } from "@/components/RegionCustomers";
 import { Globe as GlobeIcon, MapPin, Users, CaretDown, CaretRight } from "@phosphor-icons/react";
 
 const SCOPES = [
@@ -291,6 +292,7 @@ export default function Geography() {
           )}
         </div>
       </div>
+      <RegionCustomers />
     </Layout>
   );
 }

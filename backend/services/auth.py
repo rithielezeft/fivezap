@@ -68,6 +68,8 @@ def is_public(path: str, method: str = "GET") -> bool:
         return True
     if path.startswith("/api/health"):  # includes /api/health/poller
         return True
+    if path.startswith("/api/cron/"):  # protected by WEBHOOK_CRON_SECRET instead
+        return True
     if path.startswith("/api/auth/"):
         return True
     if path.startswith("/api/public/"):
