@@ -21,6 +21,7 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - 2026-10-27 Fila de envio (/fila): live view (3s refresh) of expiration run items (scheduler RUN_STATE), pending/retrying deliveries and scheduled trial reminders, with WhatsApp preview, countdown, filters, cancel selected / cancel all (POST /api/queue/cancel), history; cancelled rows never sent (re-check after pace wait), run cancellations persisted in daily key.
 - 2026-10-27 Redesign moderno/minimalista: nova paleta global (#06080D/#0D111A, azul #3B82F6, verde #10B981), sidebar agrupada, página Financeiro (/payments, GET /api/finance/summary) com KPIs, gráficos, renovações por período, top clientes, últimas receitas, tabela filtrável; checkout público /pay mobile-first com barra fixa de total.
 - 2026-10-27 Mongo do usuário: mongo_store usa WHATSFLOW_MONGO_URL (+ WHATSFLOW_DB_NAME=whatsflow) quando definido; MONGO_URL/DB_NAME da plataforma intocados.
+- 2026-10-27 Sidebar só 'WhatsFlow'; checkout /pay no estilo pagme.xyz (coluna da marca + card branco de planos, cupom, 'Ir para pagamento'), marca configurável (brand_name/brand_logo_url em Configurações); painel 'Qual mensagem gera mais pagamento?' com períodos 7/30/90, funil (enviadas→checkouts→pagos→receita), campeã, ranking com conversão/ticket/participação.
 
 ## Notes
 - ADMIN_PASSWORD in .env is re-applied on every backend restart (password changed in UI resets on restart).

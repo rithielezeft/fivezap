@@ -12,11 +12,13 @@ const LABELS = {
 };
 const COLORS = ["#10B981", "#3B82F6", "#A78BFA", "#F59E0B", "#60A5FA", "#F472B6", "#94A3B8"];
 const PERIODS = [7, 30, 90];
+const pctBR = (v) => `${String(v).replace(".", ",")}%`;
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 function Funnel({ t }) {
   const steps = [
     { icon: PaperPlaneTilt, label: "Mensagens enviadas", v: t?.messages_sent ?? 0 },
-    { icon: CursorClick, label: "Links abertos", v: t?.links_opened ?? 0 },
+    { icon: CursorClick, label: "Checkouts iniciados", v: t?.links_opened ?? 0 },
     { icon: CheckCircle, label: "Pagos", v: t?.paid ?? 0 },
     { icon: CurrencyCircleDollar, label: "Receita", v: formatMoney(t?.revenue_cents || 0) },
   ];
@@ -34,7 +36,7 @@ function Funnel({ t }) {
 
 function Row({ b, i, max }) {
   const color = COLORS[i % COLORS.length];
-  const pct = max ? Math.max(3, (b.revenue_cents / max) * 100) : 0;
+  const pct = max && b.revenue_cents ? Math.max(3, (b.revenue_cents / max) * 100) : 0;
   return (
     <div className="py-3" data-testid={`attribution-row-${b.bucket}`}>
       <div className="flex items-center justify-between gap-3 text-sm">
@@ -48,12 +50,12 @@ function Row({ b, i, max }) {
         <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, background: color }} />
       </div>
       <div className="ml-7 mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-500">
-        <span>{b.messages_sent} enviadas</span>
-        <span>{b.total} links abertos</span>
-        <span className="text-slate-300">{b.paid_count} pagos</span>
-        <span>{b.message_conversion_rate != null ? `${b.message_conversion_rate}% das mensagens viram pagamento` : `${b.conversion_rate}% dos links pagos`}</span>
+        <span>{plural(b.messages_sent, "enviada", "enviadas")}</span>
+        <span>{plural(b.total, "checkout iniciado", "checkouts iniciados")}</span>
+        <span className="text-slate-300">{plural(b.paid_count, "pago", "pagos")}</span>
+        <span>{b.message_conversion_rate != null ? `${pctBR(b.message_conversion_rate)} das mensagens viram pagamento` : `${pctBR(b.conversion_rate)} dos checkouts pagos`}</span>
         {b.paid_count > 0 && <span>ticket {formatMoney(b.avg_ticket_cents)}</span>}
-        <span>{b.revenue_share}% da receita</span>
+        <span>{pctBR(b.revenue_share)} da receita</span>
       </div>
     </div>
   );
@@ -88,8 +90,8 @@ export function AttributionPanel() {
           <Trophy size={20} weight="fill" className="text-[#34D399] shrink-0" />
           <div className="text-sm">
             <b className="text-[#34D399]">{LABELS[best.bucket] || best.bucket}</b> é a mensagem que mais traz dinheiro:{" "}
-            {formatMoney(best.revenue_cents)} em {best.paid_count} pagamento(s)
-            {best.message_conversion_rate != null && <> · {best.message_conversion_rate}% de quem recebe paga</>}.
+            {formatMoney(best.revenue_cents)} em {plural(best.paid_count, "pagamento", "pagamentos")}
+            {best.message_conversion_rate != null && <> · {pctBR(best.message_conversion_rate)} de quem recebe paga</>}.
           </div>
         </div>
       )}

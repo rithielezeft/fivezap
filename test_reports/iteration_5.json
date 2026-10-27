@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 5 covered the sidebar rename, the pagme-style checkout, the brand settings and the improved attribution panel. Backend: 9/9 pytest pass. GET /api/payments/customer/227427597 returns customer.login='andrecartv' and brand {name:'WhatsFlow' (the default, since brand_name is unset), logo_url:null}. GET /api/dashboard/attribution with days=7/30/90 returns all bucket fields; the conversion, message_conversion_rate, avg_ticket and revenue_share math checks out, totals equal the bucket sums, buckets are sorted by revenue, periods are monotonic, and the endpoint requires auth. Frontend: the sidebar shows only 'WhatsFlow' and 'Revenda IPTV' no longer appears anywhere. /pay/227427597 at 1440: the brand column shows the name WhatsFlow, the PAGAMENTO SEGURO badge, the headline, 'Cobrança para andrecartv' and the 3 trust items. At 390: the brand column is hidden and the white mobile header shows the Renovar acesso pill plus andrecartv. btn-checkout is disabled until a plan is chosen and enabled after (NOT clicked). aria-pressed toggles correctly across plan-1/3/6/12, and pay-total/discounted-price update to 35/90/160/280. An invalid coupon shows 'Cupom não encontrado'. No horizontal overflow, no JS errors, and the only app non-GET call was coupons/validate. Dashboard: the attribution period toggles, funnel (7d: 14/4/2/R$70; 30d/90d: 40/18/10/R$350), best callout and rows all match the API exactly. Settings shows the brand_name and brand_logo_url fields (nothing saved).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/dashboard/attribution?days=0|10000", "issue": "The query window is clamped to 1..365 days, but the response echoes the raw 'days' value (0 or 10000)."},
+      {"endpoint": "GET /api/dashboard/attribution", "issue": "totals.messages_sent sums ALL sent event_keys, while buckets only add events with the expiration_/expired_/trial_/manual_expired prefixes or a matching payment bucket. Other sent events (e.g. renewal confirmations) would inflate the funnel's 'Mensagens enviadas' beyond the sum of the rows. Currently consistent (40 = 13+9+9+3+6)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard attribution panel", "issues": ["Percentages use a dot decimal ('30.8%'); pt-BR should use '30,8%'.", "Grammar: '1 pagos' and 'pagamento(s)'; pluralise properly.", "A bucket with R$0 still renders a 3% min-width coloured bar, which looks like it has revenue.", "'Links abertos' actually counts created payment rows (checkouts started), not link opens. Consider renaming it to 'Checkouts iniciados', or labelling it accurately."]},
+      {"screen": "/pay mobile 390", "issues": ["The brand name/logo and the 'Pagamento seguro' badge are not shown on mobile at all (only the pill + login). This is acceptable per the spec, but the customer never sees the reseller brand on mobile."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter5_brand_attribution.py", "/app/test_reports/pytest/pytest_results_iter5.xml"],
+  "action_items": [
+    "Set brand_name / brand_logo_url in Settings: the public checkout currently shows 'WhatsFlow' (the admin tool name) to end customers",
+    "Remove the TESTA_ seeded payments and notification_deliveries before release (they drive all the current attribution numbers)",
+    "Optional: echo the clamped days, align totals.messages_sent with the bucket filter, use pt-BR decimal formatting and pluralisation, and add no bar for zero revenue"
+  ],
+  "critical_code_review_comments": [
+    "attribution counts payments by created_at within the window rather than paid_at, so revenue for a link created on day N-1 and paid on day N falls outside a strict window. This is acceptable for attribution but differs from the Financeiro numbers.",
+    "AttributionPanel useQuery has no loading/error state; a failed request shows the empty state ('Ainda sem mensagens...'), which is misleading.",
+    "The login lookup in get_customer_payment_info scans the whole painel cache list on every public page hit (O(n)); fine for now."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter5_brand_attribution.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% of requested checks"},
+  "test_credentials": "Admin password Rithi0518@ (from /app/memory/test_credentials.md) works",
+  "seed_data_creation": "None created. The TESTA_ rows seeded by the main agent were left untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=<url> pytest tests/test_iter5_brand_attribution.py. The attribution numbers come from the TESTA_ seed (30d: 40 msgs/18 links/10 paid/R$350); the tests are math-based, so they survive cleanup. Never click btn-checkout, Renovar, Teste, Notificar or Salvar on Settings."
+}

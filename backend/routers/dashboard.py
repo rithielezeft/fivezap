@@ -77,7 +77,8 @@ async def attribution(days: int = 30):
     Buckets pagos vs criados no período. Deduzimos "conversion_rate" (paid /
     total). Ordenado por receita descendente.
     """
-    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+    days = max(1, min(days, 365))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
@@ -95,10 +96,11 @@ async def attribution(days: int = 30):
             "WHERE status = 'sent' AND COALESCE(sent_at, created_at) >= ? GROUP BY event_key",
             (since,),
         )
-        sent_by_event = {r["event_key"]: r["c"] for r in await cur.fetchall()}
+        sent_by_event = {r["event_key"]: r["c"] for r in await cur.fetchall()
+                         if r["event_key"].startswith(("expiration_", "expired_", "trial_", "manual_expired", "auto_recovery"))}
     by_bucket = {r["bucket"]: r for r in rows}
     for ev, c in sent_by_event.items():
-        if ev.startswith(("expiration_", "expired_", "trial_", "manual_expired")) and ev not in by_bucket:
+        if ev not in by_bucket:
             by_bucket[ev] = {"bucket": ev, "total": 0, "paid_count": 0, "revenue_cents": 0}
     rows = sorted(by_bucket.values(), key=lambda r: (-r["revenue_cents"], -r["paid_count"]))
     total_rev = sum(r["revenue_cents"] for r in rows) or 0
