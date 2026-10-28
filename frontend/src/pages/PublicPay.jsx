@@ -18,7 +18,7 @@ export default function PublicPay() {
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(returnedFromPay);
   const [renewalStatus, setRenewalStatus] = useState(null);
-  const [extraIds, setExtraIds] = useState([]);
+  const [chosenIds, setChosenIds] = useState(null); // null = only this link's login
   const [adult, setAdult] = useState(null);
   const [provider, setProvider] = useState(null);
   const [pix, setPix] = useState(null);
@@ -175,7 +175,11 @@ export default function PublicPay() {
   // Whichever discount is bigger wins — matches backend logic.
   const effectivePct = Math.max(autoPct, couponPct);
   const discountSource = couponPct >= autoPct && couponPct > 0 ? "coupon" : autoPct > 0 ? "auto" : null;
-  const points = 1 + extraIds.length;
+  const selectedIds = chosenIds || [String(customerId)];
+  const mainId = selectedIds.includes(String(customerId)) ? String(customerId) : selectedIds[0];
+  const extraIds = selectedIds.filter((x) => x !== mainId);
+  const points = selectedIds.length;
+  const loginOf = (id) => (id === String(customerId) ? login : (data?.linked_accounts || []).find((a) => String(a.id) === id)?.login || id);
   const unitPrice = prices[selected] ?? 0;
   const rawPrice = unitPrice * points;
   const discountedPrice = effectivePct > 0 ? Math.floor((unitPrice * (100 - effectivePct)) / 100) * points : rawPrice;
@@ -212,19 +216,23 @@ export default function PublicPay() {
 
   const brand = data?.brand;
   const login = customer?.login || customer?.name;
+  const payingLogins = selectedIds.map(loginOf).join(", ");
   const feePct = data?.mp_fee_percent ?? 0.99;
   const cloverCents = data?.raffle?.enabled ? (clovers || 0) * (data.raffle.clover_cents || 0) : 0;
   const baseTotal = discountedPrice + cloverCents;
   const mpPrice = Math.round(baseTotal * (1 + feePct / 100));
   const finalPrice = provider === "mercadopago" ? mpPrice : baseTotal;
   const original = effectivePct > 0 && selected ? rawPrice : null;
-  const toggleExtra = (id) => setExtraIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
+  const toggleLogin = (id) => {
+    if (selectedIds.includes(id) && selectedIds.length === 1) { toast.info("Selecione pelo menos um login para renovar"); return; }
+    setChosenIds(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
+  };
   return (
     <div className="min-h-screen relative" data-testid="pay-page">
       <CheckoutBackground />
-      <MobileHeader login={login} />
+      <MobileHeader login={payingLogins} />
       <div className="relative z-10 max-w-6xl mx-auto px-4 md:px-10 py-6 md:py-24 grid md:grid-cols-[340px_1fr] gap-8 md:gap-14 items-start">
-        <BrandColumn brand={brand} login={login}>
+        <BrandColumn brand={brand} login={payingLogins}>
           <HistoryLink history={data?.payments_history} />
         </BrandColumn>
 
@@ -260,12 +268,12 @@ export default function PublicPay() {
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-900 mb-3">Escolha o plano</p>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {PLANS.map((p) => (
-                  <PlanButton key={p.months} plan={p} price={(prices[p.months] ?? 0) * points} active={selected === p.months} onSelect={() => setSelected(p.months)} />
+                  <PlanButton key={p.months} plan={p} price={prices[p.months] ?? 0} active={selected === p.months} onSelect={() => setSelected(p.months)} />
                 ))}
               </div>
             </div>
 
-            <PointsPicker main={{ login, expires_at: customer?.expires_at }} linked={data?.linked_accounts} selected={extraIds} onToggle={toggleExtra} />
+            <PointsPicker main={{ id: String(customerId), login, expires_at: customer?.expires_at }} linked={data?.linked_accounts} selected={selectedIds} onToggle={toggleLogin} />
 
             <AdultToggle value={adult} onChange={setAdult} />
 
@@ -289,7 +297,7 @@ export default function PublicPay() {
               price={selected ? finalPrice : null}
               original={original}
               onClick={() => createPayMut.mutate({
-                customer_id: customerId,
+                customer_id: mainId,
                 plan_months: selected,
                 ref: refBucket || undefined,
                 coupon_code: couponApplied?.code || undefined,

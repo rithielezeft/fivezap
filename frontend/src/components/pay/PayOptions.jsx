@@ -4,16 +4,16 @@ import { formatDateBR } from "@/lib/api";
 const money = (c) => (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const Label = ({ children }) => <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-900 mb-3">{children}</p>;
 
-function PointCard({ login, expires, active, locked, onClick, testId }) {
+function PointCard({ login, expires, active, current, onClick, testId }) {
   return (
-    <button type="button" onClick={onClick} disabled={locked} data-testid={testId} aria-pressed={active}
+    <button type="button" onClick={onClick} data-testid={testId} aria-pressed={active}
       className={"flex items-center gap-3 rounded-2xl border p-3.5 text-left transition-colors duration-200 " +
         (active ? "border-[#10B981] bg-[#ECFDF5]" : "border-slate-200 bg-[#F1F5F9] hover:border-slate-300")}>
       <span className={"grid place-items-center w-5 h-5 rounded-md border " + (active ? "bg-[#10B981] border-[#10B981] text-white" : "border-slate-300 bg-white")}>
         {active && <Check size={12} weight="bold" />}
       </span>
       <span className="min-w-0">
-        <span className="block font-semibold text-slate-900 text-sm truncate">{login}{locked && <span className="ml-1.5 text-[11px] font-normal text-slate-500">(este acesso)</span>}</span>
+        <span className="block font-semibold text-slate-900 text-sm truncate">{login}{current && <span className="ml-1.5 text-[11px] font-normal text-slate-500">(deste link)</span>}</span>
         {expires && <span className="block text-[11px] text-slate-500">vence {formatDateBR(expires).split(",")[0]}</span>}
       </span>
     </button>
@@ -24,14 +24,14 @@ export function PointsPicker({ main, linked, selected, onToggle }) {
   if (!linked?.length) return null;
   return (
     <div data-testid="points-picker">
-      <Label>Renovar quais pontos?</Label>
+      <Label>Renovar quais logins?</Label>
       <div className="grid sm:grid-cols-2 gap-3">
-        <PointCard login={main.login} expires={main.expires_at} active locked testId="point-main" />
-        {linked.map((a) => (
-          <PointCard key={a.id} login={a.login} expires={a.expires_at} active={selected.includes(a.id)}
-            onClick={() => onToggle(a.id)} testId={`point-${a.id}`} />
+        {[{ ...main, current: true }, ...linked].map((a) => (
+          <PointCard key={a.id} login={a.login} expires={a.expires_at} current={a.current} active={selected.includes(String(a.id))}
+            onClick={() => onToggle(String(a.id))} testId={a.current ? "point-main" : `point-${a.id}`} />
         ))}
       </div>
+      <p className="text-[11px] text-slate-500 mt-2" data-testid="points-hint">O valor do plano é por login · {selected.length} {selected.length === 1 ? "login selecionado" : "logins selecionados"}</p>
     </div>
   );
 }
