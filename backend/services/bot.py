@@ -241,9 +241,10 @@ def normalize_phone(phone: str) -> str:
     s = str(phone).strip()
     if s.endswith("@lid"):
         return s
+    from services.phone_extractor import br_canonical
     if "@" in s:
-        return s.split("@")[0]
-    return "".join(c for c in s if c.isdigit())
+        return br_canonical(s.split("@")[0])
+    return br_canonical(s)
 
 
 async def process_incoming_message(
@@ -269,7 +270,8 @@ async def process_incoming_message(
     if real_phone:
         digits = "".join(c for c in str(real_phone) if c.isdigit())
         if 8 <= len(digits) <= 14:
-            real_phone_clean = digits
+            from services.phone_extractor import _clean
+            real_phone_clean = _clean(digits) if len(digits) >= 10 else digits
         else:
             logger.warning(
                 "Rejecting suspect real_phone=%r (digits=%d) — likely an "

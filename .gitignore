@@ -105,3 +105,4 @@ frontend/node_modules/.cache/default-development/12.pack
 # Local SQLite (dados reais ficam no Raspberry + MongoDB)
 backend/whatsflow.db
 backend/whatsflow.db-*
+frontend/node_modules/.cache/default-development/3.pack
