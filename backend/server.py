@@ -146,7 +146,13 @@ async def lifespan(app: FastAPI):
     from services.coupon_cleanup import coupon_cleanup_loop as _coupon_cleanup_loop
     task_coupon_cleanup = asyncio.create_task(_coupon_cleanup_loop())
 
+    # Payments ⇄ MongoDB sync: restores finance history lost locally and keeps
+    # every field persisted in Atlas.
+    from services.payments_sync import payments_sync_loop
+    task_payments_sync = asyncio.create_task(payments_sync_loop())
+
     yield
+    task_payments_sync.cancel()
     task_exp.cancel()
     task_rem.cancel()
     task_painel_refresh.cancel()
