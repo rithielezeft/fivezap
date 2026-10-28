@@ -174,8 +174,9 @@ export default function PublicPay() {
   const effectivePct = Math.max(autoPct, couponPct);
   const discountSource = couponPct >= autoPct && couponPct > 0 ? "coupon" : autoPct > 0 ? "auto" : null;
   const points = 1 + extraIds.length;
-  const rawPrice = (prices[selected] ?? 0) * points;
-  const discountedPrice = effectivePct > 0 ? Math.floor((rawPrice * (100 - effectivePct)) / 100) : rawPrice;
+  const unitPrice = prices[selected] ?? 0;
+  const rawPrice = unitPrice * points;
+  const discountedPrice = effectivePct > 0 ? Math.floor((unitPrice * (100 - effectivePct)) / 100) * points : rawPrice;
 
   async function handleApplyCoupon() {
     const code = couponInput.trim();
@@ -294,7 +295,7 @@ export default function PublicPay() {
           </div>
 
           <div className="md:hidden"><HistoryLink history={data?.payments_history} /></div>
-          <p className="text-center text-[11px] text-slate-500">{provider === "mercadopago" ? "Processado com segurança pelo Mercado Pago · Pix" : "Processado com segurança pela InfinitePay · Pix ou cartão"}</p>
+          <p className="text-center text-[11px] text-slate-400">{provider === "mercadopago" ? "Processado com segurança pelo Mercado Pago · Pix" : "Processado com segurança pela InfinitePay · Pix ou cartão"}</p>
         </div>
       </div>
     </div>

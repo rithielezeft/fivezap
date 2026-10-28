@@ -53,8 +53,11 @@ async def save_accounts(accounts: list) -> None:
 
 
 async def month_totals() -> dict:
-    """Received cents this calendar month per account_id (NULL → 'default')."""
-    start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()[:10]
+    """Received cents this calendar month (display timezone) per account_id (NULL → 'default')."""
+    from datetime import timezone
+    from services.scheduler import _get_display_tz
+    tz = await _get_display_tz()
+    start = datetime.now(tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             "SELECT COALESCE(account_id, 'default'), COALESCE(SUM(amount_cents), 0) FROM payments "

@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the Mercado Pago + multi-account + multi-points + adult toggle features. Backend: 14 of 14 pytest tests pass. They cover the public endpoints, payment-accounts auth and validation, mp_amount, pick_account routing (first account under its limit, last one when all are full, accounts without a token skipped), token masking, and create_payment with mocked InfinitePay/MP (extra ids filtered to the same WhatsApp number, MP amount = round(x*1.0099), row fields stored). All test rows were cleaned up. Frontend: the pay page at /pay/227470206 works. It shows the points picker, doubles the prices when joaonew2 is toggled, and the adult toggle works. The provider picker was checked by injecting providers=[infinitepay, mercadopago] with a route mock, because the preview has no accounts: R$30,00 -> R$30,30 and R$60,00 -> R$60,59, matching the backend. Settings accounts UI: add, edit, reorder, the enable switch, save and remove all work; the token is masked and an empty token keeps the stored one. The Notifications {password} chip is present. Financeiro shows the 'Pago · renovação falhou' label and counts it in received (R$387,90 = 225,00 paid + 162,90 paid_renewal_failed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/payments (create_payment)", "issue": "Multi-point discount rounding: the backend floors the discount per point and then multiplies by the number of points. The frontend (PublicPay.jsx line 178) floors the discount on the total. With odd prices and discount % the shown total can differ by 1 cent from the amount charged."},
+      {"endpoint": "services/payment_accounts.month_totals", "issue": "The month start comes from the server's local datetime.now() and is compared against UTC ISO paid_at strings. Payments near midnight at a month boundary may count in the wrong month (BRT vs UTC)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PaymentsTable (Financeiro)", "issue": "The Gateway column is hardcoded to 'InfinitePay' (line 105), so Mercado Pago payments will show as InfinitePay. It should use p.provider, and the finance list API should return provider.", "selector": "PaymentsTable.jsx:105", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Financeiro header", "issues": ["Subtitle still says 'Renovações pagas pelo link InfinitePay', which is outdated now that Mercado Pago exists"]},
+      {"screen": "Pay page points picker", "issues": ["'vence 17/01/2027, 18:55:13' shows the time with seconds; the date alone is cleaner", "Footer 'Processado com segurança…' text in slate-500 on a near-black background has low contrast"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_mp_multiaccount_multipoints.py", "/app/test_reports/pytest/iter9.xml"],
+  "action_items": [
+    "PaymentsTable: show the real gateway (provider) instead of hardcoded InfinitePay, and include provider in the list/finance payload",
+    "Align the multi-point discount rounding between frontend and backend: discount per unit price then multiply in both, or discount the total in both",
+    "Update the Financeiro subtitle text so it covers Mercado Pago too",
+    "Optional: compute month_totals start in America/Sao_Paulo"
+  ],
+  "critical_code_review_comments": [
+    "routers/payments.py is about 2067 lines; split it (e.g. a mercadopago/multi-point checkout module)",
+    "Link preview (linkPreview + og tags) was NOT tested, because sending WhatsApp messages is forbidden in this env",
+    "Real MP create_pix/get_payment and the mp-status 'paid' path were not exercised (no real token); only mocked creation was tested"
+  ],
+  "updated_files": ["/app/backend/tests/test_mp_multiaccount_multipoints.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "95% (all requested flows pass; 1 medium display issue)"},
+  "seed_data_creation": "None left behind. The 2 mocked payment rows were deleted from SQLite and Mongo. Test accounts TEST_IP/TEST_MP were saved disabled, then removed via the UI, and the 'payment_accounts' key was deleted from SQLite settings and Mongo settings.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Provider picker on /pay is only visible with 2 enabled providers. Test it via a Playwright route mock on /api/payments/customer/{id} (inject providers) rather than saving real accounts, since settings mirror to the shared production Mongo. The pytest file mocks enabled_providers, pick_account, infinitepay.create_payment_link, mercadopago.create_pix and mongo_store.upsert_payment, and cleans up its own rows.",
+  "test_credentials": "Admin password Rithi0518@ (from /app/memory/test_credentials.md)"
+}

@@ -102,7 +102,7 @@ export function PaymentsTable({ payments, month, onDiag, onCustomer }) {
                   {p.coupon_code && <div className="text-[10px] font-sans font-normal text-slate-500" data-testid={`payment-coupon-${p.id}`}>{p.coupon_code} · -{p.discount_percent}%</div>}
                 </td>
                 <td className="px-3 py-3 text-xs text-slate-400">
-                  <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full border border-[#10B981]" />InfinitePay</span>
+                  <span className="inline-flex items-center gap-1.5"><span className={"w-2 h-2 rounded-full border " + (p.provider === "mercadopago" ? "border-[#38BDF8]" : "border-[#10B981]")} />{p.provider === "mercadopago" ? "Mercado Pago" : "InfinitePay"}</span>
                 </td>
                 <td className="px-5 py-3">
                   <div className="flex justify-end gap-1">

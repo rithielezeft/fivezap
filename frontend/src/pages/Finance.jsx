@@ -84,7 +84,7 @@ export default function Finance() {
   const periodTotal = Object.values(s?.by_period || {}).reduce((a, b) => a + b, 0);
 
   return (
-    <Layout title="Financeiro" subtitle="Renovações pagas pelo link InfinitePay" actions={<><ReportActions month={month} /><MonthPicker month={month} setMonth={setMonth} /></>}>
+    <Layout title="Financeiro" subtitle="Renovações pagas pelo InfinitePay e Mercado Pago" actions={<><ReportActions month={month} /><MonthPicker month={month} setMonth={setMonth} /></>}>
       <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <HeroReceived s={s} />

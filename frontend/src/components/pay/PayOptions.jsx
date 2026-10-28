@@ -14,7 +14,7 @@ function PointCard({ login, expires, active, locked, onClick, testId }) {
       </span>
       <span className="min-w-0">
         <span className="block font-semibold text-slate-900 text-sm truncate">{login}{locked && <span className="ml-1.5 text-[11px] font-normal text-slate-500">(este acesso)</span>}</span>
-        {expires && <span className="block text-[11px] text-slate-500">vence {formatDateBR(expires)}</span>}
+        {expires && <span className="block text-[11px] text-slate-500">vence {formatDateBR(expires).split(",")[0]}</span>}
       </span>
     </button>
   );

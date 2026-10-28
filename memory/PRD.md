@@ -40,3 +40,11 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - Backlog: test_delivery_dedup::test_send_hardcoded_no_dedup falha (já falhava antes, não relacionado).
 - 2026-10-27: Raspberry: requirements-pi.txt (deps mínimas), update.sh rebuilda frontend se src mais novo que build (ou FORCE_REBUILD=1). Prévia de links (og:title/description/image) — "Pagamento seguro e liberação na hora" + /og-image.jpg (terno). DNS whatsflow.zeferius.com ainda apontando para Hostinger (usuário precisa ajustar A → 187.121.232.128).
 - 2026-10-27: 'Testar conexão' (POST /api/painel/test-connection {username,password}) usa as credenciais digitadas no formulário; cache de token do painel agora é por usuário+senha (troca de usuário salva força novo login).
+
+## 2026-10-28 — Mercado Pago + contas múltiplas + vários pontos + adulto
+- services/payment_accounts.py (setting `payment_accounts` JSON; legado infinitepay_handle vira conta "default" se nunca salvo). Roteamento: 1ª conta ativa abaixo do limite mensal; todas cheias → última. MP repassa 0,99% (round).
+- services/mercadopago.py (Pix /v1/payments, httpx). Endpoints públicos: GET /api/payments/mp-status/{id}, POST /api/payments/mp-webhook. Admin: /api/payment-accounts (GET/PUT, POST /{id}/test).
+- Pagamento com vários pontos (mesmo WhatsApp) → extra_customer_ids, renovados após o principal (_renew_extra_accounts). Canal adulto: renew_user(adult=) mapeia pacotes 17/42/55/57 ↔ 18/43/56/58 + adult_channels.
+- {password} no template renewal_success. linkPreview:true no whatsapp-service. paid_renewal_failed conta como recebido.
+- payments_sync: guarda de status por rank + bulk_write + refresh local quando Mongo avança.
+- Não testado ao vivo: cobrança real Mercado Pago (precisa Access Token do usuário em Configurações → Pagamento → Contas).
