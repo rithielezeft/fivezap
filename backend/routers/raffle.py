@@ -29,14 +29,22 @@ async def raffle_settings(request: Request):
 
 @router.put("/api/raffle/participant-name")
 async def raffle_participant_name(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Corpo inválido")
     cid = str(body.get("customer_id") or "").strip()
+    new_name = str(body.get("name") or "").strip()
+    if new_name.lower().startswith("coringa"):
+        raise HTTPException(400, "Esse nome é reservado para os coringas")
     cur = await raffle.entries()
     real = {p["customer_id"] for p in cur["pool"] if not p.get("joker")}
     if cid not in real:
         # Coringas keep their "Coringa N" label so paying customers are not misled.
         raise HTTPException(400, "Só é possível renomear participantes que compraram trevo")
-    await raffle.set_display_name(cid, body.get("name") or "")
+    await raffle.set_display_name(cid, new_name)
     return {"ok": True}
 
 

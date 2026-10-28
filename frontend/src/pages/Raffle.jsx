@@ -81,7 +81,7 @@ function EntryRow({ e }) {
       ) : (
         <span className="flex-1 flex items-center gap-1.5 min-w-0">
           <span className="truncate" data-testid={`raffle-entry-name-${id}`}>{e.name}</span>
-          {!e.joker && <button onClick={() => setEditing(true)} className="p-1 text-white/30 hover:text-white transition-colors" aria-label="Editar nome" data-testid={`raffle-entry-edit-${id}`}><PencilSimple size={13} /></button>}
+          {!e.joker && <button onClick={() => { setName(e.name); setEditing(true); }} className="p-1 text-white/30 hover:text-white transition-colors" aria-label="Editar nome" data-testid={`raffle-entry-edit-${id}`}><PencilSimple size={13} /></button>}
         </span>
       )}
       <span className="font-mono text-xs text-white/50 shrink-0">{e.coupons.length} 🍀 · #{e.coupons.join(", #")}</span>

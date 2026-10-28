@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 13: tested renaming raffle participants and the joker badge removal. New pytest file: 10/10 passed. These cover PUT /api/raffle/participant-name for rename, 40-char truncation, empty-name reset, joker and unknown ids returning 400 'Só é possível renomear...', 401 without auth, propagation to GET /api/raffle and raffle.entries() pool, and the masked public name on /api/public/raffle. Admin /sorteio UI checked with Playwright: real row has a pencil that opens a focused, prefilled input; cancel keeps the old name; save updates the name, shows the 'Nenhum'/'Nome atualizado' toast and survives a reload; Enter submits; empty input resets to the painel login 'joaonew'. Joker rows (00004, 00005) show 'Coringa N' with no pencil and no buttons or extra badge. Public /trevo shows 'joa***' and the Coringa chips. Cleanup done: TEST_ payments removed from SQLite and Mongo (the sync restored the row once during cleanup, so I deleted it again and verified), raffle_display_names removed from SQLite and Mongo, and I set joker_count to 0. Note: at 19:21:53 an external admin request (not the tester) did PUT /api/raffle/settings and set raffle_joker_count=3. I left it as is.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/raffle/participant-name", "issue": "Returns 500 when name is not a string (e.g. {name:123}): set_display_name calls (name or '').strip() on an int. A body that is not a JSON object (e.g. []) also returns 500 (body.get). Use a Pydantic model (customer_id: str|int, name: str = '') or coerce with str()."},
+      {"endpoint": "PUT /api/raffle/participant-name", "issue": "A real participant can be renamed to 'Coringa 5'. mask_name() skips masking for names starting with 'Coringa ', so on the public page that entry looks like a house joker. This undercuts the stated intent of not mixing real and house entries. Consider rejecting names that start with 'Coringa'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Raffle.jsx EntryRow", "issue": "The local name state is set once from e.name and never re-synced. After saving an empty name (reset), the row shows the painel login, but opening the editor again shows an empty input instead of 'joaonew'. Fix: setName(e.name) when the edit opens, or use useEffect on e.name.", "selector": "[data-testid=raffle-entry-name-input-227470206]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_raffle_rename_iter13.py", "/app/backend/tests/cleanup_iter13.py", "/app/test_reports/pytest/pytest_iter13.xml"],
+  "action_items": [
+    "Validate the participant-name body with Pydantic or coerce types to avoid 500s on a non-string name or a non-object body",
+    "Re-sync the EntryRow input value with e.name when the editor opens",
+    "Optional: block display names starting with 'Coringa' for real participants"
+  ],
+  "critical_code_review_comments": [
+    "raffle_display_names is keyed by painel id with no month scope. That is fine, but entries are never pruned, so the settings JSON grows forever. Prune ids with no clovers, or accept the growth.",
+    "The payments sync can restore a TEST row deleted from SQLite if the delete races with a sync cycle (seen at 19:19:43, 'restored 1'). Test cleanup must delete from Mongo first, then SQLite, and re-check after the next cycle."
+  ],
+  "updated_files": ["/app/backend/tests/test_raffle_rename_iter13.py", "/app/backend/tests/cleanup_iter13.py"],
+  "success_rate": {"backend": "100% (10/10); 2 minor validation issues found with manual curl", "frontend": "100% of requested flows; 1 low-priority state bug"},
+  "seed_data_creation": "Temporary only, all removed: TEST_cloverui payment (customer 227470206, 3 clovers), joker_count=2, raffle_display_names. raffle_joker_count is now '3', set by an external admin request, not by the tester.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "PRODUCTION env. Setup: python tests/temp_clover_payment.py add. Run: pytest tests/test_raffle_rename_iter13.py -n 0 (the fixture sets joker_count=2). Cleanup: python tests/cleanup_iter13.py, then re-check after about 60s because the payments sync can restore rows. Joker row testids use the coupon (raffle-entry-00004); real rows use the painel id. Do not run real draws."
+}
