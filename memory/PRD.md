@@ -48,3 +48,8 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - {password} no template renewal_success. linkPreview:true no whatsapp-service. paid_renewal_failed conta como recebido.
 - payments_sync: guarda de status por rank + bulk_write + refresh local quando Mongo avança.
 - Não testado ao vivo: cobrança real Mercado Pago (precisa Access Token do usuário em Configurações → Pagamento → Contas).
+
+## 2026-10-28 — Trevo da Sorte + números BR
+- phone_extractor.br_canonical/br_variants: celular BR sempre com 9º dígito (553186582251 → 5531986582251); usado em _clean, bot.normalize_phone, real_phone (LID), /api/public/trial (valida 12–15 dígitos) e find_or_create_customer (casa variantes e atualiza linha antiga).
+- services/raffle.py + routers/raffle.py: trevos (payments.clovers) = cupons do mês pagos; coringa = 1 participante; sorteio automático último dia do mês 20h (loop 10 min) ou "Sortear agora"; lock no Mongo raffle_draws (_id=YYYY-MM); prêmio renova o ganhador (painel) + WhatsApp + alerta admin. Página /sorteio (DrawReel do sortezeferius). Pay page: CloverPicker (marcado por padrão, +/−, desmarcável).
+- Settings: raffle_enabled, raffle_clover_price, raffle_prize_months, raffle_joker_login.

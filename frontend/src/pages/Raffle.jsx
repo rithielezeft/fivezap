@@ -33,14 +33,14 @@ function SettingsCard({ cfg }) {
       <div className="flex items-center justify-between">
         <div className="font-semibold flex items-center gap-2"><Clover size={18} className="text-[#10B981]" />Configuração do Trevo</div>
         <div className="flex items-center gap-2 text-sm"><span className="text-white/60">Ativo na página de pagamento</span>
-          <Switch checked={f.enabled} onCheckedChange={(v) => setF({ ...f, enabled: v })} data-testid="raffle-enabled" /></div>
+          <Switch checked={f.enabled} onCheckedChange={(v) => setF({ ...f, enabled: v })} className="data-[state=checked]:bg-[#10B981]" data-testid="raffle-enabled" /></div>
       </div>
       <div className="grid md:grid-cols-3 gap-4">
         <div><Label className="text-xs">Valor de cada trevo (R$)</Label>
           <Input value={f.clover_price} onChange={(e) => setF({ ...f, clover_price: e.target.value })} data-testid="raffle-price" /></div>
         <div><Label className="text-xs">Prêmio (meses grátis)</Label>
           <select value={f.prize_months} onChange={(e) => setF({ ...f, prize_months: Number(e.target.value) })} data-testid="raffle-prize-months"
-            className="mt-1 w-full h-10 px-3 rounded-md bg-[#1a1a1a] border border-white/10 text-white text-sm" style={{ colorScheme: "dark" }}>
+            className="w-full h-9 px-3 rounded-md bg-transparent border border-input text-white text-sm" style={{ colorScheme: "dark" }}>
             {[1, 3, 6, 12].map((m) => <option key={m} value={m}>{m} {m === 1 ? "mês" : "meses"}</option>)}
           </select></div>
         <div><Label className="text-xs">Login coringa (opcional)</Label>

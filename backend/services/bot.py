@@ -138,7 +138,7 @@ async def find_or_create_customer(phone: str, name: str = None) -> dict:
             (*variants, phone),
         )
         row = await cur.fetchone()
-        if row and row["whatsapp"] != phone and not row["whatsapp"].endswith("@lid"):
+        if row and row["whatsapp"] != phone and len(str(phone)) == 13 and not row["whatsapp"].endswith("@lid"):
             # Legacy row saved without the 9th digit → upgrade to canonical form.
             await db.execute("UPDATE customers SET whatsapp = ? WHERE id = ? AND (whatsapp_locked IS NULL OR whatsapp_locked = 0)",
                              (phone, row["id"]))

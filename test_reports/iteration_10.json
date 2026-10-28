@@ -1,0 +1,40 @@
+{
+  "summary": "Tested the BR phone 9th-digit normalization and the Trevo da Sorte raffle on the backend and the frontend. Backend: 15 of 15 pytest tests pass. They cover _clean, normalize_phone, br_variants, the legacy-row upgrade in find_or_create_customer (using a temp row), the public trial 400 for a short number, raffle auth and public access, settings persistence, the 400 for drawing with no clovers, and perform_draw with mocked renewal and notifier (a temp payment with 3 clovers plus a joker gives a pool of 4, the winner is placed at win_index, renewal and admin alert are called once, a second draw is blocked, and history is filled). Frontend: the /sorteio stats, settings save and reload, disabled draw button and history all work. The /pay/227470206 clover picker is checked by default with 1 clover. Plus and minus change the count (capped at 10), unchecking drops the clover cost (R$32 → R$30), and the totals are correct (R$30 + 1×R$2 = R$32,00, 3 clovers = R$36,00). The picker is hidden when the raffle is disabled. The mobile layout is OK. All test data was cleaned up and the raffle was reset to disabled.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "services/raffle.py entries()", "issue": "Participant names will show as numeric painel IDs. The query uses LEFT JOIN customers c ON c.id = p.customer_id, but payments.customer_id is the painel user id (e.g. 228245283), not customers.id. In the DB, 0 of the 171 distinct payment customer_ids match a customers.id. So the name falls back to str(customer_id) in the admin entries list, the DrawReel sequence, the winner WhatsApp message ('Parabéns, 228245283!'), the admin alert, history and public last_winner. Fix: get the username from the painel cache (routers.payments._cache_user / painel_users._read_cache) by customer_id.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "services/raffle.py perform_draw()", "issue": "The prize renewal always uses painel.get_package_id('iptv', months), whatever the winner's real system type is (p2p/dreamtv users could get the wrong package)."},
+      {"endpoint": "services/raffle.py perform_draw()", "issue": "If anything fails between inserting the lock doc and update_one (e.g. _resolve_joker raising because the cache read fails), the raffle_draws doc stays at status='drawing'. The month is then permanently blocked and nothing appears in history, because history only shows status='drawn'. Wrap the code in try/except and delete or mark the lock as failed."},
+      {"endpoint": "services/raffle.py entries()", "issue": "The pool reads only local SQLite payments. Any env that shares Atlas but has a stale SQLite would draw from a different pool. Only the env that holds the real payments (the Raspberry) should run auto_draw_loop."},
+      {"endpoint": "services/bot.py find_or_create_customer", "issue": "If a caller passes the legacy 12-digit form while a canonical row exists, the row would be rewritten to the legacy form. Current callers normalize first, so this is safe today but fragile. Also, existing duplicate customer rows (12-digit and 13-digit for the same person) are not merged; only new lookups upgrade."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/sorteio settings card", "issues": ["The prize <select> has mt-1 and different styling, so it sits slightly lower and looks different from the Input fields next to it", "The 'Ativo' switch is blue while the page accent is green (#10B981)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_phone_br_and_raffle.py", "/app/test_reports/pytest/pytest_iter10.xml"],
+  "action_items": [
+    "Fix the raffle participant and winner name resolution (the customers JOIN never matches the painel id). Use the painel cache username.",
+    "Use the winner's real system_type for the prize package_id",
+    "Make perform_draw release or mark the Mongo lock if it fails before the final update"
+  ],
+  "critical_code_review_comments": [
+    "raffle.entries JOIN customers.id = payments.customer_id never matches (the ids are painel user ids)",
+    "perform_draw hardcodes the 'iptv' package",
+    "A 'drawing' lock left by a failure blocks the month for good",
+    "The 'pool is not None' check in entries() is always true (dead condition)"
+  ],
+  "updated_files": ["/app/backend/tests/test_phone_br_and_raffle.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100%"},
+  "seed_data_creation": "Temporary only, all removed: a customer TEST_xxx with whatsapp 559998765432 and a payment TEST_xxx with 3 clovers. The Mongo raffle_draws doc for 2026-10 was deleted. Final raffle settings: raffle_enabled=false, price 2,00, prize 1 month, raffle_joker_login row deleted.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "PRODUCTION env. Run tests/test_phone_br_and_raffle.py with -n0 (serial). test_perform_draw_mocked inserts a temp paid payment into the shared SQLite, and in parallel the draw-400 API test could see it. Never click 'Ir para pagamento' or run a real draw. The DrawReel replay dialog was not exercised in the UI because there is no history doc to replay.",
+  "test_credentials": "Admin password Rithi0518@ (from /app/memory/test_credentials.md)"
+}

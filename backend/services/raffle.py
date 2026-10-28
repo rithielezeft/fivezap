@@ -61,8 +61,12 @@ async def entries(month: str = None) -> dict:
             "LEFT JOIN customers c ON c.id = p.customer_id "
             f"WHERE p.clovers > 0 AND p.status IN ({','.join('?' * len(RECEIVED))}) AND p.paid_at >= ? AND p.paid_at < ? "
             "ORDER BY p.paid_at", (*RECEIVED, s_utc, e_utc))).fetchall()]
+    from routers.painel_users import _read_cache
+    users, _ = await _read_cache()
+    logins = {str(u.get("id")): u.get("username") for u in users or []}
     pool, n = [], 1
     for r in rows:
+        r["painel_username"] = logins.get(str(r["customer_id"])) or r["painel_username"]
         for _ in range(int(r["clovers"] or 0)):
             pool.append({"coupon": f"{n:05d}", "customer_id": str(r["customer_id"]),
                          "name": r["painel_username"] or r["name"] or str(r["customer_id"]), "payment_id": r["id"]})
@@ -99,6 +103,14 @@ async def perform_draw(month: str = None) -> dict:
     except Exception as e:
         raise ValueError(f"Sorteio de {data['month']} já foi realizado") from e
 
+    try:
+        return await _draw_locked(data, pool, draw, mdb)
+    except Exception:
+        await mdb.raffle_draws.delete_one({"_id": data["month"], "status": "drawing"})  # release lock
+        raise
+
+
+async def _draw_locked(data, pool, draw, mdb):
     rng = secrets.SystemRandom()
     winner = rng.choice(pool)
     shuffled = pool[:]
@@ -114,7 +126,10 @@ async def perform_draw(month: str = None) -> dict:
     renewed, renew_error = False, ""
     try:
         from services import painel
-        await painel.renew_user(user_id=winner_id, package_id=painel.get_package_id("iptv", cfg["prize_months"]),
+        from services.system_detector import detect_system_type
+        from routers.payments import _cache_user
+        system = detect_system_type(await _cache_user(winner_id)) or "iptv"
+        await painel.renew_user(user_id=winner_id, package_id=painel.get_package_id(system, cfg["prize_months"]),
                                 months=cfg["prize_months"])
         renewed = True
     except Exception as e:
