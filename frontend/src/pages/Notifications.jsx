@@ -23,6 +23,7 @@ const VAR_HELP = {
   "{days}": "Dias até (ou desde) o vencimento",
   "{system_type}": "Tipo do plano (iptv, p2p, hybrid)",
   "{pass}": "Senha do teste",
+  "{password}": "Senha do login renovado",
   "{expires}": "Expiração do teste em minutos/horas",
   "{mac}": "Endereço MAC (só DreamTV/Hybrid)",
   "{discount_line}": "Frase de desconto (auto no lembrete 7d se ativo)",
@@ -76,7 +77,7 @@ const EVENT_META = {
     icon: "✅",
     color: "#10B981",
     description: "Enviado após confirmação do pagamento InfinitePay",
-    vars: ["{name}", "{user}", "{plan_months}", "{new_expires_at}", "{system_type}"],
+    vars: ["{name}", "{user}", "{password}", "{plan_months}", "{new_expires_at}", "{system_type}"],
   },
   trial_ready: {
     icon: "🎁",

@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { paymentsApi, couponsApi } from "@/lib/api";
 import { CheckCircle, WarningCircle, CreditCard } from "@phosphor-icons/react";
 import { PLANS, CheckoutBackground, MobileHeader, BrandColumn, PlanButton, CouponField, CheckoutCta, HistoryLink } from "@/components/pay/PayParts";
+import { PointsPicker, AdultToggle, ProviderPicker, PixPanel } from "@/components/pay/PayOptions";
 import { toast } from "sonner";
 
 export default function PublicPay() {
@@ -17,6 +18,11 @@ export default function PublicPay() {
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [confirmingPayment, setConfirmingPayment] = useState(returnedFromPay);
   const [renewalStatus, setRenewalStatus] = useState(null);
+  const [extraIds, setExtraIds] = useState([]);
+  const [adult, setAdult] = useState(null);
+  const [provider, setProvider] = useState(null);
+  const [pix, setPix] = useState(null);
+  const [pixPaid, setPixPaid] = useState(false);
 
   // Coupon state — validated on-demand via /api/coupons/validate.
   // When applied, `couponApplied` holds {code, discount_percent}.
@@ -92,9 +98,28 @@ export default function PublicPay() {
       });
   }, [data?.customer, data?.payment_link_provider, customerId, returnedFromPay]);
 
+  useEffect(() => {
+    if (!data) return;
+    setAdult((v) => (v === null ? data.adult_default !== false : v));
+    setProvider((v) => v || (data.providers || ["infinitepay"])[0]);
+  }, [data]);
+
+  // Mercado Pago Pix: poll our backend (which re-checks with Mercado Pago).
+  useEffect(() => {
+    if (!pix?.payment_id || pixPaid) return;
+    const t = setInterval(async () => {
+      try {
+        const r = await paymentsApi.mpStatus(pix.payment_id);
+        if (["renewed", "already_processed", "paid_no_painel_id", "paid_renewal_failed"].includes(r?.status)) setPixPaid(true);
+      } catch (_) { /* keep polling */ }
+    }, 4000);
+    return () => clearInterval(t);
+  }, [pix, pixPaid]);
+
   const createPayMut = useMutation({
     mutationFn: paymentsApi.create,
     onSuccess: (result) => {
+      if (result.provider === "mercadopago") { setPix(result); return; }
       setPaymentUrl(result.url);
       window.location.href = result.url;
     },
@@ -148,7 +173,8 @@ export default function PublicPay() {
   // Whichever discount is bigger wins — matches backend logic.
   const effectivePct = Math.max(autoPct, couponPct);
   const discountSource = couponPct >= autoPct && couponPct > 0 ? "coupon" : autoPct > 0 ? "auto" : null;
-  const rawPrice = prices[selected] ?? 0;
+  const points = 1 + extraIds.length;
+  const rawPrice = (prices[selected] ?? 0) * points;
   const discountedPrice = effectivePct > 0 ? Math.floor((rawPrice * (100 - effectivePct)) / 100) : rawPrice;
 
   async function handleApplyCoupon() {
@@ -183,7 +209,11 @@ export default function PublicPay() {
 
   const brand = data?.brand;
   const login = customer?.login || customer?.name;
+  const feePct = data?.mp_fee_percent ?? 0.99;
+  const mpPrice = Math.round(discountedPrice * (1 + feePct / 100));
+  const finalPrice = provider === "mercadopago" ? mpPrice : discountedPrice;
   const original = effectivePct > 0 && selected ? rawPrice : null;
+  const toggleExtra = (id) => setExtraIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
   return (
     <div className="min-h-screen relative" data-testid="pay-page">
       <CheckoutBackground />
@@ -217,15 +247,22 @@ export default function PublicPay() {
             </div>
           )}
 
-          <div className="rounded-3xl bg-white shadow-2xl shadow-black/40 p-4 sm:p-6 space-y-6" data-testid="pay-card">
+          {pix && <PixPanel pix={pix} amount={pix.amount_cents} paid={pixPaid}
+            onCopy={() => { navigator.clipboard?.writeText(pix.pix_qr_code || ""); toast.success("Código Pix copiado"); }} />}
+
+          <div className={"rounded-3xl bg-white shadow-2xl shadow-black/40 p-4 sm:p-6 space-y-6 " + (pix ? "hidden" : "")} data-testid="pay-card">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-900 mb-3">Escolha o plano</p>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {PLANS.map((p) => (
-                  <PlanButton key={p.months} plan={p} price={prices[p.months] ?? 0} active={selected === p.months} onSelect={() => setSelected(p.months)} />
+                  <PlanButton key={p.months} plan={p} price={(prices[p.months] ?? 0) * points} active={selected === p.months} onSelect={() => setSelected(p.months)} />
                 ))}
               </div>
             </div>
+
+            <PointsPicker main={{ login, expires_at: customer?.expires_at }} linked={data?.linked_accounts} selected={extraIds} onToggle={toggleExtra} />
+
+            <AdultToggle value={adult} onChange={setAdult} />
 
             {autoPct > 0 && discountSource === "auto" && (
               <div data-testid="discount-banner" className="rounded-xl bg-[#ECFDF5] border border-[#10B981]/30 px-4 py-3 text-sm text-slate-800">
@@ -236,22 +273,28 @@ export default function PublicPay() {
             <CouponField applied={couponApplied} input={couponInput} error={couponError} loading={validatingCoupon}
               setInput={(v) => { setCouponInput(v); setCouponError(""); }} onApply={handleApplyCoupon} onRemove={handleRemoveCoupon} />
 
+            <ProviderPicker providers={data?.providers} value={provider} onChange={setProvider}
+              prices={selected ? { infinitepay: discountedPrice, mercadopago: mpPrice } : null} />
+
             <CheckoutCta
               disabled={!selected}
               pending={createPayMut.isPending}
-              price={selected ? discountedPrice : null}
+              price={selected ? finalPrice : null}
               original={original}
               onClick={() => createPayMut.mutate({
                 customer_id: customerId,
                 plan_months: selected,
                 ref: refBucket || undefined,
                 coupon_code: couponApplied?.code || undefined,
+                provider: provider || undefined,
+                extra_customer_ids: extraIds,
+                adult_channels: adult,
               })}
             />
           </div>
 
           <div className="md:hidden"><HistoryLink history={data?.payments_history} /></div>
-          <p className="text-center text-[11px] text-slate-500">Processado com segurança pela InfinitePay · Pix ou cartão</p>
+          <p className="text-center text-[11px] text-slate-500">{provider === "mercadopago" ? "Processado com segurança pelo Mercado Pago · Pix" : "Processado com segurança pela InfinitePay · Pix ou cartão"}</p>
         </div>
       </div>
     </div>

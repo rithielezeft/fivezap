@@ -1046,7 +1046,7 @@ async def get_client_payment_link(user_id: str) -> dict:
     return body_out
 
 
-async def renew_user(user_id: str, package_id: int, months: int | None = None) -> dict:
+async def renew_user(user_id: str, package_id: int, months: int | None = None, adult: Optional[bool] = None) -> dict:
     """Renew existing user via painel API.
 
     2026-08 UPDATE — Painel added `sessao_nao_renderizada` middleware on POST /renew.
@@ -1081,6 +1081,8 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
     # STEP 1: package_id (required) validated against /datacomplements, then
     # plan_id + amount (optional) from the client's price-overrides / plans.
     package_id = await resolve_package_id(package_id, months)
+    if adult is not None:  # painel SPA: "S/XXX" packages are the no-adult variants
+        package_id = (ADULT_TO_PLAIN if not adult else PLAIN_TO_ADULT).get(package_id, package_id)
     plan_id, amount = await resolve_plan(user_id, months)
     logger.info("RENEW user=%s months=%s package_id=%s plan_id=%s amount=%s",
                 user_id, months, package_id, plan_id, amount)
@@ -1117,6 +1119,9 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
     if plan_id is not None:
         bodies_to_try.append({"package_id": package_id, "plan_id": plan_id, "amount": amount})
     bodies_to_try.append({"package_id": package_id})
+    if adult is not None:
+        for b in bodies_to_try:
+            b["adult_channels"] = bool(adult)
 
     last_resp = None
     last_body_used = None
@@ -1221,6 +1226,10 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
 
 
 # Package IDs mapping (from problem statement)
+ADULT_BOUQUET_ID = 47
+ADULT_TO_PLAIN = {17: 18, 42: 43, 55: 56, 57: 58}
+PLAIN_TO_ADULT = {v: k for k, v in ADULT_TO_PLAIN.items()}
+
 PACKAGE_IDS = {
     "iptv": {1: 17, 3: 43, 6: 56, 12: 58},
     "p2p": {1: 17, 3: 42, 6: 55, 12: 57},

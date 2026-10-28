@@ -7,6 +7,7 @@ import { MagnifyingGlass, Receipt, PaperPlaneTilt, ArrowSquareOut, Files } from 
 
 export const STATUS = {
   paid: { label: "Pago", cls: "bg-[#10B981]/10 text-[#34D399] border-[#10B981]/20" },
+  paid_renewal_failed: { label: "Pago · renovação falhou", cls: "bg-[#F59E0B]/10 text-[#FBBF24] border-[#F59E0B]/20" },
   pending: { label: "Pendente", cls: "bg-[#F59E0B]/10 text-[#FBBF24] border-[#F59E0B]/20" },
   canceled: { label: "Cancelado", cls: "bg-[#EF4444]/10 text-[#F87171] border-[#EF4444]/20" },
   expired: { label: "Expirado", cls: "bg-[#EF4444]/10 text-[#F87171] border-[#EF4444]/20" },
@@ -47,9 +48,9 @@ export function PaymentsTable({ payments, month, onDiag, onCustomer }) {
   const rows = useMemo(() => (payments || []).filter((p) => {
     const d = (p.paid_at || p.created_at || "").slice(0, 7);
     if (month && d && d !== month) return false;
-    if (status === "paid" && p.status !== "paid") return false;
+    if (status === "paid" && !["paid", "paid_renewal_failed"].includes(p.status)) return false;
     if (status === "pending" && p.status !== "pending") return false;
-    if (status === "other" && ["paid", "pending"].includes(p.status)) return false;
+    if (status === "other" && ["paid", "paid_renewal_failed", "pending"].includes(p.status)) return false;
     const t = q.trim().toLowerCase();
     return !t || [p.customer_login, p.customer_name, p.customer_id, p.coupon_code].some((v) => (v || "").toLowerCase().includes(t));
   }), [payments, q, status, month]);

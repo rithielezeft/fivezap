@@ -571,7 +571,7 @@ app.post('/send', async (req, res) => {
       result = await client.sendMessage(chatId, media, { caption: message || '' });
     } else {
       if (!message) return res.status(400).json({ error: 'message or image_url required' });
-      result = await client.sendMessage(chatId, message);
+      result = await client.sendMessage(chatId, message, { linkPreview: true });
     }
     // In some LID chats, `sendMessage` returns undefined even on success.
     // Treat undefined/null as "sent OK" — the message was delivered.

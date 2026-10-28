@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from database import DB_PATH
 from services.finance_report import credits_for
+from services.payment_accounts import RECEIVED_STATUSES as RECEIVED
 
 router = APIRouter(prefix="/api/finance", tags=["finance"])
 
@@ -61,7 +62,7 @@ async def _load_rows(where: str = "", params: tuple = ()) -> list:
     logins = await _logins()
     for r in rows:
         r["login"] = r.get("painel_username") or logins.get(str(r["customer_id"])) or r["customer_id"]
-        r["_paid"] = _parse(r["paid_at"]) or (_parse(r["created_at"]) if r["status"] == "paid" else None)
+        r["_paid"] = _parse(r["paid_at"]) or (_parse(r["created_at"]) if r["status"] in RECEIVED else None)
         r["_created"] = _parse(r["created_at"])
     return rows
 
@@ -70,7 +71,7 @@ async def paid_rows_for(month: str) -> list:
     from services.scheduler import _get_display_tz
     tz = await _get_display_tz()
     start, end, _ = _month_bounds(month, tz)
-    rows = [r for r in await _load_rows() if r["status"] == "paid" and r["_paid"] and start <= r["_paid"].astimezone(tz) < end]
+    rows = [r for r in await _load_rows() if r["status"] in RECEIVED and r["_paid"] and start <= r["_paid"].astimezone(tz) < end]
     for r in rows:
         r["_paid"] = r["_paid"].astimezone(tz)
     return sorted(rows, key=lambda r: r["_paid"])
@@ -82,7 +83,7 @@ async def customer_payments(customer_id: str):
     rows = await _load_rows("WHERE p.customer_id = ?", (customer_id,))
     return {"customer_id": customer_id, "login": rows[0]["login"] if rows else customer_id,
             "payments": [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows],
-            "total_paid_cents": sum(r["amount_cents"] for r in rows if r["status"] == "paid")}
+            "total_paid_cents": sum(r["amount_cents"] for r in rows if r["status"] in RECEIVED)}
 
 
 @router.get("/report.pdf")
@@ -115,14 +116,14 @@ async def summary(month: Optional[str] = None):
     def in_range(d, a, b):
         return d is not None and a <= d.astimezone(tz) < b
 
-    paid = [r for r in rows if r["status"] == "paid" and in_range(r["_paid"], start, end)]
-    prev_paid = [r for r in rows if r["status"] == "paid" and in_range(r["_paid"], prev_start, start)]
+    paid = [r for r in rows if r["status"] in RECEIVED and in_range(r["_paid"], start, end)]
+    prev_paid = [r for r in rows if r["status"] in RECEIVED and in_range(r["_paid"], prev_start, start)]
     created = [r for r in rows if in_range(r["_created"], start, end)]
     pending = [r for r in created if r["status"] == "pending"]
-    failed = [r for r in created if r["status"] not in ("paid", "pending")]
+    failed = [r for r in created if r["status"] not in (*RECEIVED, "pending")]
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today = [r for r in rows if r["status"] == "paid" and in_range(r["_paid"], today0, today0 + timedelta(days=1))]
-    week = [r for r in rows if r["status"] == "paid" and in_range(r["_paid"], today0 - timedelta(days=6), today0 + timedelta(days=1))]
+    today = [r for r in rows if r["status"] in RECEIVED and in_range(r["_paid"], today0, today0 + timedelta(days=1))]
+    week = [r for r in rows if r["status"] in RECEIVED and in_range(r["_paid"], today0 - timedelta(days=6), today0 + timedelta(days=1))]
 
     total = sum(r["amount_cents"] for r in paid)
     prev_total = sum(r["amount_cents"] for r in prev_paid)
@@ -162,7 +163,7 @@ async def summary(month: Optional[str] = None):
         "pending": {"amount_cents": sum(r["amount_cents"] for r in pending), "count": len(pending)},
         "failed": {"amount_cents": sum(r["amount_cents"] for r in failed), "count": len(failed)},
         "ticket_cents": total // len(paid) if paid else 0,
-        "conversion_percent": round(sum(1 for r in created if r["status"] == "paid") * 100 / len(created), 1) if created else None,
+        "conversion_percent": round(sum(1 for r in created if r["status"] in RECEIVED) * 100 / len(created), 1) if created else None,
         "coupons": {"count": sum(1 for r in paid if r.get("coupon_code")),
                     "discount_cents": sum(max(0, (r.get("original_amount_cents") or r["amount_cents"]) - r["amount_cents"]) for r in paid)},
         "credits": await credits_for(paid),

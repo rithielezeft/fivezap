@@ -22,53 +22,70 @@ COLS = [
 REQUIRED = ("customer_id", "plan_months", "amount_cents", "package_id")
 
 
+RANK = {"pending": 0, "paid_renewal_failed": 1, "paid": 2, "renewed": 3}
+
+
+def _local_status(st):
+    return "paid" if st == "renewed" else (st or "pending")
+
+
 async def sync_payments() -> dict:
+    from pymongo import UpdateOne
     from services.mongo_store import _get_db
     from services.payment_poller import MAX_AGE_HOURS
     mdb = _get_db()
     recent_cutoff = (datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS + 24)).isoformat()
-    restored = pushed = 0
+    restored = refreshed = 0
+    mongo = {str(d["_id"]): d async for d in mdb.payments.find({})}
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        local_ids = {r[0] async for r in await db.execute("SELECT id FROM payments")}
+        await db.execute("UPDATE payments SET status = 'paid' WHERE status = 'renewed'")
+        local = {r["id"]: dict(r) for r in await (await db.execute(f"SELECT {', '.join(COLS)} FROM payments")).fetchall()}
 
-        async for d in mdb.payments.find({}):
-            pid = str(d["_id"])
-            if pid in local_ids or any(d.get(k) is None for k in REQUIRED):
+        for pid, d in mongo.items():
+            m_status = _local_status(d.get("status"))
+            if pid in local:
+                # Mongo advanced (e.g. paid on the other environment) → refresh locally.
+                lr = local[pid]
+                if RANK.get(m_status, 0) > RANK.get(lr["status"], 0):
+                    upd = {c: d.get(c) for c in COLS if c not in ("id", "status", "renewal_next_retry_at") and d.get(c) is not None and lr.get(c) is None}
+                    upd["status"] = m_status
+                    await db.execute(f"UPDATE payments SET {', '.join(k + ' = ?' for k in upd)} WHERE id = ?", [*upd.values(), pid])
+                    lr.update(upd)
+                    refreshed += 1
+                continue
+            if any(d.get(k) is None for k in REQUIRED):
                 continue
             row = {c: d.get(c) for c in COLS}
-            row["id"] = pid
-            row["status"] = row["status"] or "pending"
-            if row["status"] == "renewed":
-                row["status"] = "paid"  # locally "paid" means paid + renewed
+            row.update(id=pid, status=m_status, renewal_next_retry_at=None)
             row["created_at"] = row["created_at"] or d.get("paid_at") or d.get("last_synced_at")
-            if not row["created_at"]:
-                continue
-            # Never restore retry state, and skip recent pending links: another
-            # environment sharing this Atlas may still be polling/renewing them.
-            row["renewal_next_retry_at"] = None
-            if row["status"] == "pending" and row["created_at"] >= recent_cutoff:
+            # Skip recent pending links: another environment may still be polling them.
+            if not row["created_at"] or (m_status == "pending" and row["created_at"] >= recent_cutoff):
                 continue
             await db.execute(
                 f"INSERT OR IGNORE INTO payments ({', '.join(COLS)}) VALUES ({', '.join('?' * len(COLS))})",
                 [row[c] for c in COLS],
             )
             restored += 1
-        await db.execute("UPDATE payments SET status = 'paid' WHERE status = 'renewed'")
         await db.commit()
 
-        rows = await (await db.execute(f"SELECT {', '.join(COLS)} FROM payments")).fetchall()
-    for r in rows:
+    ops = []
+    for pid, r in local.items():
+        m = mongo.get(pid)
+        m_rank = RANK.get((m or {}).get("status"), -1)
+        if m and RANK.get(r["status"], 0) < min(m_rank, RANK["paid"]):
+            continue  # Mongo is ahead: never push a stale local row over it
         doc = {k: r[k] for k in COLS if k not in ("id", "status") and r[k] is not None}
-        await mdb.payments.update_one({"_id": r["id"]}, {"$set": doc}, upsert=True)
-        # Keep Mongo's richer "renewed" status instead of downgrading it to "paid".
-        await mdb.payments.update_one(
-            {"_id": r["id"], "status": {"$ne": "renewed"}} if r["status"] == "paid" else {"_id": r["id"]},
-            {"$set": {"status": r["status"]}},
-        )
-        pushed += 1
-    logger.info("payments sync: restored %d from Mongo, pushed %d to Mongo", restored, pushed)
-    return {"restored": restored, "pushed": pushed}
+        if m and m_rank >= RANK.get(r["status"], 0):
+            doc = {k: v for k, v in doc.items() if m.get(k) is None}  # only fill gaps
+        else:
+            doc["status"] = r["status"]
+        if doc:
+            ops.append(UpdateOne({"_id": pid}, {"$set": doc}, upsert=True))
+    if ops:
+        await mdb.payments.bulk_write(ops, ordered=False)
+    logger.info("payments sync: restored %d, refreshed %d, pushed %d", restored, refreshed, len(ops))
+    return {"restored": restored, "refreshed": refreshed, "pushed": len(ops)}
 
 
 async def payments_sync_loop(interval_s: int = 300):

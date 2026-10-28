@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
+import { PaymentAccounts } from "@/components/settings/PaymentAccounts";
 import { settingsApi, painelApi, paymentsApi, systemApi, setDisplayTimezone } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -719,6 +720,7 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+            {groupKey === "pay" && <PaymentAccounts />}
           </div>
         ))}
       </div>

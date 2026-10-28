@@ -1,7 +1,7 @@
 """Pydantic models for WhatsFlow."""
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -136,6 +136,9 @@ class PaymentCreate(BaseModel):
     plan_months: int  # 1, 3, 6, 12
     ref: Optional[str] = None  # Attribution bucket (from ?ref= in pay_link)
     coupon_code: Optional[str] = None
+    provider: Optional[str] = "infinitepay"  # infinitepay | mercadopago
+    extra_customer_ids: List[str] = []  # other logins (same WhatsApp) paid together
+    adult_channels: Optional[bool] = None
 
 
 class Payment(BaseModel):
@@ -153,6 +156,8 @@ class Payment(BaseModel):
     transaction_nsu: Optional[str] = None
     coupon_code: Optional[str] = None
     coupon_id: Optional[str] = None
+    provider: Optional[str] = None
+    account_id: Optional[str] = None
     # Enriched fields for admin listing (never present at insert time):
     customer_login: Optional[str] = None
     customer_name: Optional[str] = None

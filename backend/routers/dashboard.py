@@ -34,7 +34,7 @@ async def stats():
         expiring_soon = (await cur.fetchone())["c"]
         # Revenue this week (paid)
         cur = await db.execute(
-            "SELECT COALESCE(SUM(amount_cents), 0) as t FROM payments WHERE status = 'paid' AND paid_at >= ?",
+            "SELECT COALESCE(SUM(amount_cents), 0) as t FROM payments WHERE status IN ('paid', 'paid_renewal_failed') AND paid_at >= ?",
             (week_start,),
         )
         revenue_week_cents = (await cur.fetchone())["t"]
@@ -84,8 +84,8 @@ async def attribution(days: int = 30):
         cur = await db.execute(
             "SELECT COALESCE(NULLIF(ref_bucket, ''), 'direct') as bucket,"
             " COUNT(*) as total,"
-            " SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paid_count,"
-            " COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END), 0) as revenue_cents"
+            " SUM(CASE WHEN status IN ('paid', 'paid_renewal_failed') THEN 1 ELSE 0 END) as paid_count,"
+            " COALESCE(SUM(CASE WHEN status IN ('paid', 'paid_renewal_failed') THEN amount_cents ELSE 0 END), 0) as revenue_cents"
             " FROM payments WHERE created_at >= ?"
             " GROUP BY bucket ORDER BY revenue_cents DESC",
             (since,),
@@ -135,7 +135,7 @@ async def revenue_by_day(days: int = 14):
             "SELECT SUBSTR(paid_at, 1, 10) as day,"
             " COUNT(*) as count,"
             " COALESCE(SUM(amount_cents), 0) as revenue_cents"
-            " FROM payments WHERE status = 'paid' AND paid_at >= ?"
+            " FROM payments WHERE status IN ('paid', 'paid_renewal_failed') AND paid_at >= ?"
             " GROUP BY day ORDER BY day",
             (since,),
         )

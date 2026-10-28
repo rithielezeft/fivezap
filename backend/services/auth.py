@@ -92,6 +92,11 @@ def is_public(path: str, method: str = "GET") -> bool:
     # from InfinitePay to speed up the "Renovação confirmada" flow.
     if path.startswith("/api/payments/check-status/") and method.upper() == "POST":
         return True
+    # Mercado Pago Pix: page polling + provider webhook (both re-verify with MP).
+    if path.startswith("/api/payments/mp-status/") and method.upper() == "GET":
+        return True
+    if path == "/api/payments/mp-webhook" and method.upper() == "POST":
+        return True
     # Public coupon validation — called by /pay/{id} to preview the discount
     # before creating the checkout link.
     if path == "/api/coupons/validate" and method.upper() == "POST":

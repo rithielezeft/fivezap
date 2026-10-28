@@ -1,0 +1,35 @@
+{
+  "summary": "Tested the payments persistence fix using read-only checks plus sync_payments runs only. Nothing in Mongo was deleted, no payments were created and nothing was sent. 1) GET /api/finance/summary: 2026-07 received R$2388,80 / 54, 2026-08 received R$3387,60 / 91, both exactly as expected. 2026-10 is R$225,00 / 6. 2026-09 is 0, which is consistent: there are no Sept rows in SQLite and none among the Mongo-only docs. 2) Financeiro UI (/payments): month navigation shows the right KPIs for Jul and Aug, and the +41.8% comparison is correct. August lists 174 invoices. The receipts dialog opens and lists the customer's 3 invoices. 3) sync_payments idempotency: I ran it 3 times (once by the server loop, twice manually) and got restored=0, pushed=407 each time. SQLite counts stayed stable at paid 151, paid_renewal_failed 18, pending 238, with 0 rows in status 'renewed'. These are higher than the 146 in the request, most likely because real payments came in since then; nothing was lost. 4) Mongo statuses: renewed 157 (>=152) before and after, paid 1, paid_renewal_failed 19, pending 241, so nothing was downgraded. 11 Mongo docs are not restored locally, and correctly so: 7 'renewed' test/legacy docs with amount_cents=None (cust1, cust-trial-1, 888777…), 1 doc with all required fields null, and 3 recent pending links (<MAX_AGE window). 5) whatsflow.db is no longer tracked by git and is listed in .gitignore.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "services/payments_sync.sync_payments (push phase)", "issue": "Slow: each run does about 2 sequential update_one calls per row (814 round trips) and takes about 117s for 407 rows. It runs every 5 min and the cost grows linearly. Use a single bulk_write (UpdateOne list, ordered=False)."},
+      {"endpoint": "services/payments_sync.sync_payments (push phase)", "issue": "Cross-environment race: Atlas is shared with the Raspberry. Local non-'paid' statuses (e.g. 'pending') are pushed unconditionally, and all local fields are $set over Mongo. If the other environment marks a payment paid/renewed in Mongo while this env still has it 'pending', this sync downgrades Mongo back to 'pending' and overwrites paid_at/transaction_nsu/receipt_url with stale or missing values. Missing values are skipped, but stale ones are written. Suggest a status rank guard (pending < paid_renewal_failed < paid < renewed) or only pushing rows whose updated_at is newer."},
+      {"endpoint": "sync_payments restore phase", "issue": "A row that exists locally is never refreshed from Mongo, so a status that advanced in Mongo (e.g. a pending→paid change done by the Raspberry) never reaches the local Financeiro. Combined with the issue above, the stale local value is pushed back over the newer Mongo one."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Receipts dialog / payments table", "issues": ["The status 'paid_renewal_failed' is shown as the raw English key instead of a pt-BR label (e.g. 'Pago · renovação falhou').", "The receipts dialog header says 'total pago R$ 0,00' for a customer with 3 paid_renewal_failed invoices: the money was received but is excluded from the total. The same applies to the 'Recebido no mês' KPI. Confirm with the user whether paid_renewal_failed should count as received revenue."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/check_payments_sync.py", "/app/backend/tests/diag_payments_sync.py"],
+  "action_items": [
+    "Recommended: guard the Mongo status push with a status rank so a local 'pending' can never overwrite a 'paid'/'renewed' set by the other environment (shared Atlas)",
+    "Recommended: switch the push loop to bulk_write to cut the ~2 minute sync time",
+    "Optional: translate the 'paid_renewal_failed' badge, and decide whether it counts toward received totals"
+  ],
+  "critical_code_review_comments": [
+    "payments_sync push: the status write is unconditional except for paid→renewed. Data-loss risk with the shared Atlas (see backend minor issues).",
+    "payments_sync: aiosqlite.Row is fetched before Mongo writes; that is fine. But the INSERT OR IGNORE counter 'restored' increments even when the insert is ignored. Harmless for now because ids are pre-filtered."
+  ],
+  "updated_files": ["/app/backend/tests/check_payments_sync.py", "/app/backend/tests/diag_payments_sync.py"],
+  "success_rate": {"backend": "100% of requested checks", "frontend": "100% of requested flows"},
+  "test_credentials": "Admin password Rithi0518@ (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "PRODUCTION Atlas is shared with the Raspberry, so use read-only checks only. The Finance page route is /payments. SQLite baseline: paid 151, paid_renewal_failed 18, pending 238 (407 rows). Mongo baseline: 418 docs (renewed 157). tests/check_payments_sync.py runs the sync twice and prints the counts; each sync takes about 2 min, so run it with nohup or in the background."
+}

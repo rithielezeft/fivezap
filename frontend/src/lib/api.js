@@ -103,6 +103,13 @@ export const paymentsApi = {
   diagnostics: () => api.get("/payments/diagnostics").then((r) => r.data),
   painelLink: (customerId) =>
     api.get(`/payments/painel-link/${customerId}`).then((r) => r.data),
+  mpStatus: (paymentId) => api.get(`/payments/mp-status/${paymentId}`).then((r) => r.data),
+};
+
+export const paymentAccountsApi = {
+  list: () => api.get("/payment-accounts").then((r) => r.data),
+  save: (accounts) => api.put("/payment-accounts", { accounts }).then((r) => r.data),
+  test: (id) => api.post(`/payment-accounts/${id}/test`).then((r) => r.data),
 };
 
 export const settingsApi = {
