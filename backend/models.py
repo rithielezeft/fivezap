@@ -159,6 +159,7 @@ class Payment(BaseModel):
     coupon_id: Optional[str] = None
     provider: Optional[str] = None
     account_id: Optional[str] = None
+    clovers: Optional[int] = 0
     # Enriched fields for admin listing (never present at insert time):
     customer_login: Optional[str] = None
     customer_name: Optional[str] = None

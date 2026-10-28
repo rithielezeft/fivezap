@@ -30,6 +30,18 @@ def _has_adult(u: dict) -> bool:
     return painel.ADULT_BOUQUET_ID in [int(x) for x in ids if str(x).isdigit()]
 
 
+async def _clover_vars(payment: dict) -> dict:
+    n = int(payment.get("clovers") or 0)
+    coupons = []
+    if n:
+        try:
+            from services.raffle import coupons_for_payment
+            coupons = await coupons_for_payment(payment["id"])
+        except Exception:
+            logger.exception("clover coupons lookup failed")
+    return {"clovers": n, "clover_coupons": ", ".join(f"#{c}" for c in coupons) if coupons else ("—" if not n else "")}
+
+
 async def _public_raffle():
     from routers.raffle import raffle_public
     try:
@@ -1102,6 +1114,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                         "name": customer["name"],
                         "user": painel_user or customer["name"],
                         "password": (await _cache_user(painel_id)).get("password") or "",
+                        **(await _clover_vars(payment)),
                         "plan_months": payment["plan_months"],
                         "new_expires_at": new_expires,
                         "system_type": customer.get("system_type") or "",

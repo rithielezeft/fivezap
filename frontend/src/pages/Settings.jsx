@@ -56,6 +56,53 @@ const GROUPS = {
   notify: "Notificações & Público",
 };
 
+const SECTIONS = [
+  { key: "painel", label: "Painel.fun", desc: "Login e conexão com o painel", icon: PlugsConnected },
+  { key: "captcha", label: "2Captcha", desc: "Resolve o captcha do login", icon: Lightning },
+  { key: "pay", label: "Pagamentos", desc: "Contas, preços e formas de pagamento", icon: CreditCard },
+  { key: "discounts", label: "Descontos", desc: "Desconto automático por evento", icon: Tag },
+  { key: "notify", label: "Notificações", desc: "Horários, link público e alertas", icon: Bell },
+  { key: "system", label: "Sistema", desc: "Atualização do Raspberry", icon: Download },
+  { key: "guide", label: "Guia de uso", desc: "Como cada configuração é usada", icon: MapTrifold },
+];
+
+const sectionOf = (key) => (key === "discount_panel" ? "discounts" : FIELDS.find((f) => f.key === key)?.group || "guide");
+
+function SettingsNav({ active, onSelect }) {
+  return (
+    <nav className="surface rounded-xl p-2 lg:sticky lg:top-6 flex lg:flex-col gap-1 overflow-x-auto" data-testid="settings-nav">
+      {SECTIONS.map(({ key, label, desc, icon: Icon }) => (
+        <button key={key} onClick={() => onSelect(key)} data-testid={`settings-nav-${key}`} aria-current={active === key}
+          className={"group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left shrink-0 transition-colors duration-200 " +
+            (active === key ? "bg-white/[0.07] text-white" : "text-white/55 hover:text-white hover:bg-white/[0.03]")}>
+          <span className={"mt-0.5 grid place-items-center w-7 h-7 rounded-md shrink-0 transition-colors " + (active === key ? "bg-[#10B981]/15 text-[#34D399]" : "bg-white/[0.04] text-white/50 group-hover:text-white/80")}>
+            <Icon size={15} weight="duotone" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold leading-tight">{label}</span>
+            <span className="hidden lg:block text-[11px] text-white/40 leading-snug mt-0.5">{desc}</span>
+          </span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function SectionHeader({ section }) {
+  const sec = SECTIONS.find((x) => x.key === section);
+  if (!sec) return null;
+  const Icon = sec.icon;
+  return (
+    <div className="flex items-center gap-3 pb-1" data-testid="settings-section-header">
+      <span className="grid place-items-center w-10 h-10 rounded-xl bg-[#10B981]/10 text-[#34D399]"><Icon size={20} weight="duotone" /></span>
+      <div>
+        <h2 className="font-display text-xl font-bold leading-tight">{sec.label}</h2>
+        <p className="text-xs text-white/45">{sec.desc}</p>
+      </div>
+    </div>
+  );
+}
+
 // Visual "playbook": maps each app flow → the settings that feed it. Clicking
 // a chip scrolls to and highlights that field so admins can find it fast.
 // Purpose: prevent accidental changes ("I bumped discount_7d_percent thinking
@@ -452,6 +499,8 @@ export default function Settings() {
   const { data, refetch } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
   const [form, setForm] = useState({});
   const [testResult, setTestResult] = useState(null);
+  const [section, setSection] = useState("painel");
+  const goToSetting = (key) => { setSection(sectionOf(key)); setTimeout(() => scrollToSetting(key), 120); };
 
   useEffect(() => {
     if (data) setForm(data);
@@ -520,14 +569,15 @@ export default function Settings() {
         </Button>
       }
     >
-      <div className="space-y-6">
-        {/* UPDATE PI — remote self-update trigger */}
-        <UpdatePiCard />
+      <div className="grid lg:grid-cols-[260px_1fr] gap-6 items-start">
+        <SettingsNav active={section} onSelect={setSection} />
+        <div className="space-y-6 min-w-0" data-testid={`settings-section-${section}`}>
+        <SectionHeader section={section} />
+        {section === "system" && <UpdatePiCard />}
 
-        {/* DISCOUNTS — per-event configurable discount % */}
-        <DiscountsPanel />
+        {section === "discounts" && <DiscountsPanel />}
 
-        {/* PLAYBOOK — visual map of settings → app flows */}
+        {section === "guide" && (
         <div className="surface rounded-xl p-6" data-testid="settings-playbook">
           <div className="flex items-center gap-2 mb-2">
             <MapTrifold size={18} className="text-[#10B981]" weight="duotone" />
@@ -559,7 +609,7 @@ export default function Settings() {
                     {flow.settings.map((s) => (
                       <button
                         key={s.key}
-                        onClick={() => scrollToSetting(s.key)}
+                        onClick={() => goToSetting(s.key)}
                         data-testid={`flow-chip-${s.key}`}
                         title={s.note || s.key}
                         className="text-[10px] font-mono px-2 py-1 rounded-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-colors"
@@ -576,8 +626,9 @@ export default function Settings() {
             })}
           </div>
         </div>
+        )}
 
-        {Object.entries(GROUPS).map(([groupKey, groupTitle]) => (
+        {Object.entries(GROUPS).filter(([groupKey]) => groupKey === section).map(([groupKey, groupTitle]) => (
           <div key={groupKey} className="surface rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display text-xl font-bold">{groupTitle}</h2>
@@ -723,6 +774,7 @@ export default function Settings() {
             {groupKey === "pay" && <PaymentAccounts />}
           </div>
         ))}
+        </div>
       </div>
     </Layout>
   );

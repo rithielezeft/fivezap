@@ -21,7 +21,7 @@ const Stat = ({ icon: Icon, label, value, testId }) => (
 function SettingsCard({ cfg }) {
   const qc = useQueryClient();
   const [f, setF] = useState(null);
-  useEffect(() => { if (cfg) setF({ enabled: cfg.enabled, clover_price: (cfg.clover_cents / 100).toFixed(2).replace(".", ","), prize_months: cfg.prize_months, joker_login: cfg.joker_login }); }, [cfg]);
+  useEffect(() => { if (cfg) setF({ enabled: cfg.enabled, clover_price: (cfg.clover_cents / 100).toFixed(2).replace(".", ","), prize_months: cfg.prize_months, joker_login: cfg.joker_login, joker_count: cfg.joker_count || 0, joker_phone: cfg.joker_phone || "" }); }, [cfg]);
   const save = useMutation({
     mutationFn: () => raffleApi.saveSettings(f),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["raffle"] }); toast.success("Sorteio salvo"); },
@@ -31,7 +31,8 @@ function SettingsCard({ cfg }) {
   return (
     <div className="surface rounded-xl p-5 space-y-4" data-testid="raffle-settings">
       <div className="flex items-center justify-between">
-        <div className="font-semibold flex items-center gap-2"><Clover size={18} className="text-[#10B981]" />Configuração do Trevo</div>
+        <div className="font-semibold flex items-center gap-2"><Clover size={18} className="text-[#10B981]" />Configuração do Trevo
+          <a href="/trevo" target="_blank" rel="noreferrer" className="ml-2 text-xs font-normal text-[#34D399] hover:underline" data-testid="raffle-public-link">Abrir página pública ↗</a></div>
         <div className="flex items-center gap-2 text-sm"><span className="text-white/60">Ativo na página de pagamento</span>
           <Switch checked={f.enabled} onCheckedChange={(v) => setF({ ...f, enabled: v })} className="data-[state=checked]:bg-[#10B981]" data-testid="raffle-enabled" /></div>
       </div>
@@ -44,8 +45,14 @@ function SettingsCard({ cfg }) {
             {[1, 3, 6, 12].map((m) => <option key={m} value={m}>{m} {m === 1 ? "mês" : "meses"}</option>)}
           </select></div>
         <div><Label className="text-xs">Login coringa (opcional)</Label>
-          <Input value={f.joker_login} placeholder="vazio = só quem comprou trevo" onChange={(e) => setF({ ...f, joker_login: e.target.value })} data-testid="raffle-joker" />
-          <p className="text-[11px] text-white/40 mt-1">Entra como 1 participante, com a mesma chance de 1 trevo.</p></div>
+          <Input value={f.joker_login} placeholder="login que recebe o prêmio do coringa" onChange={(e) => setF({ ...f, joker_login: e.target.value })} data-testid="raffle-joker" />
+          <p className="text-[11px] text-white/40 mt-1">Se um coringa ganhar, este login é renovado.</p></div>
+        <div><Label className="text-xs">Quantidade de coringas</Label>
+          <Input type="number" min={0} max={50} value={f.joker_count} onChange={(e) => setF({ ...f, joker_count: Number(e.target.value) })} data-testid="raffle-joker-count" />
+          <p className="text-[11px] text-white/40 mt-1">Cada coringa tem a chance de 1 trevo e aparece como "Coringa N".</p></div>
+        <div><Label className="text-xs">WhatsApp padrão dos coringas</Label>
+          <Input value={f.joker_phone} placeholder="5531999999999" onChange={(e) => setF({ ...f, joker_phone: e.target.value })} data-testid="raffle-joker-phone" />
+          <p className="text-[11px] text-white/40 mt-1">Recebe o aviso quando um coringa é sorteado.</p></div>
       </div>
       <Button onClick={() => save.mutate()} disabled={save.isPending} className="bg-[#10B981] hover:bg-[#059669] text-white" data-testid="raffle-save">
         <FloppyDisk size={16} className="mr-2" />{save.isPending ? "Salvando..." : "Salvar"}</Button>

@@ -21,6 +21,7 @@ import ApiDocs from "@/pages/ApiDocs";
 import Login from "@/pages/Login";
 import PublicTest from "@/pages/PublicTest";
 import PublicPay from "@/pages/PublicPay";
+import PublicRaffle from "@/pages/PublicRaffle";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
 const P = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/teste" element={<PublicTest />} />
           <Route path="/pay/:customerId" element={<PublicPay />} />
+          <Route path="/trevo" element={<PublicRaffle />} />
 
           <Route path="/" element={<P><Dashboard /></P>} />
           <Route path="/customers" element={<P><Customers /></P>} />

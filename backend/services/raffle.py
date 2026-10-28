@@ -33,6 +33,8 @@ async def config() -> dict:
         "clover_cents": _cents(await get_setting("raffle_clover_price") or "2,00", 200),
         "prize_months": int(await get_setting("raffle_prize_months") or 1),
         "joker_login": (await get_setting("raffle_joker_login") or "").strip(),
+        "joker_count": max(0, min(50, int(await get_setting("raffle_joker_count") or 0))),
+        "joker_phone": "".join(c for c in (await get_setting("raffle_joker_phone") or "") if c.isdigit()),
         "max_clovers": 10,
     }
 
@@ -72,8 +74,13 @@ async def entries(month: str = None) -> dict:
                          "name": r["painel_username"] or r["name"] or str(r["customer_id"]), "payment_id": r["id"]})
             n += 1
     cfg = await config()
-    if cfg["joker_login"]:
-        pool.append({"coupon": f"{n:05d}", "customer_id": cfg["joker_login"], "name": cfg["joker_login"], "joker": True})
+    # House entries are always labelled "Coringa N" (publicly too): each one
+    # has the odds of a single clover.
+    jokers = cfg["joker_count"] or (1 if cfg["joker_login"] else 0)
+    for i in range(jokers):
+        pool.append({"coupon": f"{n:05d}", "customer_id": cfg["joker_login"] or f"coringa-{i + 1}",
+                     "name": f"Coringa {i + 1}", "joker": True})
+        n += 1
     participants = len({p["customer_id"] for p in pool if not p.get("joker")})
     return {"month": month, "pool": pool, "participants": participants,
             "clovers": sum(1 for p in pool if not p.get("joker")),
@@ -121,10 +128,12 @@ async def _draw_locked(data, pool, draw, mdb):
     cfg = await config()
     winner_id = winner["customer_id"]
     if winner.get("joker"):
-        winner_id, _login = await _resolve_joker(winner_id)
+        winner_id, _login = await _resolve_joker(winner_id) if cfg["joker_login"] else (None, None)
 
     renewed, renew_error = False, ""
     try:
+        if not winner_id:
+            raise RuntimeError("coringa sem login definido — sem renovação")
         from services import painel
         from services.system_detector import detect_system_type
         from routers.payments import _cache_user
@@ -148,6 +157,11 @@ async def _draw_locked(data, pool, draw, mdb):
 async def _notify(winner, winner_id, months, renewed, data):
     from services.notifier import send_admin_alert, send_hardcoded
     phone = ""
+    if winner.get("joker"):
+        cfg = await config()
+        if cfg["joker_phone"]:
+            await send_hardcoded(cfg["joker_phone"], f"🍀 Trevo da Sorte {data['month']}: {winner['name']} (cupom #{winner['coupon']}) foi sorteado.",
+                                 event_key="raffle_winner_joker")
     try:
         from routers.payments import _cache_user
         from services.phone_extractor import extract_whatsapp
@@ -202,7 +216,23 @@ def clean_settings_payload(body: dict) -> dict:
     if "prize_months" in body:
         m = int(body["prize_months"] or 1)
         out["raffle_prize_months"] = str(m if m in (1, 3, 6, 12) else 1)
+    if "joker_count" in body:
+        out["raffle_joker_count"] = str(max(0, min(50, int(body["joker_count"] or 0))))
+    if "joker_phone" in body:
+        out["raffle_joker_phone"] = "".join(c for c in str(body["joker_phone"] or "") if c.isdigit())[:15]
     if "joker_login" in body:
         out["raffle_joker_login"] = str(body["joker_login"] or "").strip()[:60]
     return out
 
+
+
+async def coupons_for_payment(payment_id: str) -> list:
+    data = await entries()
+    return [p["coupon"] for p in data["pool"] if p.get("payment_id") == payment_id]
+
+
+def mask_name(name: str) -> str:
+    name = str(name or "")
+    if name.startswith("Coringa "):
+        return name
+    return (name[:3] + "***") if len(name) > 3 else name[:1] + "***"

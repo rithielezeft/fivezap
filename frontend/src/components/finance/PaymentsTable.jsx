@@ -18,6 +18,7 @@ const FILTERS = [
   { key: "paid", label: "Pagos" },
   { key: "pending", label: "Pendentes" },
   { key: "other", label: "Cancelados" },
+  { key: "clover", label: "🍀 Com trevo" },
 ];
 
 const periodLabel = (m) => ({ 1: "Mensal", 3: "Trimestral", 6: "Semestral", 12: "Anual" }[m] || `${m} meses`);
@@ -51,6 +52,7 @@ export function PaymentsTable({ payments, month, onDiag, onCustomer }) {
     if (status === "paid" && !["paid", "paid_renewal_failed"].includes(p.status)) return false;
     if (status === "pending" && p.status !== "pending") return false;
     if (status === "other" && ["paid", "paid_renewal_failed", "pending"].includes(p.status)) return false;
+    if (status === "clover" && !(p.clovers > 0)) return false;
     const t = q.trim().toLowerCase();
     return !t || [p.customer_login, p.customer_name, p.customer_id, p.coupon_code].some((v) => (v || "").toLowerCase().includes(t));
   }), [payments, q, status, month]);
@@ -71,7 +73,8 @@ export function PaymentsTable({ payments, month, onDiag, onCustomer }) {
             </button>
           ))}
         </div>
-        <div className="md:ml-auto text-xs text-slate-500" data-testid="payments-count">{rows.length} {rows.length === 1 ? "fatura" : "faturas"}</div>
+        <div className="md:ml-auto text-xs text-slate-500" data-testid="payments-count">{rows.length} {rows.length === 1 ? "fatura" : "faturas"}
+          {status === "clover" && <span className="ml-2 text-[#34D399]" data-testid="payments-clover-total">· {rows.reduce((a, p) => a + (p.clovers || 0), 0)} trevos</span>}</div>
       </div>
 
       <div className="overflow-x-auto -mx-5">
@@ -100,6 +103,7 @@ export function PaymentsTable({ payments, month, onDiag, onCustomer }) {
                 <td className="px-3 py-3 text-right font-mono font-semibold text-[#34D399]">
                   {formatMoney(p.amount_cents)}
                   {p.coupon_code && <div className="text-[10px] font-sans font-normal text-slate-500" data-testid={`payment-coupon-${p.id}`}>{p.coupon_code} · -{p.discount_percent}%</div>}
+                  {p.clovers > 0 && <div className="text-[10px] font-sans font-normal text-[#34D399]" data-testid={`payment-clovers-${p.id}`}>🍀 {p.clovers} {p.clovers === 1 ? "trevo" : "trevos"}</div>}
                 </td>
                 <td className="px-3 py-3 text-xs text-slate-400">
                   <span className="inline-flex items-center gap-1.5"><span className={"w-2 h-2 rounded-full border " + (p.provider === "mercadopago" ? "border-[#38BDF8]" : "border-[#10B981]")} />{p.provider === "mercadopago" ? "Mercado Pago" : "InfinitePay"}</span>

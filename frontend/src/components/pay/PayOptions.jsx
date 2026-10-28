@@ -92,7 +92,7 @@ export function CloverPicker({ raffle, value, onChange }) {
         </button>
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-slate-900 text-sm">🍀 Trevo da Sorte · concorra a {raffle.prize_months} {raffle.prize_months === 1 ? "mês" : "meses"} grátis</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">{money(raffle.clover_cents)} por trevo · quanto mais trevos, mais chances · sorteio em {formatDateBR(raffle.draw_at).split(",")[0]}</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">{money(raffle.clover_cents)} por trevo · quanto mais trevos, mais chances · sorteio em {formatDateBR(raffle.draw_at).split(",")[0]} · <a href="/trevo" target="_blank" rel="noreferrer" className="underline" data-testid="clover-public-link">ver sorteio</a></p>
         </div>
         {on && (
           <div className="flex items-center gap-1.5 shrink-0" data-testid="clover-qty">

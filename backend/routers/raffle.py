@@ -39,7 +39,16 @@ async def raffle_draw_now():
 async def raffle_public():
     cfg = await raffle.config()
     cur = await raffle.entries()
-    last = (await raffle.history(1) or [None])[0]
+    hist = await raffle.history(12)
+    last = hist[0] if hist else None
+    m = raffle.mask_name
     return {"enabled": cfg["enabled"], "clover_cents": cfg["clover_cents"], "prize_months": cfg["prize_months"],
             "max_clovers": cfg["max_clovers"], "participants": cur["participants"], "draw_at": cur["draw_at"],
-            "last_winner": {"month": last["month"], "name": last["winner"]["name"]} if last else None}
+            "month": cur["month"], "clovers": cur["clovers"],
+            "entries": [{"name": m(p["name"]), "coupon": p["coupon"], "joker": bool(p.get("joker"))} for p in cur["pool"]],
+            "last_winner": {"month": last["month"], "name": m(last["winner"]["name"])} if last else None,
+            "history": [{"month": h["month"], "participants": h.get("participants"), "total_clovers": h.get("total_clovers"),
+                         "prize_months": h.get("prize_months"), "win_index": h.get("win_index"),
+                         "winner": {"name": m(h["winner"]["name"]), "coupon": h["winner"]["coupon"]},
+                         "sequence": [{"name": m(x["name"]), "coupon": x["coupon"]} for x in h.get("sequence", [])]}
+                        for h in hist]}
