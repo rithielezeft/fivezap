@@ -53,3 +53,10 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - phone_extractor.br_canonical/br_variants: celular BR sempre com 9º dígito (553186582251 → 5531986582251); usado em _clean, bot.normalize_phone, real_phone (LID), /api/public/trial (valida 12–15 dígitos) e find_or_create_customer (casa variantes e atualiza linha antiga).
 - services/raffle.py + routers/raffle.py: trevos (payments.clovers) = cupons do mês pagos; coringa = 1 participante; sorteio automático último dia do mês 20h (loop 10 min) ou "Sortear agora"; lock no Mongo raffle_draws (_id=YYYY-MM); prêmio renova o ganhador (painel) + WhatsApp + alerta admin. Página /sorteio (DrawReel do sortezeferius). Pay page: CloverPicker (marcado por padrão, +/−, desmarcável).
 - Settings: raffle_enabled, raffle_clover_price, raffle_prize_months, raffle_joker_login.
+
+## 2026-10-28 — Coringas, página pública /trevo, Configurações em seções
+- Coringas: raffle_joker_count (0–50) + raffle_joker_phone; sempre rotulados "Coringa N" (decisão ética: não disfarçar como clientes reais). Coringa vencedor renova raffle_joker_login se definido; aviso ao WhatsApp padrão.
+- Página pública /trevo (PublicRaffle.jsx): contagem regressiva (America/Sao_Paulo), participantes com nome mascarado (3 letras + ***), histórico + replay DrawReel. GET /api/public/raffle retorna entries/history mascarados.
+- Settings.jsx: menu lateral por seções (Painel, 2Captcha, Pagamentos, Descontos, Notificações, Sistema, Guia).
+- Financeiro: filtro "🍀 Com trevo", selo por pagamento e total. Variáveis {clovers} e {clover_coupons} em renewal_success (todas as rotas de envio).
+- Nota testes: tests/test_phone_br_and_raffle.py::test_perform_draw_mocked passa sozinho; falha só quando rodado junto com outros testes de sorteio (estado compartilhado entre testes).
