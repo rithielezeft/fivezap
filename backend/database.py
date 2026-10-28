@@ -310,7 +310,7 @@ async def init_db():
         for col_sql in (
             "provider TEXT DEFAULT 'infinitepay'", "account_id TEXT", "extra_customer_ids TEXT",
             "mp_payment_id TEXT", "adult_channels INTEGER", "pix_qr_code TEXT",
-            "pix_qr_base64 TEXT", "pix_ticket_url TEXT",
+            "pix_qr_base64 TEXT", "pix_ticket_url TEXT", "clovers INTEGER DEFAULT 0",
         ):
             try:
                 await db.execute(f"ALTER TABLE payments ADD COLUMN {col_sql}")

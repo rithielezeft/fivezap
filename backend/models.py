@@ -139,6 +139,7 @@ class PaymentCreate(BaseModel):
     provider: Optional[str] = "infinitepay"  # infinitepay | mercadopago
     extra_customer_ids: List[str] = []  # other logins (same WhatsApp) paid together
     adult_channels: Optional[bool] = None
+    clovers: int = 0  # Trevo da Sorte coupons bought with this renewal
 
 
 class Payment(BaseModel):

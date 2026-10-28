@@ -17,7 +17,8 @@ COLS = [
     "infinitepay_url", "order_nsu", "confirmation_token", "paid_at", "created_at",
     "transaction_nsu", "receipt_url", "discount_percent", "original_amount_cents",
     "ref_bucket", "coupon_code", "coupon_id", "renewal_attempts",
-    "renewal_next_retry_at", "renewal_last_error",
+    "renewal_next_retry_at", "renewal_last_error", "provider", "account_id",
+    "extra_customer_ids", "mp_payment_id", "adult_channels", "clovers",
 ]
 REQUIRED = ("customer_id", "plan_months", "amount_cents", "package_id")
 

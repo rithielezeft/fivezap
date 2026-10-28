@@ -30,6 +30,15 @@ def _has_adult(u: dict) -> bool:
     return painel.ADULT_BOUQUET_ID in [int(x) for x in ids if str(x).isdigit()]
 
 
+async def _public_raffle():
+    from routers.raffle import raffle_public
+    try:
+        return await raffle_public()
+    except Exception:
+        logger.exception("raffle info failed")
+        return {"enabled": False}
+
+
 async def _linked_accounts(painel_id) -> list:
     """Other (non-trial) painel logins registered with the same WhatsApp number."""
     from routers.painel_users import _read_cache
@@ -374,6 +383,12 @@ async def create_payment(payload: PaymentCreate):
     providers = await payment_accounts.enabled_providers()
     provider = payload.provider if payload.provider in providers else (providers[0] if providers else "infinitepay")
     account = await payment_accounts.pick_account(provider)
+    clovers = 0
+    from services import raffle as raffle_svc
+    rcfg = await raffle_svc.config()
+    if rcfg["enabled"] and payload.clovers:
+        clovers = max(0, min(int(payload.clovers), rcfg["max_clovers"]))
+        amount += clovers * rcfg["clover_cents"]
     if provider == "mercadopago":
         amount = payment_accounts.mp_amount(amount)
 
@@ -440,8 +455,8 @@ async def create_payment(payload: PaymentCreate):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, ref_bucket, coupon_code, coupon_id, created_at,"
-            " provider, account_id, extra_customer_ids, mp_payment_id, adult_channels, pix_qr_code, pix_qr_base64, pix_ticket_url)"
-            " VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " provider, account_id, extra_customer_ids, mp_payment_id, adult_channels, pix_qr_code, pix_qr_base64, pix_ticket_url, clovers)"
+            " VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (payment_id, payload.customer_id, payload.plan_months, amount, package_id,
              link_data.get("url"), order_nsu, confirmation_token,
              discount_percent, original_amount, ref_bucket,
@@ -449,7 +464,7 @@ async def create_payment(payload: PaymentCreate):
              provider, (account or {}).get("id"), _json.dumps(extra_ids) if extra_ids else None,
              link_data.get("id") if provider == "mercadopago" else None,
              None if payload.adult_channels is None else int(bool(payload.adult_channels)),
-             link_data.get("qr_code"), link_data.get("qr_code_base64"), link_data.get("ticket_url")),
+             link_data.get("qr_code"), link_data.get("qr_code_base64"), link_data.get("ticket_url"), clovers),
         )
         await db.commit()
 
@@ -482,6 +497,7 @@ async def create_payment(payload: PaymentCreate):
         "pix_qr_code": link_data.get("qr_code"),
         "pix_qr_base64": link_data.get("qr_code_base64"),
         "points": points,
+        "clovers": clovers,
         "amount_cents": amount,
         "original_amount_cents": original_amount,
         "discount_percent": discount_percent,
@@ -1951,6 +1967,7 @@ async def get_customer_payment_info(customer_id: str):
         "mp_fee_percent": payment_accounts.MP_PIX_FEE_PERCENT,
         "linked_accounts": await _linked_accounts(customer["id"]),
         "adult_default": _has_adult(cu) if cu else True,
+        "raffle": await _public_raffle(),
         "payments_history": payments_history,
         "messages_history": messages_history,
         "active_discount": await _get_active_discount_for_public(str(customer["id"])),

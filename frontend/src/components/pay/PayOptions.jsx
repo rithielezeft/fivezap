@@ -79,6 +79,33 @@ export function ProviderPicker({ providers, value, onChange, prices }) {
   );
 }
 
+export function CloverPicker({ raffle, value, onChange }) {
+  if (!raffle?.enabled) return null;
+  const on = value > 0;
+  const max = raffle.max_clovers || 10;
+  return (
+    <div data-testid="clover-picker" className={"rounded-2xl border p-4 transition-colors duration-200 " + (on ? "border-[#10B981] bg-[#ECFDF5]" : "border-slate-200 bg-[#F1F5F9]")}>
+      <div className="flex items-start gap-3">
+        <button type="button" onClick={() => onChange(on ? 0 : 1)} data-testid="clover-toggle" aria-pressed={on}
+          className={"mt-0.5 grid place-items-center w-5 h-5 rounded-md border shrink-0 " + (on ? "bg-[#10B981] border-[#10B981] text-white" : "border-slate-300 bg-white")}>
+          {on && <Check size={12} weight="bold" />}
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-slate-900 text-sm">🍀 Trevo da Sorte · concorra a {raffle.prize_months} {raffle.prize_months === 1 ? "mês" : "meses"} grátis</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">{money(raffle.clover_cents)} por trevo · quanto mais trevos, mais chances · sorteio em {formatDateBR(raffle.draw_at).split(",")[0]}</p>
+        </div>
+        {on && (
+          <div className="flex items-center gap-1.5 shrink-0" data-testid="clover-qty">
+            <button type="button" onClick={() => onChange(Math.max(1, value - 1))} className="w-7 h-7 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold" data-testid="clover-minus">−</button>
+            <span className="w-6 text-center font-bold text-slate-900" data-testid="clover-count">{value}</span>
+            <button type="button" onClick={() => onChange(Math.min(max, value + 1))} className="w-7 h-7 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold" data-testid="clover-plus">+</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function PixPanel({ pix, amount, paid, onCopy }) {
   return (
     <div className="rounded-3xl bg-white shadow-2xl shadow-black/40 p-6 text-center space-y-4" data-testid="pix-panel">

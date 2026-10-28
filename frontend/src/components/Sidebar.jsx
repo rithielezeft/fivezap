@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ChartLineUp, Users, Ticket, ChatText, Command,
-  WhatsappLogo, CurrencyCircleDollar, Bell, Gear, List, X, Tag, Globe, Code, Queue,
+  WhatsappLogo, CurrencyCircleDollar, Bell, Gear, List, X, Tag, Globe, Code, Queue, Clover,
 } from "@phosphor-icons/react";
 import { whatsappApi } from "@/lib/api";
 
@@ -12,6 +12,7 @@ const NAV_GROUPS = [
     { to: "/", icon: ChartLineUp, label: "Dashboard", testid: "nav-dashboard" },
     { to: "/payments", icon: CurrencyCircleDollar, label: "Financeiro", testid: "nav-payments" },
     { to: "/geografia", icon: Globe, label: "Geografia", testid: "nav-geography" },
+    { to: "/sorteio", icon: Clover, label: "Sorteio", testid: "nav-raffle" },
   ]},
   { label: "Clientes", items: [
     { to: "/customers", icon: Users, label: "Clientes", testid: "nav-customers" },

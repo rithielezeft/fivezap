@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { paymentsApi, couponsApi } from "@/lib/api";
 import { CheckCircle, WarningCircle, CreditCard } from "@phosphor-icons/react";
 import { PLANS, CheckoutBackground, MobileHeader, BrandColumn, PlanButton, CouponField, CheckoutCta, HistoryLink } from "@/components/pay/PayParts";
-import { PointsPicker, AdultToggle, ProviderPicker, PixPanel } from "@/components/pay/PayOptions";
+import { PointsPicker, AdultToggle, ProviderPicker, PixPanel, CloverPicker } from "@/components/pay/PayOptions";
 import { toast } from "sonner";
 
 export default function PublicPay() {
@@ -23,6 +23,7 @@ export default function PublicPay() {
   const [provider, setProvider] = useState(null);
   const [pix, setPix] = useState(null);
   const [pixPaid, setPixPaid] = useState(false);
+  const [clovers, setClovers] = useState(null);
 
   // Coupon state — validated on-demand via /api/coupons/validate.
   // When applied, `couponApplied` holds {code, discount_percent}.
@@ -102,6 +103,7 @@ export default function PublicPay() {
     if (!data) return;
     setAdult((v) => (v === null ? data.adult_default !== false : v));
     setProvider((v) => v || (data.providers || ["infinitepay"])[0]);
+    setClovers((v) => (v === null ? (data.raffle?.enabled ? 1 : 0) : v));
   }, [data]);
 
   // Mercado Pago Pix: poll our backend (which re-checks with Mercado Pago).
@@ -211,8 +213,10 @@ export default function PublicPay() {
   const brand = data?.brand;
   const login = customer?.login || customer?.name;
   const feePct = data?.mp_fee_percent ?? 0.99;
-  const mpPrice = Math.round(discountedPrice * (1 + feePct / 100));
-  const finalPrice = provider === "mercadopago" ? mpPrice : discountedPrice;
+  const cloverCents = data?.raffle?.enabled ? (clovers || 0) * (data.raffle.clover_cents || 0) : 0;
+  const baseTotal = discountedPrice + cloverCents;
+  const mpPrice = Math.round(baseTotal * (1 + feePct / 100));
+  const finalPrice = provider === "mercadopago" ? mpPrice : baseTotal;
   const original = effectivePct > 0 && selected ? rawPrice : null;
   const toggleExtra = (id) => setExtraIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
   return (
@@ -265,6 +269,8 @@ export default function PublicPay() {
 
             <AdultToggle value={adult} onChange={setAdult} />
 
+            <CloverPicker raffle={data?.raffle} value={clovers || 0} onChange={setClovers} />
+
             {autoPct > 0 && discountSource === "auto" && (
               <div data-testid="discount-banner" className="rounded-xl bg-[#ECFDF5] border border-[#10B981]/30 px-4 py-3 text-sm text-slate-800">
                 Pague hoje e ganhe <b className="text-[#059669]">{autoPct}% de desconto</b> — válido até o fim do dia.
@@ -275,7 +281,7 @@ export default function PublicPay() {
               setInput={(v) => { setCouponInput(v); setCouponError(""); }} onApply={handleApplyCoupon} onRemove={handleRemoveCoupon} />
 
             <ProviderPicker providers={data?.providers} value={provider} onChange={setProvider}
-              prices={selected ? { infinitepay: discountedPrice, mercadopago: mpPrice } : null} />
+              prices={selected ? { infinitepay: baseTotal, mercadopago: mpPrice } : null} />
 
             <CheckoutCta
               disabled={!selected}
@@ -290,6 +296,7 @@ export default function PublicPay() {
                 provider: provider || undefined,
                 extra_customer_ids: extraIds,
                 adult_channels: adult,
+                clovers: data?.raffle?.enabled ? clovers || 0 : 0,
               })}
             />
           </div>

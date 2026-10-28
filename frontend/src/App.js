@@ -16,6 +16,7 @@ import Notifications from "@/pages/Notifications";
 import SendQueue from "@/pages/SendQueue";
 import Coupons from "@/pages/Coupons";
 import Geography from "@/pages/Geography";
+import Raffle from "@/pages/Raffle";
 import ApiDocs from "@/pages/ApiDocs";
 import Login from "@/pages/Login";
 import PublicTest from "@/pages/PublicTest";
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
           <Route path="/coupons" element={<P><Coupons /></P>} />
           <Route path="/geografia" element={<P><Geography /></P>} />
+          <Route path="/sorteio" element={<P><Raffle /></P>} />
           <Route path="/documentacao" element={<P><ApiDocs /></P>} />
           <Route path="/settings" element={<P><Settings /></P>} />
         </Routes>

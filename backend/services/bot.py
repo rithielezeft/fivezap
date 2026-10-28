@@ -129,12 +129,20 @@ async def save_message(phone: str, message: str, direction: str, customer_id: st
 async def find_or_create_customer(phone: str, name: str = None) -> dict:
     """Find customer by whatsapp phone. If found and name is provided, update
     the customer's display name (upgrading from JID/phone to real WhatsApp name)."""
+    from services.phone_extractor import br_variants
+    variants = br_variants(phone) if phone and not str(phone).endswith("@lid") else [phone]
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT * FROM customers WHERE whatsapp = ?", (phone,)
+            f"SELECT * FROM customers WHERE whatsapp IN ({','.join('?' * len(variants))}) ORDER BY whatsapp = ? DESC",
+            (*variants, phone),
         )
         row = await cur.fetchone()
+        if row and row["whatsapp"] != phone and not row["whatsapp"].endswith("@lid"):
+            # Legacy row saved without the 9th digit → upgrade to canonical form.
+            await db.execute("UPDATE customers SET whatsapp = ? WHERE id = ? AND (whatsapp_locked IS NULL OR whatsapp_locked = 0)",
+                             (phone, row["id"]))
+            await db.commit()
         if row:
             existing = dict(row)
             # Upgrade name if the current one is just the phone/JID and we have a real one
