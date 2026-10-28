@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import DrawReel from "@/components/raffle/DrawReel";
-import { Clover, Trophy, Play, FloppyDisk, Users, Ticket } from "@phosphor-icons/react";
+import { Clover, Trophy, Play, FloppyDisk, Users, Ticket, PencilSimple, Check, X } from "@phosphor-icons/react";
 
 const Stat = ({ icon: Icon, label, value, testId }) => (
   <div className="surface rounded-xl p-4" data-testid={testId}>
@@ -60,6 +60,35 @@ function SettingsCard({ cfg }) {
   );
 }
 
+function EntryRow({ e }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(e.name);
+  const save = useMutation({
+    mutationFn: () => raffleApi.renameParticipant(e.customer_id, name),
+    onSuccess: () => { setEditing(false); qc.invalidateQueries({ queryKey: ["raffle"] }); toast.success("Nome atualizado"); },
+    onError: (err) => toast.error(err.response?.data?.detail || err.message),
+  });
+  const id = e.joker ? e.coupons[0] : e.customer_id;
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-sm" data-testid={`raffle-entry-${id}`}>
+      {editing ? (
+        <form className="flex items-center gap-1.5 flex-1" onSubmit={(ev) => { ev.preventDefault(); save.mutate(); }}>
+          <Input autoFocus value={name} onChange={(ev) => setName(ev.target.value)} className="h-7 text-sm" data-testid={`raffle-entry-name-input-${id}`} />
+          <button type="submit" className="p-1 text-[#34D399]" aria-label="Salvar nome" data-testid={`raffle-entry-name-save-${id}`}><Check size={15} weight="bold" /></button>
+          <button type="button" onClick={() => { setEditing(false); setName(e.name); }} className="p-1 text-white/40" aria-label="Cancelar" data-testid={`raffle-entry-name-cancel-${id}`}><X size={15} /></button>
+        </form>
+      ) : (
+        <span className="flex-1 flex items-center gap-1.5 min-w-0">
+          <span className="truncate" data-testid={`raffle-entry-name-${id}`}>{e.name}</span>
+          {!e.joker && <button onClick={() => setEditing(true)} className="p-1 text-white/30 hover:text-white transition-colors" aria-label="Editar nome" data-testid={`raffle-entry-edit-${id}`}><PencilSimple size={13} /></button>}
+        </span>
+      )}
+      <span className="font-mono text-xs text-white/50 shrink-0">{e.coupons.length} 🍀 · #{e.coupons.join(", #")}</span>
+    </div>
+  );
+}
+
 export default function Raffle() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["raffle"], queryFn: raffleApi.overview, refetchInterval: 30000 });
@@ -89,10 +118,7 @@ export default function Raffle() {
           {!data?.entries?.length ? <p className="text-sm text-white/40" data-testid="raffle-empty">Ninguém comprou trevo neste mês ainda.</p> : (
             <div className="grid md:grid-cols-2 gap-2">
               {data.entries.map((e) => (
-                <div key={e.customer_id} className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-sm" data-testid={`raffle-entry-${e.customer_id}`}>
-                  <span>{e.name}{e.joker && <span className="ml-2 text-[10px] uppercase text-[#F59E0B]">coringa</span>}</span>
-                  <span className="font-mono text-xs text-white/50">{e.coupons.length} 🍀 · #{e.coupons.join(", #")}</span>
-                </div>
+                <EntryRow key={e.customer_id} e={e} />
               ))}
             </div>
           )}

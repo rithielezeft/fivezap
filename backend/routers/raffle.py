@@ -27,6 +27,19 @@ async def raffle_settings(request: Request):
     return await raffle.config()
 
 
+@router.put("/api/raffle/participant-name")
+async def raffle_participant_name(request: Request):
+    body = await request.json()
+    cid = str(body.get("customer_id") or "").strip()
+    cur = await raffle.entries()
+    real = {p["customer_id"] for p in cur["pool"] if not p.get("joker")}
+    if cid not in real:
+        # Coringas keep their "Coringa N" label so paying customers are not misled.
+        raise HTTPException(400, "Só é possível renomear participantes que compraram trevo")
+    await raffle.set_display_name(cid, body.get("name") or "")
+    return {"ok": True}
+
+
 @router.post("/api/raffle/draw")
 async def raffle_draw_now():
     try:

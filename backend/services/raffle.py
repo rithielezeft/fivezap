@@ -66,6 +66,7 @@ async def entries(month: str = None) -> dict:
     from routers.painel_users import _read_cache
     users, _ = await _read_cache()
     logins = {str(u.get("id")): u.get("username") for u in users or []}
+    logins.update(await display_names())
     pool, n = [], 1
     for r in rows:
         r["painel_username"] = logins.get(str(r["customer_id"])) or r["painel_username"]
@@ -236,3 +237,25 @@ def mask_name(name: str) -> str:
     if name.startswith("Coringa "):
         return name
     return (name[:3] + "***") if len(name) > 3 else name[:1] + "***"
+
+
+async def display_names() -> dict:
+    """Admin-edited display names for real participants {painel_id: name}."""
+    import json
+    try:
+        return json.loads(await get_setting("raffle_display_names") or "{}")
+    except Exception:
+        return {}
+
+
+async def set_display_name(customer_id: str, name: str) -> dict:
+    import json
+    from database import set_setting
+    names = await display_names()
+    name = (name or "").strip()[:40]
+    if name:
+        names[str(customer_id)] = name
+    else:
+        names.pop(str(customer_id), None)
+    await set_setting("raffle_display_names", json.dumps(names))
+    return names
