@@ -72,7 +72,7 @@ async def entries(month: str = None) -> dict:
                          "name": r["painel_username"] or r["name"] or str(r["customer_id"]), "payment_id": r["id"]})
             n += 1
     cfg = await config()
-    if cfg["joker_login"] and pool is not None:
+    if cfg["joker_login"]:
         pool.append({"coupon": f"{n:05d}", "customer_id": cfg["joker_login"], "name": cfg["joker_login"], "joker": True})
     participants = len({p["customer_id"] for p in pool if not p.get("joker")})
     return {"month": month, "pool": pool, "participants": participants,

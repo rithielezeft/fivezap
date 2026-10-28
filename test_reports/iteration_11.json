@@ -1,0 +1,28 @@
+{
+  "summary": "Retest of the iteration 10 raffle fixes. Backend: 18 of 18 pytest tests pass (3 new in test_raffle_iter11.py plus 15 regression tests). 1) entries() now takes the name from the painel cache. A temp paid payment for 227470206 with 2 clovers shows as 'joaonew' in the pool, the GET /api/raffle entries, the winner, every DrawReel sequence item and the admin alert. 2) The prize renewal uses the winner's real system type. With prize_months=3, the p2p user joaonew was renewed with package_id=42 (iptv would be 43), user_id=227470206 and months=3 (painel.renew_user was mocked). 3) Lock release: a failure inside _draw_locked before update_one (config raising) deleted the 'drawing' raffle_draws doc, so the month is not blocked. A failure in _notify after update_one leaves the doc as 'drawn', which is correct because the draw and renewal already happened. 4) find_or_create_customer called with the legacy 12-digit form does not downgrade an existing 13-digit canonical row. The 12→13 upgrade still works. Frontend /sorteio: the prize select is aligned with the inputs (same y=358, height 36px, radius, border, transparent background, no margin-top). The Ativo switch is green (rgb(16,185,129)) when on. The participants list shows 'joaonew 2 🍀 · #00001, #00002' with the temp payment. All data was cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "services/bot.py find_or_create_customer", "issue": "After the legacy 12→13 upgrade, the returned dict still holds the old 12-digit whatsapp value (existing = dict(row) is read before the UPDATE). Cosmetic, because callers already hold the canonical phone."},
+      {"endpoint": "services/raffle.py entries()", "issue": "The dead condition 'pool is not None' is still there, and the LEFT JOIN customers on c.id = p.customer_id is now only a fallback that never matches."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_raffle_iter11.py", "/app/backend/tests/test_phone_br_and_raffle.py", "/app/test_reports/pytest/pytest_iter11.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "find_or_create_customer returns the stale whatsapp after the upgrade. Set existing['whatsapp'] = phone after the UPDATE.",
+    "Remove the always-true 'pool is not None' check in raffle.entries()"
+  ],
+  "updated_files": ["/app/backend/tests/test_raffle_iter11.py (new)", "/app/backend/tests/test_phone_br_and_raffle.py (added an autouse fixture that resets the cached Motor client between asyncio.run loops)"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100%"},
+  "seed_data_creation": "Temporary only, all removed: payments TEST_xxx / TEST_uipay for customer 227470206 (SQLite and Mongo), a temp customer TEST_xxx, and the Mongo raffle_draws doc for 2026-10. Final state: raffle_enabled=false, prize 1, price 2,00. The raffle_joker_login row was deleted from SQLite and Mongo settings. Iteration 10 had left raffle_joker_login='TEST_joker' behind because its cleanup failed on an event-loop error; that is now fixed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "PRODUCTION env. Run the raffle tests serially: pytest tests/test_raffle_iter11.py tests/test_phone_br_and_raffle.py -n0. pytest.ini adds xdist args, so -p no:xdist breaks it. The Motor client is a cached module global and needs resetting per asyncio.run (an autouse fixture now does this). Painel id 227470206 is joaonew (p2p). There are currently no real clovers in 2026-10. Never click 'Ir para pagamento' or run a real draw.",
+  "test_credentials": "Admin password Rithi0518@"
+}

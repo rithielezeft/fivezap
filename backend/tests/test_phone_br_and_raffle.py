@@ -17,6 +17,15 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 ADMIN_PASSWORD = "Rithi0518@"
 
 
+@pytest.fixture(autouse=True)
+def _reset_motor():
+    """Reset cached Motor client so each asyncio.run() loop gets a fresh one."""
+    import services.mongo_store as ms
+    ms._client, ms._db = None, None
+    yield
+    ms._client, ms._db = None, None
+
+
 @pytest.fixture(scope="module")
 def admin():
     s = requests.Session()

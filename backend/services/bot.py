@@ -143,6 +143,7 @@ async def find_or_create_customer(phone: str, name: str = None) -> dict:
             await db.execute("UPDATE customers SET whatsapp = ? WHERE id = ? AND (whatsapp_locked IS NULL OR whatsapp_locked = 0)",
                              (phone, row["id"]))
             await db.commit()
+            row = dict(row) | {"whatsapp": phone}
         if row:
             existing = dict(row)
             # Upgrade name if the current one is just the phone/JID and we have a real one
