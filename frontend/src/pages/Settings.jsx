@@ -610,7 +610,7 @@ export default function Settings() {
                       <button
                         key={s.key}
                         onClick={() => goToSetting(s.key)}
-                        data-testid={`flow-chip-${s.key}`}
+                        data-testid={`flow-chip-${flow.title.slice(0, 12).replace(/\W+/g, "-")}-${s.key}`}
                         title={s.note || s.key}
                         className="text-[10px] font-mono px-2 py-1 rounded-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-colors"
                       >

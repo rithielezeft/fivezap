@@ -13,7 +13,7 @@ async def raffle_overview():
     cur = await raffle.entries()
     by_customer = {}
     for p in cur["pool"]:
-        k = p["customer_id"]
+        k = p["coupon"] if p.get("joker") else p["customer_id"]
         by_customer.setdefault(k, {"customer_id": k, "name": p["name"], "joker": bool(p.get("joker")), "coupons": []})["coupons"].append(p["coupon"])
     return {"config": cfg, "month": cur["month"], "draw_at": cur["draw_at"], "participants": cur["participants"],
             "clovers": cur["clovers"], "entries": list(by_customer.values()), "history": await raffle.history()}

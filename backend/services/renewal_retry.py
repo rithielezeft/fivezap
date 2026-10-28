@@ -115,6 +115,7 @@ async def _sweep_once():
                     ok = await send_notification(
                         "renewal_success", phone,
                         {
+                            **(await __import__("routers.payments", fromlist=["_clover_vars"])._clover_vars(payment)),
                             "name": customer.get("name") or "",
                             "user": painel_login or customer.get("name") or "",
                             "plan_months": payment.get("plan_months") or 0,

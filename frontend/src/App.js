@@ -30,6 +30,7 @@ export default function App() {
   // Load the admin's timezone preference once at startup so ALL formatted
   // dates on the app reflect it (formatDateBR reads this value).
   useEffect(() => {
+    if (/^\/(pay\/|teste|trevo)/.test(window.location.pathname)) return;
     settingsApi
       .get()
       .then((s) => setDisplayTimezone(s?.display_timezone || "America/Sao_Paulo"))

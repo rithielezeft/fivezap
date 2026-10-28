@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 12: tested Settings side-menu redesign, raffle jokers (Coringa N), public /trevo page + replay, GET /api/public/raffle masking, Financeiro clover filter/badges, renewal_success clover vars, and the Pay page 'ver sorteio' link. New pytest file has 7/7 passing, and the iter11 + phone/raffle regression has 18/18 passing. All draws were mocked. Found 1 CRITICAL bug: /trevo sent anonymous visitors to /login. I fixed it in lib/api.js. All UI features work once that fix is in. Cleanup done: no TEST_ payments in SQLite or Mongo, no raffle_draws docs, raffle_enabled=false, joker_count=0, joker_phone and joker_login empty, painel_refresh_interval_seconds back to 300.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "send_notification('renewal_success') call sites", "issue": "Only process_paid (payments.py ~L1117) passes {clovers}/{clover_coupons}. Three other call sites do not: the extra-renewal path (payments.py ~L97), manual resend (payments.py ~L1447) and services/renewal_retry.py ~L115. notifier.render leaves unknown placeholders as they are, so if the admin adds {clovers} or {clover_coupons} to the template, customers on those paths get the literal text '{clovers}'. Fix: spread **(await _clover_vars(payment)) at all of them (use '' or 0 for extra logins)."},
+      {"endpoint": "GET /api/raffle (admin overview)", "issue": "Entries are grouped by customer_id. When raffle_joker_login is set, every joker gets customer_id=joker_login, so 'Coringa 1..N' merge into one row named 'Coringa 1' that holds N coupons. Fix: group jokers by coupon or by 'coringa-i'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "lib/api.js 401 interceptor + App.js startup settingsApi.get()", "issue": "FIXED BY TESTER: anonymous visitors on /trevo were redirected to /login. App.js calls GET /api/settings on startup, it returns 401, and the interceptor only whitelisted /login, /teste and /pay/. I added /trevo to the whitelist. Better long-term fix: skip the admin settings fetch on public routes.", "selector": "[data-testid=trevo-page]", "priority": "CRITICAL"},
+      {"component": "PublicRaffle 'Próximo sorteio' label", "issue": "Uses new Date(draw_at).toLocaleString('pt-BR') with the browser's own timezone. A UTC browser shows '31/10/2026, 23:00' while admin /sorteio shows '31/10/2026 20h'. Pass timeZone: 'America/Sao_Paulo' (or the display tz from the API) so every visitor sees the same time.", "selector": "[data-testid=trevo-page]", "priority": "LOW"},
+      {"component": "Settings Guia de uso", "issue": "The data-testid 'flow-chip-dedup_window_minutes' appears on 2 chips (in 2 different cards).", "selector": "[data-testid=flow-chip-dedup_window_minutes]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Pay page clover picker", "issues": ["The clover add-on starts pre-selected with 1 clover (PublicPay.jsx L106). Customers must opt out of a paid extra, which is a consumer-protection risk under the Brazilian CDC. Confirm this is intended."]},
+      {"screen": "Settings > Pagamentos (preview env)", "issues": ["Observation only: payment-accounts is empty ('nenhuma'), infinitepay_handle is empty and the provider is unselected in this preview DB. Probably environment data, not a code bug."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_raffle_iter12.py", "/app/backend/tests/raffle_fake_history.py", "/app/backend/tests/temp_clover_payment.py", "/app/test_reports/pytest/pytest_iter12.xml"],
+  "action_items": [
+    "Keep the /trevo whitelist fix in lib/api.js, and ideally skip the admin settings fetch in App.js for public routes (/trevo, /teste, /pay)",
+    "Pass the clovers/clover_coupons vars in every renewal_success send_notification call (extra renewal, manual resend, renewal_retry)",
+    "Show the public draw time in the display timezone",
+    "Make joker entry grouping in GET /api/raffle unique per joker when joker_login is set",
+    "Fix the duplicate flow-chip data-testid; Settings.jsx is 781 lines (>700), so split it into section components"
+  ],
+  "critical_code_review_comments": [
+    "lib/api.js: the hard-coded public-path whitelist is fragile; derive it from a shared PUBLIC_ROUTES constant used by both App.js and the interceptor",
+    "notifier.render leaves unknown {vars} as they are; consider removing unrendered known template vars",
+    "raffle.coupons_for_payment calls entries() for the current month only. A payment paid on the last day but renewed or notified after midnight would get empty coupons. Minor edge case."
+  ],
+  "updated_files": ["/app/frontend/src/lib/api.js", "/app/backend/tests/test_raffle_iter12.py", "/app/backend/tests/raffle_fake_history.py", "/app/backend/tests/temp_clover_payment.py"],
+  "success_rate": {"backend": "100% (7/7 new, 18/18 regression)", "frontend": "100% of requested flows after the /trevo fix (90% before)"},
+  "seed_data_creation": "Temporary only, all removed: TEST_ payments in SQLite (also checked in Mongo), a fake Mongo raffle_draws doc _id=2000-01 used for the replay UI, raffle joker settings, and a painel_refresh_interval change 300->301->300.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "PRODUCTION env. Run with -n 0: pytest tests/test_raffle_iter12.py tests/test_raffle_iter11.py tests/test_phone_br_and_raffle.py -n 0. For the replay UI, use 'python tests/raffle_fake_history.py add|del' (_id 2000-01). For Financeiro clover rows, use 'python tests/temp_clover_payment.py add|del' (cleans SQLite and Mongo). PublicRaffle history testids start at index 1 (trevo-replay-1). Settings save button is btn-save-settings; with no changes it shows the toast 'Nenhuma alteração'. Never click 'Ir para pagamento'.",
+  "rca of the issue": "/trevo login redirect: App.js runs settingsApi.get() (an admin-only endpoint) on mount for every route. For anonymous users it returns 401, and the axios interceptor in lib/api.js then sets window.location to /login unless the path starts with /login, /teste or /pay/. /trevo was missing from that list. Mitigation applied: added /trevo to the list. Reproduce: open /trevo in a fresh browser with no wf_token."
+}

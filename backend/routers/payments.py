@@ -31,6 +31,10 @@ def _has_adult(u: dict) -> bool:
 
 
 async def _clover_vars(payment: dict) -> dict:
+    if "clovers" not in payment and payment.get("id"):
+        async with aiosqlite.connect(DB_PATH) as db:
+            row = await (await db.execute("SELECT clovers FROM payments WHERE id = ?", (payment["id"],))).fetchone()
+        payment = {**payment, "clovers": row[0] if row else 0}
     n = int(payment.get("clovers") or 0)
     coupons = []
     if n:
@@ -101,6 +105,7 @@ async def _renew_extra_accounts(payment: dict, phone: str, source: str) -> list:
                     "plan_months": payment["plan_months"],
                     "new_expires_at": new_exp,
                     "system_type": "",
+                    **(await _clover_vars(payment)),
                 }, customer_id=str(eid))
             results.append({"id": eid, "ok": True})
         except Exception as e:
@@ -1452,6 +1457,7 @@ async def resend_notification(payment_id: str):
             "plan_months": pmt["plan_months"],
             "new_expires_at": new_expires_at,
             "system_type": pmt["customer_system_type"] or "",
+            **(await _clover_vars({"id": pmt["id"]})),
         },
     )
     if ok:

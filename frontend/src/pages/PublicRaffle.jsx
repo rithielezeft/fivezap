@@ -71,7 +71,7 @@ export default function PublicRaffle() {
           <p className="text-slate-400 max-w-xl text-sm sm:text-base">Ao renovar seu acesso, adicione trevos por {money(data?.clover_cents)} cada. Cada trevo é um cupom — quanto mais trevos, mais chances. O sorteio é automático no último dia do mês.</p>
           {data?.draw_at && (
             <div className="space-y-2">
-              <p className="flex items-center gap-2 text-xs uppercase tracking-widest text-slate-500"><Clock className="h-4 w-4" />Próximo sorteio · {new Date(data.draw_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</p>
+              <p className="flex items-center gap-2 text-xs uppercase tracking-widest text-slate-500"><Clock className="h-4 w-4" />Próximo sorteio · {new Date(data.draw_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" })}</p>
               <Countdown target={data.draw_at} />
             </div>
           )}

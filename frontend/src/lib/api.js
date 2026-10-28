@@ -19,7 +19,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (error) => {
-    if (error.response?.status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/teste") && !window.location.pathname.startsWith("/pay/")) {
+    if (error.response?.status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/teste") && !window.location.pathname.startsWith("/pay/") && !window.location.pathname.startsWith("/trevo")) {
       localStorage.removeItem("wf_token");
       window.location.href = "/login";
     }
