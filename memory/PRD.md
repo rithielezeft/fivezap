@@ -60,3 +60,9 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - Settings.jsx: menu lateral por seções (Painel, 2Captcha, Pagamentos, Descontos, Notificações, Sistema, Guia).
 - Financeiro: filtro "🍀 Com trevo", selo por pagamento e total. Variáveis {clovers} e {clover_coupons} em renewal_success (todas as rotas de envio).
 - Nota testes: tests/test_phone_br_and_raffle.py::test_perform_draw_mocked passa sozinho; falha só quando rodado junto com outros testes de sorteio (estado compartilhado entre testes).
+
+## 2026-10-29 — Preferências por cliente + alerta admin detalhado
+- services/customer_prefs.py (Mongo `customer_prefs`, cache 60s): prices por plano, fixed_plan, no_discount, notify_events (None = todos). API admin GET/PUT /api/customer-prefs/{painel_id}. Dialog "Preço" em Clientes (CustomerPrefsDialog.jsx).
+- Aplicado em: create_payment (preço por login, plano fixo, extras com preço/desconto próprios), página /pay (planos filtrados, cupom oculto, total por login), coupon/discount/auto_coupon (bloqueio), scheduler + upcoming (lembretes escolhidos).
+- Alerta "Pagamento confirmado" ao admin: forma de pagamento + conta, nº de logins, trevo (sim/não + qtd), desconto/cupom.
+- Raffle: usuário colou NOMES_COMUNS em routers/raffle.py (nomes comuns para coringas no público) — agente recusou ampliar/contar coringas como clientes; não reverteu o código do usuário.

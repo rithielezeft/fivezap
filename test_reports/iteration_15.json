@@ -1,0 +1,25 @@
+{
+  "summary": "Iter15 RETEST of the iter14 per-customer prefs action items. All 6 items are verified fixed. Backend: 18/18 new pytest pass, and the iter14 suite passes 17/17 (test_dot_decimal_price now passes; the one first-run failure of test_get_default came from my own UI-test prefs on 227470352 and passed on rerun). Frontend: /pay plan-conflict warning and disabled checkout, the blocked-login full-price total with an injected 10% discount, and CustomerPrefsDialog save/close/reopen/switch with no crash all verified. No real payments, WhatsApp messages or renewals. Prefs and temp payments were cleaned up.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "services/customer_prefs.parse_brl", "issue": "A single-dot thousands value like '1.025' (meaning R$1.025) is read as R$1,03 (103 cents) and accepted. A JSON bool true is an int and is stored as 1 cent. Both are low risk because the UI always sends a comma decimal."}
+  ]},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [
+    {"screen": "CustomerPrefsDialog", "issues": ["Plan picker is a native <select> (styled dark), not a shadcn Select. Cosmetic only."]}
+  ]},
+  "test_report_links": ["/app/backend/tests/test_customer_prefs_iter15.py", "/app/test_reports/pytest/iter15.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "parse_brl: '25,50' / '25.50' / 'R$ 1.025,50' map to 2550 / 2550 / 102550. 0, negative, >R$10.000 and 'abc' return 400. R$10.000,00 exactly is accepted.",
+    "auto_coupon.sweep_once skips discount_blocked users before the idempotency marker and before coupon creation (verified with a mocked sweep: only the unblocked user was sent).",
+    "upcoming._plan_for filters notify_events and drops auto_recovery_coupon when no_discount. Verified both in unit tests and through GET /api/painel/users/{id}/notifications.",
+    "create_payment extras: e_fixed mismatch returns 400 'Um dos logins selecionados só pode renovar em outro plano'. A matching plan is accepted (3m main + 3m extra = 18000). With a 10% discount, a blocked extra pays full price (2700+3000+2700 = 8400).",
+    "PublicPay: blockedOf/planConflict logic matches the backend. Math.floor matches the int() truncation in apply_discount."
+  ],
+  "updated_files": ["/app/backend/tests/test_customer_prefs_iter15.py"],
+  "success_rate": {"backend": "100% (18/18 new; iter14 17/17 on rerun)", "frontend": "100%"},
+  "seed_data_creation": "Temporary customer_prefs for 227470351/227470352 (deleted, remaining=0). 2 temp payments from the mocked create_payment were removed from SQLite and Mongo (0 pending for the test ids).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "PRODUCTION env. Run: cd /app/backend && pytest tests/test_customer_prefs_iter15.py -n 0 (self-cleaning), then python tests/cleanup_iter14.py. The /pay discount UI was tested by intercepting GET /api/payments/customer/227470206 to inject active_discount, with /api/payments/create aborted. Make sure prefs for 227470352 are reset before running the iter14 suite.",
+  "rca of the issue": "N/A, all iter14 issues are resolved."
+}
