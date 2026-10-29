@@ -16,7 +16,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk, BellRinging } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk, BellRinging, CurrencyCircleDollar } from "@phosphor-icons/react";
+import { CustomerPrefsDialog } from "@/components/CustomerPrefsDialog";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -139,6 +140,7 @@ export default function Customers() {
   const [dupConfirm, setDupConfirm] = useState(null); // {duplicates, fresh_count, duplicate_count, selectedIds}
   const [editPhoneFor, setEditPhoneFor] = useState(null); // {uid, name, current}
   const [notifFor, setNotifFor] = useState(null); // painel user id
+  const [prefsFor, setPrefsFor] = useState(null);
 
   // debounce search
   useEffect(() => {
@@ -605,6 +607,15 @@ export default function Customers() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        onClick={() => setPrefsFor({ ...u, _uid: uid, _name: name })}
+                        data-testid={`btn-prefs-${uid}`}
+                        title="Preço, plano, descontos e lembretes deste cliente"
+                      >
+                        <CurrencyCircleDollar size={16} className="mr-1" /> Preço
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => setTrialFor({ ...u, _uid: uid, _system: system, _mac: mac, _name: name, _whatsapp: whatsapp })}
                         data-testid={`btn-trial-${uid}`}
                       >
@@ -1025,6 +1036,7 @@ export default function Customers() {
           />
         </DialogContent>
       </Dialog>
+      <CustomerPrefsDialog customer={prefsFor} onClose={() => setPrefsFor(null)} />
     </Layout>
   );
 }

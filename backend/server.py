@@ -19,6 +19,7 @@ from services.scheduler import check_expirations_loop
 from services.reminders import reminder_loop
 from services.auth import seed_admin_password, is_public, require_admin
 from routers import raffle as raffle_router
+from routers import customer_prefs as customer_prefs_router
 from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads, reminders, coupons, analytics, system_update, queue, finance, cron, payment_accounts
 
 logging.basicConfig(
@@ -239,6 +240,7 @@ app.include_router(finance.router)
 app.include_router(cron.router)
 app.include_router(payment_accounts.router)
 app.include_router(raffle_router.router)
+app.include_router(customer_prefs_router.router)
 
 
 @app.get("/api/")

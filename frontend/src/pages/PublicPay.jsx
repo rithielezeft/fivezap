@@ -104,6 +104,8 @@ export default function PublicPay() {
     setAdult((v) => (v === null ? data.adult_default !== false : v));
     setProvider((v) => v || (data.providers || ["infinitepay"])[0]);
     setClovers((v) => (v === null ? (data.raffle?.enabled ? 1 : 0) : v));
+    const only = Object.keys(data.prices_cents || {});
+    if (only.length === 1) setSelected(Number(only[0]));
   }, [data]);
 
   // Mercado Pago Pix: poll our backend (which re-checks with Mercado Pago).
@@ -180,9 +182,10 @@ export default function PublicPay() {
   const extraIds = selectedIds.filter((x) => x !== mainId);
   const points = selectedIds.length;
   const loginOf = (id) => (id === String(customerId) ? login : (data?.linked_accounts || []).find((a) => String(a.id) === id)?.login || id);
-  const unitPrice = prices[selected] ?? 0;
-  const rawPrice = unitPrice * points;
-  const discountedPrice = effectivePct > 0 ? Math.floor((unitPrice * (100 - effectivePct)) / 100) * points : rawPrice;
+  // Each login pays its own price (custom per customer or default).
+  const priceOf = (id, m) => (id === String(customerId) ? prices[m] : (data?.linked_accounts || []).find((a) => String(a.id) === id)?.prices?.[m]) ?? prices[m] ?? 0;
+  const rawPrice = selected ? selectedIds.reduce((t, id) => t + priceOf(id, selected), 0) : 0;
+  const discountedPrice = effectivePct > 0 ? selectedIds.reduce((t, id) => t + Math.floor((priceOf(id, selected) * (100 - effectivePct)) / 100), 0) : rawPrice;
 
   async function handleApplyCoupon() {
     const code = couponInput.trim();
@@ -267,7 +270,7 @@ export default function PublicPay() {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-900 mb-3">Escolha o plano</p>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {PLANS.map((p) => (
+                {PLANS.filter((p) => prices[p.months] != null).map((p) => (
                   <PlanButton key={p.months} plan={p} price={prices[p.months] ?? 0} active={selected === p.months} onSelect={() => setSelected(p.months)} />
                 ))}
               </div>
@@ -285,8 +288,8 @@ export default function PublicPay() {
               </div>
             )}
 
-            <CouponField applied={couponApplied} input={couponInput} error={couponError} loading={validatingCoupon}
-              setInput={(v) => { setCouponInput(v); setCouponError(""); }} onApply={handleApplyCoupon} onRemove={handleRemoveCoupon} />
+            {!data?.discounts_blocked && <CouponField applied={couponApplied} input={couponInput} error={couponError} loading={validatingCoupon}
+              setInput={(v) => { setCouponInput(v); setCouponError(""); }} onApply={handleApplyCoupon} onRemove={handleRemoveCoupon} />}
 
             <ProviderPicker providers={data?.providers} value={provider} onChange={setProvider}
               prices={selected ? { infinitepay: baseTotal, mercadopago: mpPrice } : null} />

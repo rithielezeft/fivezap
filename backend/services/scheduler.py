@@ -247,6 +247,9 @@ async def _check_and_notify_locked():
             event = _event_for_days(diff_days)
             if not event:
                 continue
+            from services.customer_prefs import wants_event, discount_blocked
+            if not await wants_event(user_id, event):
+                continue
 
             pay_link = f"{public_base}/pay/{user_id}?ref={event}"
             # Batched flow: use the local /pay page URL. Do NOT call painel here —
@@ -271,7 +274,7 @@ async def _check_and_notify_locked():
             # the % applied automatically when they click pay_link today.
             try:
                 from services.discount import get_discount_for_event
-                cfg = await get_discount_for_event(event)
+                cfg = None if await discount_blocked(user_id) else await get_discount_for_event(event)
                 if cfg:
                     pct = cfg["percent"]
                     ctx["discount_percent"] = str(pct)

@@ -106,6 +106,11 @@ export const paymentsApi = {
   mpStatus: (paymentId) => api.get(`/payments/mp-status/${paymentId}`).then((r) => r.data),
 };
 
+export const customerPrefsApi = {
+  get: (id) => api.get(`/customer-prefs/${id}`).then((r) => r.data),
+  save: (id, body) => api.put(`/customer-prefs/${id}`, body).then((r) => r.data),
+};
+
 export const raffleApi = {
   overview: () => api.get("/raffle").then((r) => r.data),
   saveSettings: (body) => api.put("/raffle/settings", body).then((r) => r.data),

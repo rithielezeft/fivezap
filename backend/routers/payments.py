@@ -70,8 +70,10 @@ async def _linked_accounts(painel_id) -> list:
         uid = str(u.get("id") or u.get("user_id") or "")
         if uid == str(painel_id) or u.get("is_trial") or extract_whatsapp(u) != phone:
             continue
+        from services.customer_prefs import price_for
         out.append({"id": uid, "login": u.get("username"),
-                    "expires_at": compute_expiration_info(u).get("expires_at_iso")})
+                    "expires_at": compute_expiration_info(u).get("expires_at_iso"),
+                    "prices": {m: await price_for(uid, m) for m in (1, 3, 6, 12)}})
     return out
 
 
@@ -322,14 +324,11 @@ async def create_payment(payload: PaymentCreate):
             await db.commit()
         logger.info("Auto-created customer from painel cache: %s (%s)", customer["name"], customer["id"])
 
-    price_key = f"plan_price_{payload.plan_months}m"
-    price_str = await get_setting(price_key, "35,00")
-    # Convert "35,00" or "35.00" to cents
-    normalized = price_str.replace(",", ".").strip()
-    try:
-        amount = int(round(float(normalized) * 100))
-    except ValueError:
-        amount = 3500
+    from services import customer_prefs
+    fixed = (await customer_prefs.get_prefs(payload.customer_id)).get("fixed_plan")
+    if fixed and int(fixed) != int(payload.plan_months):
+        raise HTTPException(400, "Plano indisponível para este cliente")
+    amount = await customer_prefs.price_for(payload.customer_id, payload.plan_months)
     original_amount = amount
 
     # Coupon (optional) — validates + applies discount. Cap 50%. Enforces
@@ -393,8 +392,13 @@ async def create_payment(payload: PaymentCreate):
         allowed = {a["id"] for a in await _linked_accounts(payload.customer_id)}
         extra_ids = [str(x) for x in dict.fromkeys(payload.extra_customer_ids) if str(x) in allowed]
     points = 1 + len(extra_ids)
-    amount *= points
-    original_amount *= points
+    # Each extra login pays its own (custom or default) price; it gets the same
+    # discount % unless that login is blocked from discounts.
+    for eid in extra_ids:
+        e_price = await customer_prefs.price_for(eid, payload.plan_months)
+        original_amount += e_price
+        blocked = await customer_prefs.discount_blocked(eid)
+        amount += apply_discount(e_price, 0 if blocked else discount_percent) if discount_percent else e_price
 
     from services import payment_accounts
     providers = await payment_accounts.enabled_providers()
@@ -1167,13 +1171,21 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     notify_status = "❌ falhou (WhatsApp indisponível)"
                 else:
                     notify_status = "❌ falhou (sem número no cadastro)"
+                import json as _j
+                _extra = len(_j.loads(payment.get("extra_customer_ids") or "[]"))
+                _clov = int(payment.get("clovers") or 0)
+                _prov = "Mercado Pago (Pix)" if payment.get("provider") == "mercadopago" else "InfinitePay"
                 admin_msg = (
                     "💰 *Pagamento confirmado*\n\n"
                     f"👤 Cliente: {customer['name']}\n"
                     f"👥 Login: {painel_user or '-'}\n"
                     f"📱 WhatsApp: {phone or '-'}\n"
                     f"📦 Plano: {payment['plan_months']} mês(es)  |  {amount_brl}\n"
-                    f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
+                    f"💳 Pagamento: {_prov}" + (f" · conta {payment.get('account_id')}" if payment.get("account_id") else "") + "\n"
+                    + (f"👥 Logins no pagamento: {1 + _extra}\n" if _extra else "")
+                    + (f"🍀 Trevo da Sorte: sim — {_clov} {'trevo' if _clov == 1 else 'trevos'}\n" if _clov else "🍀 Trevo da Sorte: não\n")
+                    + (f"🏷️ Desconto: {payment.get('discount_percent')}%" + (f" (cupom {payment.get('coupon_code')})" if payment.get("coupon_code") else "") + "\n" if payment.get("discount_percent") else "")
+                    + f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
                     f"🔗 Painel ID: {painel_id}\n"
                     f"📆 Novo vencimento: {new_expires or '-'}\n"
                     f"🛰️ Origem: {source}\n"
@@ -1892,13 +1904,11 @@ async def get_customer_payment_info(customer_id: str):
             pass
 
     # Fetch prices for all 4 plans
-    prices = {}
-    for m in (1, 3, 6, 12):
-        v = await get_setting(f"plan_price_{m}m", "35,00")
-        try:
-            prices[m] = int(round(float(v.replace(",", ".").strip()) * 100))
-        except ValueError:
-            prices[m] = 3500
+    from services import customer_prefs
+    prefs = await customer_prefs.get_prefs(customer["id"])
+    prices = {m: await customer_prefs.price_for(customer["id"], m) for m in (1, 3, 6, 12)}
+    if prefs.get("fixed_plan"):
+        prices = {prefs["fixed_plan"]: prices[prefs["fixed_plan"]]}
 
     # Recent payments (last 10) — with receipts. Shown on /pay/{id} so the
     # client always sees their own history and proof-of-payment.
@@ -1982,6 +1992,7 @@ async def get_customer_payment_info(customer_id: str):
     return {
         "customer": customer,
         "prices_cents": prices,
+        "discounts_blocked": bool(prefs.get("no_discount")),
         "providers": providers or ["infinitepay"],
         "mp_fee_percent": payment_accounts.MP_PIX_FEE_PERCENT,
         "linked_accounts": await _linked_accounts(customer["id"]),
