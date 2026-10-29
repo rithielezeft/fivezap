@@ -56,6 +56,22 @@ def _event_for_days(d: int):
     return f(d)
 
 
+async def _plan_for(u: dict, cfg: dict) -> list:
+    """_expiration_plan filtered by this customer's reminder / discount prefs."""
+    from services.customer_prefs import get_prefs
+    prefs = await get_prefs(str(u.get("id") or u.get("user_id") or ""))
+    allowed = prefs.get("notify_events")
+    out = []
+    for p in _expiration_plan(u, cfg):
+        if p[0] == "auto_recovery_coupon":
+            if prefs.get("no_discount"):
+                continue
+        elif allowed is not None and p[0] not in allowed:
+            continue
+        out.append(p)
+    return out
+
+
 def _expiration_plan(u: dict, cfg: dict) -> list:
     """Planned expiration notices as [(event_key, local_date, days)]."""
     info = compute_expiration_info(u, tz=cfg["tz"])
@@ -101,7 +117,8 @@ async def next_notification_map(users: list) -> dict:
                 out[uid] = {"event_key": r["event_key"], "title": TITLES.get(r["event_key"], r["event_key"]),
                             "date": r["send_at"], "kind": "trial"}
             continue
-        nxt = next((p for p in _expiration_plan(u, cfg) if p[1] >= today and p[0] in cfg["enabled"]), None)
+        _pl = await _plan_for(u, cfg)
+        nxt = next((p for p in _pl if p[1] >= today and p[0] in cfg["enabled"]), None)
         if nxt:
             out[uid] = {"event_key": nxt[0], "title": TITLES.get(nxt[0], nxt[0]),
                         "date": nxt[1].isoformat(), "kind": "expiration"}
@@ -170,7 +187,7 @@ async def user_notifications(u: dict) -> dict:
         exp_txt = ""
         if info["expires_at_iso"]:
             exp_txt = datetime.fromisoformat(info["expires_at_iso"]).astimezone(tz).strftime("%d/%m/%Y")
-        for ev, day, d in _expiration_plan(u, cfg):
+        for ev, day, d in await _plan_for(u, cfg):
             sent = [x for x in deliveries if x["event_key"] == ev and x["status"] in ("sent", "sending", "pending")
                     and (_local_date(x["created_at"]) or today) >= day]
             if ev not in cfg["enabled"]:

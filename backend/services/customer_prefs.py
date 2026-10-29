@@ -15,6 +15,16 @@ _cache: dict = {}
 _TTL = 60
 
 
+def parse_brl(v) -> int:
+    """'25,50' / '25.50' / 'R$ 1.025,50' → cents."""
+    t = str(v).replace("R$", "").replace(" ", "").strip()
+    if "," in t:
+        t = t.replace(".", "").replace(",", ".")
+    elif t.count(".") > 1:
+        t = t.replace(".", "")
+    return int(round(float(t) * 100))
+
+
 def _default() -> dict:
     return {"prices": {}, "fixed_plan": None, "no_discount": False, "notify_events": None}
 
@@ -45,9 +55,10 @@ async def set_prefs(painel_id, body: dict) -> dict:
         v = (body.get("prices") or {}).get(str(m))
         if v in (None, ""):
             continue
-        cents = int(v) if isinstance(v, int) else int(round(float(str(v).replace("R$", "").replace(".", "").replace(",", ".").strip()) * 100))
-        if cents > 0:
-            prices[str(m)] = cents
+        cents = v if isinstance(v, int) else parse_brl(v)
+        if not 0 < cents <= 1_000_000:
+            raise ValueError(f"Preço inválido para {m} mês(es)")
+        prices[str(m)] = cents
     fixed = body.get("fixed_plan")
     events = body.get("notify_events")
     doc = {

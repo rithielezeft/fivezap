@@ -70,10 +70,12 @@ async def _linked_accounts(painel_id) -> list:
         uid = str(u.get("id") or u.get("user_id") or "")
         if uid == str(painel_id) or u.get("is_trial") or extract_whatsapp(u) != phone:
             continue
-        from services.customer_prefs import price_for
+        from services.customer_prefs import price_for, get_prefs
+        pf = await get_prefs(uid)
         out.append({"id": uid, "login": u.get("username"),
                     "expires_at": compute_expiration_info(u).get("expires_at_iso"),
-                    "prices": {m: await price_for(uid, m) for m in (1, 3, 6, 12)}})
+                    "prices": {m: await price_for(uid, m) for m in (1, 3, 6, 12)},
+                    "fixed_plan": pf.get("fixed_plan"), "discounts_blocked": bool(pf.get("no_discount"))})
     return out
 
 
@@ -395,6 +397,9 @@ async def create_payment(payload: PaymentCreate):
     # Each extra login pays its own (custom or default) price; it gets the same
     # discount % unless that login is blocked from discounts.
     for eid in extra_ids:
+        e_fixed = (await customer_prefs.get_prefs(eid)).get("fixed_plan")
+        if e_fixed and int(e_fixed) != int(payload.plan_months):
+            raise HTTPException(400, "Um dos logins selecionados só pode renovar em outro plano")
         e_price = await customer_prefs.price_for(eid, payload.plan_months)
         original_amount += e_price
         blocked = await customer_prefs.discount_blocked(eid)

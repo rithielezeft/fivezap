@@ -185,7 +185,10 @@ export default function PublicPay() {
   // Each login pays its own price (custom per customer or default).
   const priceOf = (id, m) => (id === String(customerId) ? prices[m] : (data?.linked_accounts || []).find((a) => String(a.id) === id)?.prices?.[m]) ?? prices[m] ?? 0;
   const rawPrice = selected ? selectedIds.reduce((t, id) => t + priceOf(id, selected), 0) : 0;
-  const discountedPrice = effectivePct > 0 ? selectedIds.reduce((t, id) => t + Math.floor((priceOf(id, selected) * (100 - effectivePct)) / 100), 0) : rawPrice;
+  const linkedOf = (id) => (data?.linked_accounts || []).find((a) => String(a.id) === id);
+  const blockedOf = (id) => (id === String(customerId) ? !!data?.discounts_blocked : !!linkedOf(id)?.discounts_blocked);
+  const discountedPrice = effectivePct > 0 ? selectedIds.reduce((t, id) => t + (blockedOf(id) ? priceOf(id, selected) : Math.floor((priceOf(id, selected) * (100 - effectivePct)) / 100)), 0) : rawPrice;
+  const planConflict = selected ? selectedIds.map(linkedOf).find((a) => a?.fixed_plan && a.fixed_plan !== selected) : null;
 
   async function handleApplyCoupon() {
     const code = couponInput.trim();
@@ -291,11 +294,12 @@ export default function PublicPay() {
             {!data?.discounts_blocked && <CouponField applied={couponApplied} input={couponInput} error={couponError} loading={validatingCoupon}
               setInput={(v) => { setCouponInput(v); setCouponError(""); }} onApply={handleApplyCoupon} onRemove={handleRemoveCoupon} />}
 
+            {planConflict && <p className="text-xs text-[#B45309] bg-[#FEF3C7] rounded-xl px-3 py-2" data-testid="plan-conflict">O login {planConflict.login} só pode renovar no plano de {planConflict.fixed_plan} {planConflict.fixed_plan === 1 ? "mês" : "meses"}. Desmarque-o ou escolha esse plano.</p>}
             <ProviderPicker providers={data?.providers} value={provider} onChange={setProvider}
               prices={selected ? { infinitepay: baseTotal, mercadopago: mpPrice } : null} />
 
             <CheckoutCta
-              disabled={!selected}
+              disabled={!selected || !!planConflict}
               pending={createPayMut.isPending}
               price={selected ? finalPrice : null}
               original={original}

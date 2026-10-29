@@ -1,0 +1,43 @@
+{
+  "summary": "Iter14: per-customer prefs (custom price per plan, fixed plan, discount block, reminder selection) + admin 'Pagamento confirmado' alert text. Backend: 16/17 pytest pass (in-process create_payment with mocked InfinitePay). Frontend: Customers 'Preço' dialog and /pay pages verified. Found and fixed (minimal) a CRITICAL runtime crash on dialog close plus stale data when the dialog is reopened. All test prefs and temp payments are cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/customer-prefs/{id}", "issue": "Dot-decimal input is parsed wrongly: '25.50' becomes 255000 cents (R$ 2.550,00) because set_prefs strips every '.' as a thousands separator. An admin typing 25.50 silently charges 100x. Fix: if the string has '.' but no ',', treat the '.' as the decimal point, or reject ambiguous input. Also add an upper sanity cap."},
+      {"endpoint": "services/auto_coupon.py", "issue": "The recovery-coupon sweep (auto_recovery_coupon) ignores customer_prefs. A customer with no_discount=true still gets a WhatsApp with a coupon that validate_coupon will then reject. It also ignores notify_events. It should skip when discount_blocked(user_id)."},
+      {"endpoint": "services/upcoming.py (customer notifications preview)", "issue": "Does not apply wants_event, so 'Avisos' still shows reminders the customer opted out of as scheduled/today."},
+      {"endpoint": "POST /api/payments/create (extras)", "issue": "fixed_plan is only enforced for the main customer_id. An extra login whose own fixed_plan is 3 can still be renewed with plan_months=1 through multi-points."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CustomerPrefsDialog", "issue": "CRITICAL (FIXED by tester): after Salvar, closing (X/Esc) or switching customer, the app crashed with 'Cannot read properties of undefined (reading default_prices)'. Cause: onClose sets customer=null, so the query is disabled and data is undefined, while the f state stayed non-null and the closing dialog still rendered data.default_prices. Fix: render only when f && data, and reset f when data is undefined.", "selector": "[data-testid=customer-prefs-dialog]", "priority": "CRITICAL"},
+      {"component": "CustomerPrefsDialog", "issue": "HIGH (FIXED by tester): reopening the dialog in the same session showed the old pre-save values, because queryClient staleTime is 60s and nothing invalidated the query. Saving again would silently revert the changes. Fix: qc.invalidateQueries(['customer-prefs', id]) in onSuccess.", "selector": "[data-testid=prefs-save]", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "PublicPay multi-login discount", "issue": "discountedPrice applies effectivePct to every selected login, but the backend skips the discount for extra logins with no_discount=true. If a discount is active and a blocked extra is selected, the displayed total is lower than what is charged (not exercised live, found by code review).", "affected_selectors": ["[data-testid=discounted-price]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_customer_prefs_iter14.py", "/app/backend/tests/cleanup_iter14.py", "/app/test_reports/pytest/iter14.xml"],
+  "action_items": [
+    "Fix set_prefs price parsing for '25.50' (dot decimal) and add a sanity cap",
+    "Skip auto_recovery_coupon sends for discount-blocked customers (and respect notify_events if intended)",
+    "Apply wants_event in services/upcoming.py preview",
+    "Enforce each extra login's fixed_plan in create_payment (or exclude such logins from linked_accounts for other plans)",
+    "PublicPay: do not apply the discount % to linked logins with no_discount (expose discounts_blocked per linked account)",
+    "Review the tester's CustomerPrefsDialog fixes (guard on data + invalidateQueries)"
+  ],
+  "critical_code_review_comments": [
+    "routers/customer_prefs.py takes a raw request.json() with no Pydantic model. Validation is manual (int(fixed) on garbage raises ValueError, which becomes 400; OK, but a model would be cleaner).",
+    "set_prefs treats int values as cents but string values as reais, which is inconsistent.",
+    "Admin alert (payments.py ~1174-1195): operator precedence verified correct. Payment method, account, logins count (only when >1), clover yes/no + count, and discount/coupon lines are present."
+  ],
+  "updated_files": ["/app/frontend/src/components/CustomerPrefsDialog.jsx", "/app/backend/tests/test_customer_prefs_iter14.py", "/app/backend/tests/cleanup_iter14.py"],
+  "success_rate": {"backend": "94% (16/17)", "frontend": "100% after tester fixes (crash and stale data reproduced before the fix)"},
+  "seed_data_creation": "Temporary customer_prefs docs for 227470351/227470352 and 2 temp payments from the mocked create_payment were all deleted (Mongo prefs remaining=0; SQLite and Mongo have no pending payments for the test ids). The backend in-process prefs cache expires within 60s.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "PRODUCTION env. Run: pytest tests/test_customer_prefs_iter14.py -n 0 (test_zz_cleanup deletes prefs and created payments). Use only 227470206/351/352. Afterwards run python tests/cleanup_iter14.py. Test test_dot_decimal_price is expected to fail until the parsing fix lands.",
+  "rca of the issue": "Dialog crash: CustomerPrefsDialog kept local form state f after customer became null on close. React Query with enabled=false returned data=undefined while the Radix Dialog close animation was still rendering children, so data.default_prices threw. Repro: open Preço, click Salvar (or X), and the runtime error overlay appears."
+}

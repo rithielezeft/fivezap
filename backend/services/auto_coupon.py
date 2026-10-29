@@ -162,6 +162,9 @@ async def sweep_once() -> int:
             user_id = str(u.get("id") or u.get("user_id") or u.get("username") or "")
             if not user_id:
                 continue
+            from services.customer_prefs import discount_blocked
+            if await discount_blocked(user_id):
+                continue
 
             # Idempotency: never re-send for the same customer.
             key = f"auto_coupon_sent_{user_id}"

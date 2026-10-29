@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { customerPrefsApi } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,10 +17,11 @@ const brl = (c) => (c / 100).toFixed(2).replace(".", ",");
 
 export function CustomerPrefsDialog({ customer, onClose }) {
   const id = customer?._uid;
+  const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["customer-prefs", id], queryFn: () => customerPrefsApi.get(id), enabled: !!id });
   const [f, setF] = useState(null);
   useEffect(() => {
-    if (!data) return;
+    if (!data) { setF(null); return; }
     setF({
       fixed_plan: data.fixed_plan || "",
       prices: Object.fromEntries(PLANS.map(([m]) => [m, data.prices?.[m] ? brl(data.prices[m]) : ""])),
@@ -34,7 +35,7 @@ export function CustomerPrefsDialog({ customer, onClose }) {
       prices: f.prices, no_discount: f.no_discount,
       notify_events: f.notify_events.length === data.events.length ? null : f.notify_events,
     }),
-    onSuccess: () => { toast.success("Preferências do cliente salvas"); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["customer-prefs", id] }); toast.success("Preferências do cliente salvas"); onClose(); },
     onError: (e) => toast.error(e.response?.data?.detail || e.message),
   });
   const toggleEvent = (ev) => setF((x) => ({ ...x, notify_events: x.notify_events.includes(ev) ? x.notify_events.filter((e) => e !== ev) : [...x.notify_events, ev] }));
@@ -43,7 +44,7 @@ export function CustomerPrefsDialog({ customer, onClose }) {
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg bg-[#111] border-white/10 max-h-[90vh] overflow-y-auto" data-testid="customer-prefs-dialog">
         <DialogHeader><DialogTitle>Preço e plano — {customer?._name || id}</DialogTitle></DialogHeader>
-        {!f ? <p className="text-sm text-white/50">Carregando…</p> : (
+        {!f || !data ? <p className="text-sm text-white/50">Carregando…</p> : (
           <div className="space-y-5">
             <div>
               <label className="text-xs text-white/60">Selecione o plano a ser exibido</label>
