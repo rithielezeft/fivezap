@@ -40,9 +40,14 @@ async def seed_admin_password():
     env_pw = os.environ.get("ADMIN_PASSWORD")
     if not env_pw:
         return
+    # Re-seed only when the env password itself changes, so in-app password changes persist.
+    import hashlib
+    fp = hashlib.sha256(env_pw.encode("utf-8")).hexdigest()
     current_hash = await get_setting("admin_password_hash", "")
-    if not current_hash or not verify_password(env_pw, current_hash):
-        await set_setting("admin_password_hash", hash_password(env_pw))
+    if not current_hash or (await get_setting("admin_password_seed_fp", "")) != fp:
+        if not current_hash or not verify_password(env_pw, current_hash):
+            await set_setting("admin_password_hash", hash_password(env_pw))
+        await set_setting("admin_password_seed_fp", fp)
 
 
 async def verify_admin_password(plain: str) -> bool:

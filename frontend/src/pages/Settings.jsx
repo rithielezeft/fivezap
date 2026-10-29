@@ -3,11 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
 import { PaymentAccounts } from "@/components/settings/PaymentAccounts";
+import { SecurityPanel } from "@/components/settings/SecurityPanel";
 import { settingsApi, painelApi, paymentsApi, systemApi, setDisplayTimezone } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin, MapTrifold, Lightning, Bell, Ticket, ArrowsClockwise, CreditCard, Tag, Download, Warning } from "@phosphor-icons/react";
+import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin, MapTrifold, Lightning, Bell, Ticket, ArrowsClockwise, CreditCard, Tag, Download, Warning, ShieldCheck } from "@phosphor-icons/react";
 
 const FIELDS = [
   { key: "painel_username", label: "Painel.fun — Usuário", group: "painel" },
@@ -62,6 +63,7 @@ const SECTIONS = [
   { key: "pay", label: "Pagamentos", desc: "Contas, preços e formas de pagamento", icon: CreditCard },
   { key: "discounts", label: "Descontos", desc: "Desconto automático por evento", icon: Tag },
   { key: "notify", label: "Notificações", desc: "Horários, link público e alertas", icon: Bell },
+  { key: "security", label: "Segurança", desc: "Senha e verificação em 2 etapas", icon: ShieldCheck },
   { key: "system", label: "Sistema", desc: "Atualização do Raspberry", icon: Download },
   { key: "guide", label: "Guia de uso", desc: "Como cada configuração é usada", icon: MapTrifold },
 ];
@@ -574,6 +576,7 @@ export default function Settings() {
         <div className="space-y-6 min-w-0" data-testid={`settings-section-${section}`}>
         <SectionHeader section={section} />
         {section === "system" && <UpdatePiCard />}
+        {section === "security" && <SecurityPanel />}
 
         {section === "discounts" && <DiscountsPanel />}
 

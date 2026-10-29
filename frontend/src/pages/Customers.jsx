@@ -16,8 +16,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk, BellRinging, CurrencyCircleDollar } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk, BellRinging, CurrencyCircleDollar, DotsThreeVertical, ArrowSquareOut, ArrowsClockwise } from "@phosphor-icons/react";
 import { CustomerPrefsDialog } from "@/components/CustomerPrefsDialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -594,41 +595,41 @@ export default function Customers() {
                     ) : <span className="text-white/30 text-xs">—</span>}
                   </td>}
                   {cols.isVisible("actions") && <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setNotifFor(uid)}
-                        data-testid={`btn-notifs-${uid}`}
-                        title="Ver mensagens programadas e enviadas"
-                      >
-                        <BellRinging size={16} className="mr-1" /> Avisos
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setPrefsFor({ ...u, _uid: uid, _name: name })}
-                        data-testid={`btn-prefs-${uid}`}
-                        title="Preço, plano, descontos e lembretes deste cliente"
-                      >
-                        <CurrencyCircleDollar size={16} className="mr-1" /> Preço
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setTrialFor({ ...u, _uid: uid, _system: system, _mac: mac, _name: name, _whatsapp: whatsapp })}
-                        data-testid={`btn-trial-${uid}`}
-                      >
-                        <Ticket size={16} className="mr-1" /> Teste
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="bg-[#3B82F6] hover:bg-[#2563EB] h-8"
-                        onClick={() => { setRenewFor({ ...u, _uid: uid, _system: system, _name: name }); setRenewPlan(1); }}
-                        data-testid={`btn-renew-${uid}`}
-                      >
-                        Renovar
-                      </Button>
+                    <div className="flex justify-end">
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" data-testid={`btn-actions-${uid}`} title="Ações">
+                            <DotsThreeVertical size={20} weight="bold" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56 bg-[#0D111A] border-white/10 text-white">
+                          {name && name !== "-" && <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-white/40">{name}</DropdownMenuLabel>}
+                          <DropdownMenuItem disabled={!payLink} data-testid={`menu-copy-link-${uid}`}
+                            onSelect={() => { navigator.clipboard.writeText(payLink); toast.success("Link copiado"); }}>
+                            <LinkIcon size={16} className="mr-2 text-[#60A5FA]" /> Copiar link de pagamento
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled={!payLink} data-testid={`menu-open-link-${uid}`}
+                            onSelect={() => window.open(payLink, "_blank", "noopener")}>
+                            <ArrowSquareOut size={16} className="mr-2 text-[#60A5FA]" /> Abrir página de pagamento
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <DropdownMenuItem data-testid={`btn-notifs-${uid}`} onSelect={() => setNotifFor(uid)}>
+                            <BellRinging size={16} className="mr-2 text-[#F59E0B]" /> Avisos
+                          </DropdownMenuItem>
+                          <DropdownMenuItem data-testid={`btn-prefs-${uid}`} onSelect={() => setPrefsFor({ ...u, _uid: uid, _name: name })}>
+                            <CurrencyCircleDollar size={16} className="mr-2 text-[#10B981]" /> Preço e plano
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <DropdownMenuItem data-testid={`btn-trial-${uid}`}
+                            onSelect={() => setTrialFor({ ...u, _uid: uid, _system: system, _mac: mac, _name: name, _whatsapp: whatsapp })}>
+                            <Ticket size={16} className="mr-2 text-[#BF5AF2]" /> Gerar teste
+                          </DropdownMenuItem>
+                          <DropdownMenuItem data-testid={`btn-renew-${uid}`}
+                            onSelect={() => { setRenewFor({ ...u, _uid: uid, _system: system, _name: name }); setRenewPlan(1); }}>
+                            <ArrowsClockwise size={16} className="mr-2 text-[#3B82F6]" /> Renovar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </td>}
                 </tr>

@@ -31,6 +31,11 @@ export const authApi = {
   login: (password) => api.post("/auth/login", { password }).then((r) => r.data),
   me: () => api.get("/auth/me").then((r) => r.data),
   changePassword: (data) => api.post("/auth/change-password", data).then((r) => r.data),
+  verify2fa: (data) => api.post("/auth/login/verify", data).then((r) => r.data),
+  twofaStatus: () => api.get("/auth/2fa/status").then((r) => r.data),
+  twofaSetup: (email) => api.post("/auth/2fa/setup", { email }).then((r) => r.data),
+  twofaConfirm: (code) => api.post("/auth/2fa/confirm", { code }).then((r) => r.data),
+  twofaDisable: (password) => api.post("/auth/2fa/disable", { password }).then((r) => r.data),
 };
 
 export const uploadsApi = {

@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ShieldWarning } from "@phosphor-icons/react";
 
 const PLANS = [[1, "Mensal"], [3, "Trimestral"], [6, "Semestral"], [12, "Anual"]];
@@ -48,11 +49,13 @@ export function CustomerPrefsDialog({ customer, onClose }) {
           <div className="space-y-5">
             <div>
               <label className="text-xs text-white/60">Selecione o plano a ser exibido</label>
-              <select value={f.fixed_plan} onChange={(e) => setF({ ...f, fixed_plan: e.target.value })} data-testid="prefs-fixed-plan"
-                className="mt-1 w-full h-11 px-3 rounded-lg bg-transparent border border-input text-white text-sm" style={{ colorScheme: "dark" }}>
-                <option value="">Todos os planos</option>
-                {PLANS.map(([m, l]) => <option key={m} value={m}>Só {l}</option>)}
-              </select>
+              <Select value={f.fixed_plan ? String(f.fixed_plan) : "all"} onValueChange={(v) => setF({ ...f, fixed_plan: v === "all" ? "" : v })}>
+                <SelectTrigger className="mt-1 h-11 bg-black/40 border-white/10 text-white" data-testid="prefs-fixed-plan"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-[#111] border-white/10 text-white">
+                  <SelectItem value="all" data-testid="prefs-plan-all">Todos os planos</SelectItem>
+                  {PLANS.map(([m, l]) => <SelectItem key={m} value={String(m)} data-testid={`prefs-plan-${m}`}>Só {l}</SelectItem>)}
+                </SelectContent>
+              </Select>
               <p className="text-[11px] text-white/40 mt-1">{f.fixed_plan ? "O cliente só vê este plano na página de pagamento." : "Sem plano fixo: o cliente vê todos os planos e escolhe."}</p>
             </div>
             <div className="rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/[0.07] p-3 flex gap-2 text-xs">
