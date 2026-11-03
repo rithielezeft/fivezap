@@ -82,3 +82,5 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - [2026-06] Login lockout keyed on CF-Connecting-IP/X-Forwarded-For (+ global cap 40/15min). Production Pi (whatsflow.zeferius.com) still runs old code: needs GitHub push + update + SUPABASE_* env on Pi.
 
 - [2026-06] Removed emergent-main.js + PostHog (ap.emergent.sh) from public/index.html; prod build verified clean (dev-only craco plugins remain for preview).
+
+- [2026-06] Multi-login checkout: extras renewed before notify; ONE client msg (template renewal_success_multi, {logins}/{count}) + ONE admin msg listing each login; also on auto-retry path. API docs page completed (pt descriptions, public badges, body examples). Logout button. Tested iteration_21-23.

@@ -87,6 +87,7 @@ async def _sweep_once():
                     user_id=painel_id,
                     package_id=payment.get("package_id") or 0,
                     months=payment.get("plan_months"),
+                    adult=None if payment.get("adult_channels") is None else bool(payment.get("adult_channels")),
                 )
             except Exception as e:
                 # Retry failed too — bump attempts + reschedule.

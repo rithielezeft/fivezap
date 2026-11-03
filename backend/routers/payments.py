@@ -133,7 +133,7 @@ def _logins_lines(main_login: str, main_exp: str, extras: list, admin: bool = Fa
         if ok:
             out.append(f"• *{login}* — ativo até {exp or '-'}" if not admin else f"✅ {login} — novo vencimento {exp or '-'}")
         else:
-            out.append(f"• *{login}* — renovação em andamento, avisaremos em instantes" if not admin
+            out.append(f"• *{login}* — nossa equipe vai concluir a renovação em breve" if not admin
                        else f"❌ {login} — FALHOU ({err[:80]}) · renove manualmente")
     return "\n".join(out)
 
@@ -1162,9 +1162,13 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
 
                 if extra_results:
                     main_login = painel_user or (await _cache_user(painel_id)).get("username") or customer["name"]
-                    multi_status = await _send_multi_confirmation(
-                        payment, phone, customer["name"], main_login, new_expires,
-                        extra_results, customer["id"])
+                    try:
+                        multi_status = await _send_multi_confirmation(
+                            payment, phone, customer["name"], main_login, new_expires,
+                            extra_results, customer["id"])
+                    except Exception:
+                        logger.exception("Multi-login confirmation failed")
+                        multi_status = "❌ falhou (erro ao enviar)"
                 client_notified = bool(multi_status and not multi_status.startswith("❌")) or (not extra_results and await send_notification(
                     "renewal_success", phone,
                     {
