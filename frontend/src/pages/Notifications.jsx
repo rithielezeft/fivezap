@@ -81,6 +81,12 @@ const EVENT_META = {
     description: "Enviado após confirmação do pagamento InfinitePay",
     vars: ["{name}", "{user}", "{password}", "{plan_months}", "{new_expires_at}", "{system_type}", "{clovers}", "{clover_coupons}"],
   },
+  renewal_success_multi: {
+    icon: "👥",
+    color: "#10B981",
+    description: "Enviado uma única vez quando o cliente paga vários logins juntos",
+    vars: ["{name}", "{logins}", "{count}", "{plan_months}", "{user}", "{new_expires_at}", "{clovers}", "{clover_coupons}"],
+  },
   trial_ready: {
     icon: "🎁",
     color: "#3B82F6",

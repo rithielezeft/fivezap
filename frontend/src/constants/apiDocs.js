@@ -183,4 +183,5 @@ export const BODY_EXAMPLES = {
   "PUT /api/raffle/settings": { enabled: true, clover_price: "2,00", prize_months: 1, joker_count: 0, joker_login: "", joker_phone: "", auto_restart: true, auto_renew: true },
   "PUT /api/raffle/participant-name": { customer_id: "227427597", name: "Nome exibido" },
   "POST /api/raffle/entries": { customer: "login_do_painel", clovers: 1 },
+  "PUT /api/customer-prefs/{painel_id}": { fixed_plan: null, prices: {}, notify_events: {} },
 };

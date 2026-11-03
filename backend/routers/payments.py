@@ -79,9 +79,22 @@ async def _linked_accounts(painel_id) -> list:
     return out
 
 
-async def _renew_extra_accounts(payment: dict, phone: str, source: str) -> list:
-    """Renew the additional logins bought in the same checkout + notify each."""
+def _fmt_exp(v) -> str:
+    """Painel expiration (unix ts / ISO / dd/mm/aaaa) → dd/mm/aaaa."""
+    from datetime import datetime as _dt, timezone as _tz
+    if isinstance(v, (int, float)) and v:
+        return _dt.fromtimestamp(v / 1000 if v > 10**12 else v, tz=_tz.utc).strftime("%d/%m/%Y")
+    v = str(v or "").strip()
+    try:
+        return _dt.fromisoformat(v.replace("Z", "+00:00")).strftime("%d/%m/%Y")
+    except ValueError:
+        return v
+
+
+async def _renew_extra_accounts(payment: dict, source: str) -> list:
+    """Renew the additional logins bought in the same checkout (no messages — caller sends one combined)."""
     import json as _json
+    from services.renewal_retry import _extract_expiration
     try:
         extra_ids = _json.loads(payment.get("extra_customer_ids") or "[]")
     except Exception:
@@ -89,38 +102,58 @@ async def _renew_extra_accounts(payment: dict, phone: str, source: str) -> list:
     results = []
     adult = payment.get("adult_channels")
     for eid in extra_ids:
+        u = await _cache_user(eid)
+        item = {"id": str(eid), "login": u.get("username") or str(eid), "ok": False, "new_expires": ""}
         try:
             res = await painel.renew_user(user_id=str(eid), package_id=payment["package_id"],
                                           months=payment.get("plan_months"),
                                           adult=None if adult is None else bool(adult))
-            u = await _cache_user(eid)
-            new_exp = res.get("exp_date") or res.get("expires_at") or ""
-            if isinstance(new_exp, (int, float)):
-                from datetime import datetime as _dt, timezone as _tz
-                new_exp = _dt.fromtimestamp(int(new_exp), tz=_tz.utc).strftime("%d/%m/%Y")
+            item.update(ok=True, new_expires=_fmt_exp(_extract_expiration(res)))
             await log_activity("renewal_success", f"Renovação extra {payment['plan_months']}m (painel_id={eid}, source={source})",
                                str(eid), "success", res)
-            if phone:
-                from services.notifier import send_notification
-                await send_notification("renewal_success", phone, {
-                    "name": u.get("full_name") or u.get("username") or "cliente",
-                    "user": u.get("username") or str(eid),
-                    "password": u.get("password") or "",
-                    "plan_months": payment["plan_months"],
-                    "new_expires_at": new_exp,
-                    "system_type": "",
-                    **(await _clover_vars(payment)),
-                }, customer_id=str(eid))
-            results.append({"id": eid, "ok": True})
+            try:
+                from services import mongo_store
+                if item["new_expires"]:
+                    await mongo_store.upsert_customer({"_id": str(eid), "exp_date_iso": item["new_expires"],
+                                                       "last_renewed_at": now_iso()})
+            except Exception:
+                logger.exception("Mongo mirror of extra renewal failed (non-fatal)")
         except Exception as e:
             logger.exception("Extra renewal failed for %s", eid)
-            results.append({"id": eid, "ok": False, "error": str(e)[:200]})
-            try:
-                from services.notifier import send_admin_alert
-                await send_admin_alert(f"⚠️ *Renovação extra falhou*\n\nPainel ID: {eid}\nPagamento: {payment['id']}\nErro: {str(e)[:150]}\n\nRenove manualmente no painel.")
-            except Exception:
-                pass
+            item["error"] = str(e)[:200]
+            await log_activity("renewal_error", f"Renovação extra falhou (painel_id={eid}): {str(e)[:150]}", str(eid), "error")
+        results.append(item)
     return results
+
+
+def _logins_lines(main_login: str, main_exp: str, extras: list, admin: bool = False) -> str:
+    rows = [(main_login, True, main_exp, "")] + [(x["login"], x["ok"], x.get("new_expires"), x.get("error", "")) for x in extras]
+    out = []
+    for login, ok, exp, err in rows:
+        if ok:
+            out.append(f"• *{login}* — ativo até {exp or '-'}" if not admin else f"✅ {login} — novo vencimento {exp or '-'}")
+        else:
+            out.append(f"• *{login}* — renovação em andamento, avisaremos em instantes" if not admin
+                       else f"❌ {login} — FALHOU ({err[:80]}) · renove manualmente")
+    return "\n".join(out)
+
+
+async def _send_multi_confirmation(payment: dict, phone: str, name: str, main_login: str, main_exp: str,
+                                   extras: list, customer_id: str) -> str:
+    """One WhatsApp message confirming every login of the checkout. Returns notify status text."""
+    from services.notifier import send_notification, send_hardcoded
+    lines = _logins_lines(main_login, main_exp, extras)
+    ctx = {**(await _clover_vars(payment)), "name": name, "user": main_login, "logins": lines,
+           "count": 1 + len(extras), "plan_months": payment["plan_months"], "new_expires_at": main_exp}
+    if await send_notification("renewal_success_multi", phone, ctx, customer_id=customer_id):
+        await save_message(phone, "renewal_confirmed_multi", "out", customer_id)
+        return "sim (mensagem única para todos os logins)"
+    ok = await send_hardcoded(
+        phone,
+        f"✅ Pagamento confirmado, {name}!\n\nSeus *{1 + len(extras)} logins* foram renovados por "
+        f"*{payment['plan_months']} mês(es)*:\n{lines}\n\nObrigado pela preferência! 🎉",
+        event_key="renewal_success_multi_fallback", customer_id=customer_id)
+    return "sim (mensagem padrão única)" if ok else "❌ falhou (WhatsApp indisponível)"
 
 
 @router.get("", response_model=List[Payment])
@@ -1037,6 +1070,10 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             except Exception:
                 logger.exception("Local expiration projection failed — leaving empty")
 
+        extra_results = []
+        if payment.get("extra_customer_ids"):
+            extra_results = await _renew_extra_accounts(payment, source)
+
         # Notify client via WhatsApp — this is what the customer sees ("Renovação confirmada")
         try:
             from services.notifier import send_notification, send_admin_alert
@@ -1081,6 +1118,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
 
             client_notified = False
             fallback_msg_sent = False
+            multi_status = None
             # Fetch painel_username for the {user} template variable — some
             # admins prefer showing the login ("joao_iptv44") over the display
             # name, especially for verifying identity.
@@ -1122,7 +1160,12 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 except Exception:
                     logger.exception("Failed to cancel pending reminders for %s", phone)
 
-                client_notified = await send_notification(
+                if extra_results:
+                    main_login = painel_user or (await _cache_user(painel_id)).get("username") or customer["name"]
+                    multi_status = await _send_multi_confirmation(
+                        payment, phone, customer["name"], main_login, new_expires,
+                        extra_results, customer["id"])
+                client_notified = bool(multi_status and not multi_status.startswith("❌")) or (not extra_results and await send_notification(
                     "renewal_success", phone,
                     {
                         "name": customer["name"],
@@ -1134,11 +1177,11 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                         "system_type": customer.get("system_type") or "",
                     },
                     customer_id=customer["id"],
-                )
-                if client_notified:
+                ))
+                if client_notified and not extra_results:
                     await save_message(phone, "renewal_confirmed", "out", customer["id"])
                     logger.info("Renewal confirmation sent to %s", phone)
-                else:
+                elif not extra_results:
                     # Template `renewal_success` is missing/disabled → send a minimal
                     # hardcoded confirmation so the client never stays in the dark.
                     # Uses the delivery queue too (auto-retry every 10s).
@@ -1168,7 +1211,9 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             # Fire-and-forget: no-op when `admin_whatsapp` setting is empty.
             try:
                 amount_brl = f"R$ {payment['amount_cents']/100:.2f}".replace(".", ",")
-                if client_notified:
+                if multi_status:
+                    notify_status = multi_status
+                elif client_notified:
                     notify_status = "sim (template)"
                 elif fallback_msg_sent:
                     notify_status = "sim (mensagem padrão — template desabilitado)"
@@ -1187,7 +1232,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     f"📱 WhatsApp: {phone or '-'}\n"
                     f"📦 Plano: {payment['plan_months']} mês(es)  |  {amount_brl}\n"
                     f"💳 Pagamento: {_prov}" + (f" · conta {payment.get('account_id')}" if payment.get("account_id") else "") + "\n"
-                    + (f"👥 Logins no pagamento: {1 + _extra}\n" if _extra else "")
+                    + (f"👥 Logins no pagamento: {1 + _extra}\n{_logins_lines(painel_user or customer['name'], new_expires, extra_results, admin=True)}\n" if _extra else "")
                     + (f"🍀 Trevo da Sorte: sim — {_clov} {'trevo' if _clov == 1 else 'trevos'}\n" if _clov else "🍀 Trevo da Sorte: não\n")
                     + (f"🏷️ Desconto: {payment.get('discount_percent')}%" + (f" (cupom {payment.get('coupon_code')})" if payment.get("coupon_code") else "") + "\n" if payment.get("discount_percent") else "")
                     + f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
@@ -1229,9 +1274,6 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         except Exception:
             logger.exception("Failed to mirror renewal to MongoDB (non-fatal)")
 
-        extra_results = []
-        if payment.get("extra_customer_ids"):
-            extra_results = await _renew_extra_accounts(payment, phone, source)
         return {"ok": True, "status": "renewed", "payment_id": payment["id"], "painel_id": painel_id,
                 "result": result, "extra_renewals": extra_results}
     except Exception as e:

@@ -99,7 +99,9 @@ export default function ApiDocs() {
     const url = `${base}${item.path}`;
     const auth = item.isPublic ? "" : ` \\\n  -H "Authorization: Bearer $TOKEN"`;
     let cmd = `curl -X ${method} "${url}"${auth}`;
-    if (method !== "GET" && method !== "DELETE") {
+    if (item.path === "/api/uploads" && method === "POST") {
+      cmd += ` \\\n  -F "file=@imagem.png"`;
+    } else if (method !== "GET" && method !== "DELETE") {
       cmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(item.body || {})}'`;
     }
     try {

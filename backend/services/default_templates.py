@@ -54,6 +54,12 @@ DEFAULT_TEMPLATES = [
         "image_url": "",
     },
     {
+        "event_key": "renewal_success_multi",
+        "title": "Renovação confirmada (vários logins)",
+        "body": "✅ Pagamento confirmado, {name}!\n\nSeus *{count} logins* foram renovados por *{plan_months} mês(es)*:\n{logins}\n\nObrigado pela preferência! 🎉",
+        "image_url": "",
+    },
+    {
         "event_key": "manual_expired_alert",
         "title": "Aviso manual — cliente vencido",
         "body": "Olá {name}! 👋\n\nSeu login *{user}* está vencido desde {expires_at}.\n\nRenove agora para voltar a assistir sem interrupções:\n{pay_link}\n\nQualquer dúvida é só chamar aqui! 💬",

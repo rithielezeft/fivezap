@@ -110,7 +110,17 @@ async def _sweep_once():
 
             phone = (customer.get("whatsapp") or "").strip()
             painel_login = (customer.get("painel_username") or "").strip()
-            if phone:
+            from routers.payments import _renew_extra_accounts, _send_multi_confirmation, _logins_lines, _fmt_exp
+            extras = await _renew_extra_accounts(payment, "auto_retry") if payment.get("extra_customer_ids") else []
+            new_expires = _fmt_exp(new_expires)
+            if phone and extras:
+                try:
+                    await _send_multi_confirmation(payment, phone, customer.get("name") or "cliente",
+                                                   painel_login or customer.get("name") or "", new_expires,
+                                                   extras, customer.get("id"))
+                except Exception:
+                    logger.exception("renewal_retry: multi notify failed")
+            elif phone:
                 try:
                     ok = await send_notification(
                         "renewal_success", phone,
@@ -146,7 +156,8 @@ async def _sweep_once():
                     f"👥 Login: {painel_login or '-'}\n"
                     f"📦 {payment.get('plan_months')} mês(es) | {amount_brl}\n"
                     f"📆 Novo vencimento: {new_expires or '-'}\n"
-                    f"🔁 Tentativa: {(r['renewal_attempts'] or 0) + 1}"
+                    + (f"👥 Logins no pagamento: {1 + len(extras)}\n{_logins_lines(painel_login or '-', new_expires, extras, admin=True)}\n" if extras else "")
+                    + f"🔁 Tentativa: {(r['renewal_attempts'] or 0) + 1}"
                 )
             except Exception:
                 pass
