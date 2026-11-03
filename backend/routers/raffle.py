@@ -59,13 +59,22 @@ async def raffle_overview():
                 "customer_id": k,
                 "name": p["name"],
                 "joker": bool(p.get("joker")),
-                "coupons": []
+                "coupons": [],
+                "manual_entries": []
             }
         )["coupons"].append(p["coupon"])
+        if p.get("manual"):
+            me = by_customer[k]["manual_entries"]
+            if p["entry_id"] not in [x["id"] for x in me]:
+                me.append({"id": p["entry_id"], "clovers": 0})
+            next(x for x in me if x["id"] == p["entry_id"])["clovers"] += 1
 
     return {
         "config": cfg,
         "month": cur["month"],
+        "round_id": cur["round_id"],
+        "open": cur["open"],
+        "start": cur["start"],
         "draw_at": cur["draw_at"],
         "participants": cur["participants"],
         "clovers": cur["clovers"],
@@ -125,6 +134,36 @@ async def raffle_participant_name(request: Request):
     return {"ok": True}
 
 
+@router.post("/api/raffle/new-round")
+async def raffle_new_round():
+    rnd = await raffle.current_round()
+    if not rnd["drawn"]:
+        raise HTTPException(400, "Já existe um sorteio em andamento")
+    return await raffle.start_new_round(rnd["drawn_at"])
+
+
+@router.post("/api/raffle/entries")
+async def raffle_add_entry(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Corpo inválido")
+    try:
+        doc = await raffle.add_manual_entry(str(body.get("customer") or ""), body.get("clovers") or 1)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "entry": doc}
+
+
+@router.delete("/api/raffle/entries/{entry_id}")
+async def raffle_remove_entry(entry_id: str):
+    if not await raffle.remove_manual_entry(entry_id):
+        raise HTTPException(404, "Entrada não encontrada")
+    return {"ok": True}
+
+
 @router.post("/api/raffle/draw")
 async def raffle_draw_now():
     try:
@@ -144,6 +183,7 @@ async def raffle_public():
 
     return {
         "enabled": cfg["enabled"],
+        "open": cur["open"],
         "clover_cents": cfg["clover_cents"],
         "prize_months": cfg["prize_months"],
         "max_clovers": cfg["max_clovers"],
@@ -169,6 +209,7 @@ async def raffle_public():
         "history": [
             {
                 "month": h["month"],
+                "round_id": h["round_id"],
                 "participants": h.get("participants"),
                 "total_clovers": h.get("total_clovers"),
                 "prize_months": h.get("prize_months"),

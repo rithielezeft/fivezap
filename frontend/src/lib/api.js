@@ -120,6 +120,9 @@ export const raffleApi = {
   overview: () => api.get("/raffle").then((r) => r.data),
   saveSettings: (body) => api.put("/raffle/settings", body).then((r) => r.data),
   drawNow: () => api.post("/raffle/draw").then((r) => r.data),
+  newRound: () => api.post("/raffle/new-round").then((r) => r.data),
+  addEntry: (customer, clovers) => api.post("/raffle/entries", { customer, clovers }).then((r) => r.data),
+  removeEntry: (id) => api.delete(`/raffle/entries/${id}`).then((r) => r.data),
   renameParticipant: (customer_id, name) => api.put("/raffle/participant-name", { customer_id, name }).then((r) => r.data),
 };
 

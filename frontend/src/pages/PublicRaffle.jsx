@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { Clover, Trophy, Users, Ticket, Calendar, Clock } from "lucide-react";
+
+const roundLabel = (m = "") => { const [y, mo, n] = m.split("-"); return `${mo}/${y}${n ? ` #${n}` : ""}`; };
 import DrawReel from "@/components/raffle/DrawReel";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -41,7 +43,7 @@ function HistoryCard({ h, onReplay, idx }) {
       <div className="flex items-start justify-between">
         <div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Prêmio</p>
           <h3 className="font-display text-lg font-bold text-white">{h.prize_months} {h.prize_months === 1 ? "mês" : "meses"} grátis</h3></div>
-        <span className="flex items-center gap-1 text-xs text-slate-500"><Calendar className="h-3 w-3" />{h.month.split("-").reverse().join("/")}</span>
+        <span className="flex items-center gap-1 text-xs text-slate-500"><Calendar className="h-3 w-3" />{roundLabel(h.month)}</span>
       </div>
       <div className="mt-4 rounded-xl border border-[#f59e0b]/30 bg-[#f59e0b]/10 p-3">
         <p className="text-xs uppercase tracking-widest text-[#f59e0b]">Ganhador</p>
@@ -79,9 +81,9 @@ export default function PublicRaffle() {
 
         {replay && (
           <section className="rounded-3xl border border-[#1f2b27] bg-[#0b1110] p-4 sm:p-6" data-testid="trevo-replay">
-            <div className="flex items-center justify-between mb-3"><h2 className="font-display text-xl font-bold">Replay · {replay.month.split("-").reverse().join("/")}</h2>
+            <div className="flex items-center justify-between mb-3"><h2 className="font-display text-xl font-bold">Replay · {roundLabel(replay.month)}</h2>
               <button onClick={() => setReplay(null)} className="text-sm text-slate-400 hover:text-white" data-testid="trevo-replay-close">Fechar</button></div>
-            <DrawReel key={replay.month} draw={replay} />
+            <DrawReel key={replay.round_id || replay.month} draw={replay} />
           </section>
         )}
 
@@ -108,7 +110,7 @@ export default function PublicRaffle() {
             <div className="rounded-2xl border border-dashed border-[#1f2b27] p-10 text-center text-sm text-slate-500">Nenhum sorteio realizado ainda.</div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {data.history.map((h, i) => <HistoryCard key={h.month} h={h} idx={i + 1} onReplay={(x) => { setReplay(x); window.scrollTo({ top: 0, behavior: "smooth" }); }} />)}
+              {data.history.map((h, i) => <HistoryCard key={h.round_id || h.month} h={h} idx={i + 1} onReplay={(x) => { setReplay(x); window.scrollTo({ top: 0, behavior: "smooth" }); }} />)}
             </div>
           )}
         </section>
