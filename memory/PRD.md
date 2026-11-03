@@ -80,3 +80,5 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - [2026-06] Supabase: email+password login proxied to GoTrue (routers/supabase_auth.py) with TOTP 2FA; legacy password login toggle (requires TOTP on); mirror of customers/trials (SQLite+Atlas), activity_logs, painel users to Supabase tables whatsflow_* every 10 min (services/supabase_mirror.py, SUPABASE_DB_URL). Finance raffle panel (clover sales vs painel credits of prizes). Command templates mirrored to Atlas command_templates + startup restore. Tested iteration_18.
 
 - [2026-06] Login lockout keyed on CF-Connecting-IP/X-Forwarded-For (+ global cap 40/15min). Production Pi (whatsflow.zeferius.com) still runs old code: needs GitHub push + update + SUPABASE_* env on Pi.
+
+- [2026-06] Removed emergent-main.js + PostHog (ap.emergent.sh) from public/index.html; prod build verified clean (dev-only craco plugins remain for preview).
