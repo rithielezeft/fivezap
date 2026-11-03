@@ -103,6 +103,10 @@ async def login(payload: LoginPayload, request: Request):
     # tiny slowdown to prevent timing attacks
     await asyncio.sleep(0.1)
 
+    from routers.supabase_auth import legacy_enabled
+    if not await legacy_enabled():
+        raise HTTPException(403, "Login só com senha desativado. Entre com e-mail e senha.")
+
     ok = await verify_admin_password(payload.password)
     if not ok:
         entry[0] += 1

@@ -36,6 +36,17 @@ export const authApi = {
   twofaSetup: (email) => api.post("/auth/2fa/setup", { email }).then((r) => r.data),
   twofaConfirm: (code) => api.post("/auth/2fa/confirm", { code }).then((r) => r.data),
   twofaDisable: (password) => api.post("/auth/2fa/disable", { password }).then((r) => r.data),
+  methods: () => api.get("/auth/methods").then((r) => r.data),
+  emailLogin: (email, password) => api.post("/auth/email-login", { email, password }).then((r) => r.data),
+  emailVerify: (challenge_id, code) => api.post("/auth/email-login/verify", { challenge_id, code }).then((r) => r.data),
+  sbStatus: () => api.get("/auth/supabase/status").then((r) => r.data),
+  sbAccount: (email, password) => api.post("/auth/supabase/account", { email, password }).then((r) => r.data),
+  totpStart: (password) => api.post("/auth/supabase/totp/start", { password }).then((r) => r.data),
+  totpConfirm: (enroll_id, code) => api.post("/auth/supabase/totp/confirm", { enroll_id, code }).then((r) => r.data),
+  totpDisable: (password, code) => api.post("/auth/supabase/totp/disable", { password, code }).then((r) => r.data),
+  setLegacy: (enabled) => api.put("/auth/supabase/legacy", { enabled }).then((r) => r.data),
+  mirrorStatus: () => api.get("/supabase/mirror").then((r) => r.data),
+  mirrorRun: () => api.post("/supabase/mirror/run").then((r) => r.data),
 };
 
 export const uploadsApi = {

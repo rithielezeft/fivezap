@@ -236,6 +236,54 @@ async def upsert_template(template: dict) -> bool:
         return False
 
 
+async def upsert_command_template(t: dict) -> bool:
+    """Mirror a command_templates row (Comandos page) → Atlas `command_templates`."""
+    try:
+        await _get_db().command_templates.update_one(
+            {"_id": str(t["id"])}, {"$set": {**t, "last_synced_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+        return True
+    except Exception as e:
+        logger.warning("upsert_command_template failed for %s: %s", t.get("id"), e)
+        return False
+
+
+async def delete_command_template(template_id: str) -> bool:
+    try:
+        await _get_db().command_templates.delete_one({"_id": str(template_id)})
+        return True
+    except Exception as e:
+        logger.warning("delete_command_template failed for %s: %s", template_id, e)
+        return False
+
+
+async def sync_command_templates():
+    """Startup: push local commands to Atlas and restore commands that exist only in Atlas."""
+    import aiosqlite
+    from database import DB_PATH
+    cols = ("id", "name", "trigger_command", "system_type", "requires_mac", "package_id",
+            "response_template", "image_url", "enabled", "trigger_source", "created_at")
+    try:
+        db_m = _get_db()
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            local = [dict(r) for r in await (await db.execute("SELECT * FROM command_templates")).fetchall()]
+            for t in local:
+                await upsert_command_template(t)
+            triggers = {t["trigger_command"].strip().lower() for t in local}
+            ids = {t["id"] for t in local}
+            restored = 0
+            async for d in db_m.command_templates.find({}):
+                if d.get("id") in ids or (d.get("trigger_command") or "").strip().lower() in triggers:
+                    continue
+                await db.execute(f"INSERT OR IGNORE INTO command_templates ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                                 tuple(d.get(c) for c in cols))
+                restored += 1
+            await db.commit()
+        logger.info("command templates synced with Atlas: pushed %d, restored %d", len(local), restored)
+    except Exception as e:
+        logger.warning("sync_command_templates failed: %s", e)
+
+
 async def delete_template(template_id: str) -> bool:
     try:
         db = _get_db()

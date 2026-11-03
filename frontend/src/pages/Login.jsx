@@ -6,7 +6,7 @@ import { authApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { WhatsappLogo, LockKey, Eye, EyeSlash } from "@phosphor-icons/react";
+import { WhatsappLogo, LockKey, Eye, EyeSlash, EnvelopeSimple } from "@phosphor-icons/react";
 
 export default function Login() {
   const nav = useNavigate();
@@ -14,6 +14,13 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false);
   const [challenge, setChallenge] = useState(null);
   const [code, setCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [methods, setMethods] = useState({ email_login: false, password_login: true });
+  const [mode, setMode] = useState("password");
+
+  useEffect(() => {
+    authApi.methods().then((m) => { setMethods(m); setMode(m.email_login ? "email" : "password"); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (localStorage.getItem("wf_token")) {
@@ -34,13 +41,18 @@ export default function Login() {
     onSuccess: (data) => (data.requires_2fa ? setChallenge(data) : done(data)),
     onError: (e) => toast.error(e.response?.data?.detail || "Senha incorreta"),
   });
+  const emailMut = useMutation({
+    mutationFn: () => authApi.emailLogin(email.trim(), password),
+    onSuccess: (data) => (data.requires_totp ? setChallenge({ ...data, totp: true }) : done(data)),
+    onError: (e) => toast.error(e.response?.data?.detail || "E-mail ou senha incorretos"),
+  });
   const verifyMut = useMutation({
-    mutationFn: () => authApi.verify2fa({ challenge_id: challenge.challenge_id, code }),
+    mutationFn: () => challenge.totp ? authApi.emailVerify(challenge.challenge_id, code) : authApi.verify2fa({ challenge_id: challenge.challenge_id, code }),
     onSuccess: done,
     onError: (e) => {
       const msg = e.response?.data?.detail || "Código incorreto";
       toast.error(msg);
-      if (msg.includes("expirado")) { setChallenge(null); setCode(""); }
+      if (msg.includes("expirad") || msg.includes("novamente")) { setChallenge(null); setCode(""); }
     },
   });
 
@@ -66,7 +78,7 @@ export default function Login() {
             data-testid="login-2fa-form"
           >
             <p className="text-sm text-white/70" data-testid="login-2fa-hint">
-              Enviamos um código de 6 dígitos para <b className="text-white">{challenge.email_hint}</b>.
+              {challenge.totp ? "Digite o código de 6 dígitos do seu app autenticador." : <>Enviamos um código de 6 dígitos para <b className="text-white">{challenge.email_hint}</b>.</>}
             </p>
             <Input
               autoFocus
@@ -91,10 +103,18 @@ export default function Login() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (password) mut.mutate(password);
+              if (!password) return;
+              if (mode === "email") emailMut.mutate(); else mut.mutate(password);
             }}
             className="space-y-4"
+            data-testid={`login-form-${mode}`}
           >
+            {mode === "email" && (
+              <div>
+                <Label className="text-xs uppercase tracking-widest text-white/60 flex items-center gap-2"><EnvelopeSimple size={14} /> E-mail</Label>
+                <Input type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1.5 bg-black/40 border-white/10 h-11" data-testid="input-login-email" placeholder="voce@email.com" />
+              </div>
+            )}
             <div>
               <Label className="text-xs uppercase tracking-widest text-white/60 flex items-center gap-2">
                 <LockKey size={14} /> Senha
@@ -102,7 +122,7 @@ export default function Login() {
               <div className="mt-1.5 relative">
                 <Input
                   type={showPw ? "text" : "password"}
-                  autoFocus
+                  autoFocus={mode === "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-black/40 border-white/10 pr-10 h-11"
@@ -121,12 +141,18 @@ export default function Login() {
 
             <Button
               type="submit"
-              disabled={!password || mut.isPending}
+              disabled={!password || (mode === "email" && !email) || mut.isPending || emailMut.isPending}
               className="w-full h-11 bg-[#3B82F6] hover:bg-[#2563EB] font-semibold"
               data-testid="btn-login"
             >
-              {mut.isPending ? "Entrando..." : "Entrar"}
+              {mut.isPending || emailMut.isPending ? "Entrando..." : "Entrar"}
             </Button>
+            {methods.email_login && methods.password_login && (
+              <button type="button" onClick={() => setMode(mode === "email" ? "password" : "email")}
+                className="w-full text-xs text-white/50 hover:text-white" data-testid="btn-login-switch-mode">
+                {mode === "email" ? "Entrar só com a senha antiga" : "Entrar com e-mail e senha"}
+              </button>
+            )}
           </form>
           )}
         </div>

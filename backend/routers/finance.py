@@ -1,4 +1,5 @@
 """Financeiro — monthly finance summary for the admin Pagamentos page."""
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -11,6 +12,7 @@ from services.finance_report import credits_for
 from services.payment_accounts import RECEIVED_STATUSES as RECEIVED
 
 router = APIRouter(prefix="/api/finance", tags=["finance"])
+logger = logging.getLogger(__name__)
 
 
 def _parse(iso: Optional[str]):
@@ -54,7 +56,7 @@ async def _load_rows(where: str = "", params: tuple = ()) -> list:
         cur = await db.execute(
             "SELECT p.id, p.customer_id, p.plan_months, p.amount_cents, p.status, p.paid_at, "
             "p.created_at, p.coupon_code, p.discount_percent, p.original_amount_cents, p.receipt_url, "
-            "p.infinitepay_url, c.painel_username, c.name FROM payments p "
+            "p.infinitepay_url, p.clovers, c.painel_username, c.name FROM payments p "
             "LEFT JOIN customers c ON c.id = p.customer_id " + where + " ORDER BY p.created_at DESC",
             params,
         )
@@ -101,6 +103,29 @@ async def report_send(month: str):
     from services.finance_report import send_report
     _month_bounds(month, timezone.utc)
     return await send_report(month, force=True)
+
+
+async def _raffle_summary(paid: list, start, end) -> dict:
+    """Clover sales in the month vs. painel credits spent on the prizes drawn in the month."""
+    from services import raffle
+    from services.mongo_store import _get_db
+    cfg = await raffle.config()
+    clovers = sum(int(r.get("clovers") or 0) for r in paid)
+    s_utc, e_utc = start.astimezone(timezone.utc).isoformat(), end.astimezone(timezone.utc).isoformat()
+    draws = []
+    try:
+        async for d in _get_db().raffle_draws.find({"status": "drawn", "created_at": {"$gte": s_utc, "$lt": e_utc}},
+                                                   {"sequence": 0}).sort("created_at", 1):
+            draws.append({"round_id": d["_id"], "winner": (d.get("winner") or {}).get("name"),
+                          "prize_months": int(d.get("prize_months") or 1), "renewed": bool(d.get("renewed")),
+                          "drawn_at": d.get("created_at")})
+    except Exception:
+        logger.exception("raffle draws lookup failed")
+    cost = await credits_for([{"plan_months": d["prize_months"], "amount_cents": 0} for d in draws])
+    revenue = clovers * cfg["clover_cents"]
+    return {"clovers": clovers, "clover_cents": cfg["clover_cents"], "revenue_cents": revenue,
+            "draws": draws, "cost_credits": cost["used"], "cost_cents": cost["cost_cents"],
+            "unit_cost_cents": cost["unit_cost_cents"], "profit_cents": revenue - cost["cost_cents"]}
 
 
 @router.get("/summary")
@@ -167,6 +192,7 @@ async def summary(month: Optional[str] = None):
         "coupons": {"count": sum(1 for r in paid if r.get("coupon_code")),
                     "discount_cents": sum(max(0, (r.get("original_amount_cents") or r["amount_cents"]) - r["amount_cents"]) for r in paid)},
         "credits": await credits_for(paid),
+        "raffle": await _raffle_summary(paid, start, end),
         "by_period": by_period,
         "daily": daily,
         "top_clients": top_clients,

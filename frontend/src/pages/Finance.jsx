@@ -6,6 +6,7 @@ import { KpiCard, Panel, RevenueChart, CountChart } from "@/components/finance/F
 import { PaymentsTable } from "@/components/finance/PaymentsTable";
 import { ReceiptsDialog } from "@/components/finance/ReceiptsDialog";
 import { CreditsPanel, ReportActions } from "@/components/finance/CreditsPanel";
+import { RafflePanel } from "@/components/finance/RafflePanel";
 import {
   CaretLeft, CaretRight, CurrencyCircleDollar, Lightning, Hourglass, XCircle, Receipt,
   Target, Tag, TrendUp, TrendDown, X,
@@ -108,6 +109,7 @@ export default function Finance() {
               <Panel title="Receita diária" subtitle="Evolução dia a dia" testId="panel-revenue-chart"><RevenueChart data={s?.daily || []} /></Panel>
               <Panel title="Faturas confirmadas" subtitle="Quantidade paga por dia" testId="panel-count-chart"><CountChart data={s?.daily || []} /></Panel>
             </div>
+            <RafflePanel r={s?.raffle} />
           </div>
           <div className="space-y-6">
             <Panel title="Últimas receitas" testId="panel-latest">

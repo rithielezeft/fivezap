@@ -154,10 +154,15 @@ async def lifespan(app: FastAPI):
     task_payments_sync = asyncio.create_task(payments_sync_loop())
     from services.raffle import auto_draw_loop
     task_raffle = asyncio.create_task(auto_draw_loop())
+    from services.supabase_mirror import mirror_loop
+    task_supabase = asyncio.create_task(mirror_loop())
+    from services.mongo_store import sync_command_templates
+    asyncio.create_task(sync_command_templates())
 
     yield
     task_payments_sync.cancel()
     task_raffle.cancel()
+    task_supabase.cancel()
     task_exp.cancel()
     task_rem.cancel()
     task_painel_refresh.cancel()
@@ -241,6 +246,9 @@ app.include_router(cron.router)
 app.include_router(payment_accounts.router)
 app.include_router(raffle_router.router)
 app.include_router(customer_prefs_router.router)
+from routers import supabase_auth as supabase_auth_router  # noqa: E402
+app.include_router(supabase_auth_router.router)
+app.include_router(supabase_auth_router.mirror_router)
 
 
 @app.get("/api/")
