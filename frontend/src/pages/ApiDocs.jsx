@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MagnifyingGlass, Copy, CheckCircle } from "@phosphor-icons/react";
 import { toast } from "sonner";
+import { TAG_LABELS, TAG_ORDER, PUBLIC_PATHS, DESCRIPTIONS, BODY_EXAMPLES } from "@/constants/apiDocs";
 
 const METHOD_COLORS = {
   GET: "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30",
@@ -14,25 +15,34 @@ const METHOD_COLORS = {
   PATCH: "bg-[#AF52DE]/15 text-[#AF52DE] border-[#AF52DE]/30",
 };
 
-const TAG_LABELS = {
-  auth: "Autenticação",
-  customers: "Clientes",
-  trials: "Testes",
-  templates: "Comandos",
-  whatsapp: "WhatsApp",
-  settings: "Configurações",
-  payments: "Pagamentos",
-  public: "Público",
-  dashboard: "Dashboard",
-  messages: "Mensagens",
-  "painel-users": "Painel Users",
-  notifications: "Notificações",
-  uploads: "Uploads",
-  reminders: "Lembretes",
-  coupons: "Cupons",
-  analytics: "Analytics",
-};
+function resolve(spec, schema) {
+  if (schema?.$ref) return resolve(spec, schema.$ref.split("/").slice(1).reduce((o, k) => o?.[k], spec));
+  if (schema?.anyOf) return resolve(spec, schema.anyOf.find((x) => x.type !== "null") || schema.anyOf[0]);
+  return schema || {};
+}
 
+function example(spec, schema, depth = 0) {
+  const sc = resolve(spec, schema);
+  if (sc.example !== undefined) return sc.example;
+  if (sc.default !== undefined) return sc.default;
+  if (sc.type === "object" || sc.properties) {
+    if (depth > 3) return {};
+    return Object.fromEntries(Object.entries(sc.properties || {}).map(([k, v]) => [k, example(spec, v, depth + 1)]));
+  }
+  if (sc.type === "array") return [example(spec, sc.items, depth + 1)];
+  return { integer: 0, number: 0, boolean: false }[sc.type] ?? "";
+}
+
+function IntroCard({ base }) {
+  return (
+    <div className="surface rounded-2xl p-5 space-y-2 text-sm" data-testid="api-intro">
+      <div className="font-display font-semibold">Como usar</div>
+      <p className="text-white/60">Endereço base: <code className="font-mono text-white/90">{base}</code></p>
+      <p className="text-white/60">1. Pegue o token: <code className="font-mono">POST /api/auth/login {"{password}"}</code> ou, com e-mail, <code className="font-mono">POST /api/auth/email-login {"{email, password}"}</code>. Se voltar <code className="font-mono">requires_totp</code>, envie o código do app em <code className="font-mono">POST /api/auth/email-login/verify {"{challenge_id, code}"}</code>.</p>
+      <p className="text-white/60">2. Mande o token em todas as chamadas: <code className="font-mono">Authorization: Bearer $TOKEN</code>. Endpoints marcados como <b>público</b> não precisam de token.</p>
+    </div>
+  );
+}
 
 export default function ApiDocs() {
   const base = process.env.REACT_APP_BACKEND_URL;
@@ -56,12 +66,16 @@ export default function ApiDocs() {
       Object.entries(methods).forEach(([method, meta]) => {
         if (typeof meta !== "object") return;
         const tag = (meta.tags && meta.tags[0]) || "outros";
+        const key = `${method.toUpperCase()} ${path}`;
+        const schema = meta.requestBody?.content?.["application/json"]?.schema;
         const item = {
           method: method.toUpperCase(),
           path,
-          summary: meta.summary || "",
-          description: meta.description || "",
+          summary: DESCRIPTIONS[key] || meta.summary || "",
+          description: (meta.description || "").split("\n")[0],
           tag,
+          isPublic: PUBLIC_PATHS.includes(key),
+          body: schema ? example(spec, schema) : BODY_EXAMPLES[key] || null,
         };
         if (query) {
           const hay = `${item.method} ${item.path} ${item.summary} ${item.description}`.toLowerCase();
@@ -76,17 +90,17 @@ export default function ApiDocs() {
   }, [spec, q]);
 
   const sortedTags = useMemo(() => {
-    return Object.keys(grouped).sort();
+    const rank = (t) => (TAG_ORDER.indexOf(t) + 1) || 999;
+    return Object.keys(grouped).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   }, [grouped]);
 
   async function copyExample(item) {
     const method = item.method;
     const url = `${base}${item.path}`;
-    let cmd;
-    if (method === "GET" || method === "DELETE") {
-      cmd = `curl -X ${method} "${url}" \\\n  -H "Authorization: Bearer $TOKEN"`;
-    } else {
-      cmd = `curl -X ${method} "${url}" \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d '{}'`;
+    const auth = item.isPublic ? "" : ` \\\n  -H "Authorization: Bearer $TOKEN"`;
+    let cmd = `curl -X ${method} "${url}"${auth}`;
+    if (method !== "GET" && method !== "DELETE") {
+      cmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(item.body || {})}'`;
     }
     try {
       await navigator.clipboard.writeText(cmd);
@@ -121,6 +135,7 @@ export default function ApiDocs() {
       }
     >
       <div className="space-y-4">
+        <IntroCard base={base} />
         <div className="relative">
           <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
           <Input
@@ -179,6 +194,7 @@ export default function ApiDocs() {
                       <code className="text-sm text-white/90 truncate font-mono">
                         {item.path}
                       </code>
+                      {item.isPublic && <Badge variant="outline" className="text-[10px] border-[#10B981]/30 text-[#10B981] shrink-0" data-testid={`public-${item.method}-${item.path}`}>público</Badge>}
                       <button
                         onClick={() => copyExample(item)}
                         className="ml-auto shrink-0 text-white/40 hover:text-white p-1.5 rounded transition-colors"
@@ -196,6 +212,9 @@ export default function ApiDocs() {
                       <div className="text-xs text-white/50 mt-1.5 ml-14">
                         {item.summary || item.description}
                       </div>
+                    )}
+                    {item.body && Object.keys(item.body).length > 0 && (
+                      <pre className="text-[11px] text-white/40 mt-1.5 ml-14 font-mono whitespace-pre-wrap break-all" data-testid={`body-${item.method}-${item.path}`}>{JSON.stringify(item.body)}</pre>
                     )}
                   </div>
                 );
