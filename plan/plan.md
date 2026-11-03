@@ -1,34 +1,43 @@
-# FiveZap: Import and Run
+# WhatsFlow (fivezap): importar e rodar no preview
 
-Bring the existing FiveZap project (FiveZap3) from GitHub repo `rithielezeft/fivezap` into this workspace and get it running exactly as it is today.
-Nothing about how it works changes. The only edits made are the ones needed to get it to start.
+Trazer o repositório `rithielezeft/fivezap` para este ambiente e deixar o WhatsFlow funcionando no preview, do jeito que está, sem mudar recursos.
+É um sistema de atendimento automático no WhatsApp para revenda de IPTV / P2P / Hybrid, ligado ao painel.fun e ao InfinitePay.
 
-## Who it's for
-The owner of the FiveZap repo, who wants a working preview of the current code on this platform.
+## Para quem é
+- O dono da revenda (admin), que gerencia clientes, testes, renovações e mensagens automáticas.
+- Os clientes finais, que pedem testes, recebem avisos e pagam renovações por link.
 
-## Core features and experience
-- The full repo is imported as it stands today: all files, branches left alone, no features removed.
-- The app runs in the preview with its current features and screens.
-- Fixes are limited to what stops it from starting, such as missing dependencies, environment settings, ports, or the API address. Each fix is listed afterwards.
-- Bugs in features that don't stop the app from starting are written down for you but not fixed.
+## Recursos principais (já existem no projeto e serão mantidos)
+- Login admin com senha.
+- Conexão do WhatsApp por QR code, com envio e recebimento de mensagens e imagens.
+- Bot de comandos (ex.: `/teste iptv MAC`) que cria testes automaticamente no painel.fun.
+- Modelos de mensagem editáveis, com prévia no estilo WhatsApp e envio de imagem.
+- Avisos automáticos de vencimento (7/3/1/0 dias antes e 1/3/7 dias depois).
+- Lembretes 1h e 3h depois que um teste é criado.
+- Renovação por link de pagamento InfinitePay (`/pay/{cliente}`).
+- Página pública `/teste`, onde o cliente pede o próprio teste.
+- Painel com números gerais, lista de clientes e sincronização com o painel.fun.
 
-## User flow
-1. You make the repo public on GitHub, or tell me if the code is somewhere else.
-2. The code is imported and checked to see what it's built with.
-3. The app is started. If something stops it from starting, I make the smallest fix that solves it.
-4. You get a working preview link, a list of every change I made, and a list of any other problems I found.
+## Fluxo do usuário
+1. O admin abre o link do preview e entra com a senha.
+2. Vai em **WhatsApp** e escaneia o QR code com o celular.
+3. Em **Configurações**, preenche a InfiniteTag e os preços dos planos.
+4. Ajusta as mensagens em **Notificações** e os comandos em **Comandos**.
+5. Em **Clientes**, clica em "Atualizar do painel" para puxar os usuários do painel.fun.
+6. A partir daí o bot responde, cria testes e envia avisos sozinho.
 
-## UI/UX feel
-No change. The app keeps its current look and layout.
+## Visual
+Fica como está no repositório. Nenhuma mudança de design.
 
-## Implementation phases
-- **Phase 1 (MVP, built now):** Import the repo, set up what it needs, get the frontend and backend running in the preview, and confirm the main screens load.
-- **Phase 2:** Fix the bugs found in Phase 1, if you approve.
-- **Phase 3:** Add new features or changes you ask for.
+## Fases
+- **Fase 1 (agora): importar e rodar.** Copiar o código, instalar o necessário e subir as três partes (painel web, servidor e serviço do WhatsApp). Corrigir só o que impedir de abrir ou de funcionar no preview. Confirmar que o login, as telas e o QR code do WhatsApp funcionam.
+- **Fase 2: ligar as contas reais.** Conferir a ligação com o painel.fun e o InfinitePay usando as credenciais do admin, e testar a criação de teste e o link de pagamento de ponta a ponta.
+- **Fase 3: mudanças pedidas.** Ajustes ou recursos novos que o dono pedir depois de ver tudo funcionando.
 
-## Assumptions
-- The repo will be public before the build starts. If it still can't be reached, the build stops and asks you for access instead of guessing at the code.
-- "FiveZap3" is the project's name or version, not a description of what it does. The code itself shows what the app is.
-- If the project's stack doesn't match this workspace's setup (React + Python backend + MongoDB), it gets the smallest changes that let it run. Nothing gets rewritten.
-- If the app needs outside services (payments, messaging, AI, login, and so on), they won't work until you add the real keys through the secure keys card. Any feature waiting on a key is labelled clearly, never faked.
-- If the code has its own database contents or seed data, they get loaded. If not, the app starts with an empty database.
+## Premissas
+- O projeto é trazido do jeito que está; o código feito para Raspberry (instaladores, Nginx, systemd) fica no repositório, mas não é usado aqui.
+- O banco atual (arquivo local SQLite) é mantido, como foi escolhido. No preview funciona normalmente, mas o arquivo pode ser apagado quando o ambiente reinicia ou se o app for publicado aqui. Para uso definitivo, o certo é continuar rodando na Raspberry ou trocar o banco depois.
+- O WhatsApp é conectado de verdade: depois de escanear o QR code, mensagens reais vão para clientes reais. Se o ambiente reiniciar, pode ser preciso escanear de novo.
+- A senha admin padrão do projeto continua valendo; dá para trocar em Configurações.
+- As credenciais do painel.fun e do InfinitePay vêm da configuração já existente no projeto. Se faltar alguma, o sistema pede pela tela segura de chaves; nada é digitado no chat.
+- Nenhum recurso é criado, removido ou redesenhado nesta fase.

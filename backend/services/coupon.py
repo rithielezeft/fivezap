@@ -80,6 +80,9 @@ async def validate_coupon(code: str, customer_id: str) -> dict:
       5. Max uses reached
       6. 28-day cooldown per-customer
     """
+    from services.customer_prefs import discount_blocked
+    if await discount_blocked(customer_id):
+        return {"valid": False, "reason": "Descontos não disponíveis para este cliente"}
     code_norm = normalize_code(code)
     if not code_norm:
         return {"valid": False, "reason": "Código vazio", "code": ""}

@@ -78,11 +78,11 @@ def _clean(number: str, country_hint: Optional[str] = None) -> str:
 
     # 1) User passed `+` — respect their intent, don't prepend anything.
     if has_plus:
-        return digits
+        return br_canonical(digits)
 
     # 2) Already E.164 (12-15 digits) — has a country code, keep untouched.
     if 12 <= len(digits) <= 15:
-        return digits
+        return br_canonical(digits)
 
     # 3) Bare local number (10-11 digits) → resolve country code.
     if len(digits) in (10, 11):
@@ -111,7 +111,7 @@ def _clean(number: str, country_hint: Optional[str] = None) -> str:
         # 11-digit + non-BR country code: 11 digits already includes it.
         if len(digits) == 11 and cc not in ("55",):
             return digits
-        return cc + digits
+        return br_canonical(cc + digits)
 
     # 4) Too short (<10) or too long (>15) — leave untouched.
     return digits
@@ -222,3 +222,24 @@ def extract_whatsapp(user: dict) -> Optional[str]:
                 return found
 
     return None
+
+
+def br_canonical(digits: str) -> str:
+    """Brazilian mobiles always stored WITH the 9th digit: 55 DDD 9XXXXXXXX.
+
+    WhatsApp often reports old-format JIDs (55 31 8658-2251, 12 digits) for the
+    same person who types 55 31 98658-2251 — without this the same client
+    shows up as two numbers and lookups/notifications miss them."""
+    d = re.sub(r"\D", "", str(digits or ""))
+    if len(d) == 12 and d.startswith("55") and d[4] in "6789":
+        return d[:4] + "9" + d[4:]
+    return d
+
+
+def br_variants(digits: str) -> list:
+    """Both forms (with/without 9th digit) for matching legacy rows."""
+    c = br_canonical(digits)
+    out = [c]
+    if len(c) == 13 and c.startswith("55") and c[4] == "9":
+        out.append(c[:4] + c[5:])
+    return out

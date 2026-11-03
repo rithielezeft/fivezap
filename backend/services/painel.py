@@ -69,16 +69,21 @@ async def solve_turnstile() -> str:
     return token
 
 
-async def login(force: bool = False) -> str:
-    """Login to painel.fun and return JWT bearer token."""
+async def login(force: bool = False, username: Optional[str] = None, password: Optional[str] = None) -> str:
+    """Login to painel.fun and return JWT bearer token.
+
+    Explicit username/password (used by "Testar conexão") bypass the cache."""
     import time
 
-    if not force and _token_cache["token"] and _token_cache["expires_at"] > time.time():
-        return _token_cache["token"]
-
-    username = await get_setting("painel_username")
-    password = await get_setting("painel_password")
+    override = bool(username or password)
+    username = username or await get_setting("painel_username")
+    password = password or await get_setting("painel_password")
     base = await get_setting("painel_base_url")
+    cache_key = f"{username}\0{password}"
+
+    if (not force and not override and _token_cache["token"]
+            and _token_cache.get("key") == cache_key and _token_cache["expires_at"] > time.time()):
+        return _token_cache["token"]
 
     if not username or not password:
         raise RuntimeError("Painel credentials not configured")
@@ -139,8 +144,10 @@ async def login(force: bool = False) -> str:
     if not token:
         raise RuntimeError(f"Painel login: no token in response. Keys={list(data.keys())} Body={str(data)[:300]}")
 
-    _token_cache["token"] = token
-    _token_cache["expires_at"] = time.time() + 20 * 60  # 20 min cache
+    if not override:
+        _token_cache["token"] = token
+        _token_cache["key"] = cache_key
+        _token_cache["expires_at"] = time.time() + 20 * 60  # 20 min cache
     return token
 
 
@@ -647,9 +654,9 @@ async def resync_user(user_id: str, system_type: Optional[str] = None) -> dict:
 
 
 
-async def get_account_info() -> dict:
+async def get_account_info(username: Optional[str] = None, password: Optional[str] = None) -> dict:
     """Fetch account info + credits from painel.fun."""
-    token = await login()
+    token = await login(username=username, password=password)
     base = await get_setting("painel_base_url")
 
     def _get(path, tok):
@@ -696,7 +703,7 @@ async def get_reseller_balance() -> dict:
     # Some painel builds nest under 'user' or 'data'
     d = data.get("user") or data.get("data") or data
     if not isinstance(d, dict):
-        return {"balance": None, "currency": "BRL", "raw": str(d)[:200],
+        return {"balance": None, "currency": "CREDITS", "raw": str(d)[:200],
                 "source_endpoint": info.get("path"),
                 "note": "resposta inesperada do painel"}
 
@@ -714,14 +721,14 @@ async def get_reseller_balance() -> dict:
                 pass
 
     if balance is None:
-        return {"balance": None, "currency": "BRL",
+        return {"balance": None, "currency": "CREDITS",
                 "raw": {k: d.get(k) for k in list(d.keys())[:20]},
                 "source_endpoint": info.get("path"),
                 "note": "campo de saldo não encontrado na resposta"}
 
     result = {
         "balance": balance,
-        "currency": "BRL",
+        "currency": "CREDITS",
         "raw_field": raw_field,
         "source_endpoint": info.get("path"),
         "username": d.get("username"),
@@ -836,6 +843,9 @@ _PLAN_TITLE_TO_MONTHS = {
 }
 
 
+_MONTHS_TO_DAYS = {1: 30, 2: 60, 3: 90, 6: 180, 12: 365}
+
+
 def _pick_plan_by_months(plans: list, months: int) -> dict | None:
     """Given the plans list from /price-overrides, pick the one that matches N months."""
     if not plans:
@@ -845,6 +855,109 @@ def _pick_plan_by_months(plans: list, months: int) -> dict | None:
         if _PLAN_TITLE_TO_MONTHS.get(title) == months:
             return p
     return None
+
+
+def _painel_headers(tok: str) -> dict:
+    return {
+        "Authorization": f"Bearer {tok}",
+        "Origin": "https://painel.fun",
+        "Referer": "https://painel.fun/",
+        "Accept": "application/json, text/plain, */*",
+    }
+
+
+async def _painel_get_json(path: str):
+    token = await login()
+    base = await get_setting("painel_base_url")
+
+    def _get(tok):
+        return cffi_requests.get(f"{base}{path}", headers=_painel_headers(tok), impersonate="chrome124", timeout=30)
+
+    resp = await asyncio.to_thread(_get, token)
+    if resp.status_code == 401:
+        resp = await asyncio.to_thread(_get, await login(force=True))
+    if resp.status_code >= 400:
+        raise RuntimeError(f"GET {path} failed: HTTP {resp.status_code} — {resp.text[:200]}")
+    return resp.json()
+
+
+async def list_packages() -> list:
+    """GET /api/datacomplements → `packages` (id, official_duration, official_duration_in, is_trial...)."""
+    data = await _painel_get_json("/api/datacomplements")
+    return (data or {}).get("packages") or []
+
+
+async def list_client_plans() -> list:
+    """GET /api/payments/plans?audience=client → [{id, title, amount, duration_days, is_active}]."""
+    data = await _painel_get_json("/api/payments/plans?audience=client")
+    return (data or {}).get("data") or []
+
+
+def _package_months(pkg: dict) -> int | None:
+    if pkg.get("is_trial") or (pkg.get("official_duration_in") or "").lower() != "months":
+        return None
+    try:
+        return int(pkg.get("official_duration"))
+    except (TypeError, ValueError):
+        return None
+
+
+async def resolve_package_id(package_id: int | None, months: int) -> int:
+    """Validate the package against /datacomplements: it must exist and last `months`.
+    Falls back to the first official package with that duration."""
+    try:
+        packages = await list_packages()
+    except Exception as e:
+        logger.warning("resolve_package_id: datacomplements failed (%s) — using %s", e, package_id)
+        return package_id or 17
+    by_id = {p.get("id"): p for p in packages}
+    if package_id in by_id and _package_months(by_id[package_id]) == months:
+        return package_id
+    candidates = [p for p in packages if _package_months(p) == months]
+    official = [p for p in candidates if p.get("is_official")] or candidates
+    if official:
+        chosen = official[0]["id"]
+        logger.warning("resolve_package_id: package %s invalid for %s months → using %s (%s)",
+                       package_id, months, chosen, official[0].get("package_name"))
+        return chosen
+    logger.warning("resolve_package_id: no package with %s months on painel — keeping %s", months, package_id)
+    return package_id or 17
+
+
+async def resolve_plan(user_id: str, months: int) -> tuple:
+    """Return (plan_id, amount) for the client. Uses the client's price-overrides
+    (title, then duration_days via /payments/plans). (None, None) if not found."""
+    overrides = []
+    try:
+        overrides = ((await get_price_overrides(user_id)) or {}).get("plans") or []
+    except Exception as e:
+        logger.warning("price-overrides failed for user %s: %s", user_id, e)
+
+    matched = _pick_plan_by_months(overrides, months)
+    if not matched:
+        try:
+            plans = [p for p in await list_client_plans() if p.get("is_active", True)]
+        except Exception as e:
+            logger.warning("payments/plans failed: %s", e)
+            plans = []
+        days = _MONTHS_TO_DAYS.get(months, months * 30)
+        plan = next((p for p in plans if int(p.get("duration_days") or 0) == days), None)
+        if plan:
+            ov = next((o for o in overrides if o.get("plan_id") == plan.get("id")), None)
+            matched = ov or {"plan_id": plan.get("id"), "title": plan.get("title"), "amount": plan.get("amount")}
+    if not matched:
+        logger.warning("No painel plan for %s months (user %s, overrides=%s)",
+                       months, user_id, [p.get("title") for p in overrides])
+        return None, None
+
+    amount = matched.get("amount") if matched.get("amount") is not None else matched.get("default_amount")
+    try:
+        amount = float(amount) if amount is not None else None
+    except (TypeError, ValueError):
+        amount = None
+    logger.info("Plan resolved user=%s months=%s → plan_id=%s amount=%s (%s)",
+                user_id, months, matched.get("plan_id"), amount, matched.get("title"))
+    return matched.get("plan_id"), amount
 
 
 async def get_client_payment_link(user_id: str) -> dict:
@@ -933,7 +1046,7 @@ async def get_client_payment_link(user_id: str) -> dict:
     return body_out
 
 
-async def renew_user(user_id: str, package_id: int, months: int | None = None) -> dict:
+async def renew_user(user_id: str, package_id: int, months: int | None = None, adult: Optional[bool] = None) -> dict:
     """Renew existing user via painel API.
 
     2026-08 UPDATE — Painel added `sessao_nao_renderizada` middleware on POST /renew.
@@ -965,31 +1078,14 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
     if months is None:
         months = 1  # safest default
 
-    # STEP 1: Fetch price-overrides + prime session
-    # (DevTools capture confirmed the SPA also hits /payments/plans and
-    # /reseller/check-message BEFORE /renew — the middleware requires this exact sequence.)
-    price_data = None
-    plan_id = None
-    amount = None
-    try:
-        # First fetch the plan pricing (also primes part of the session).
-        price_data = await get_price_overrides(user_id)
-        plans = (price_data or {}).get("plans") or []
-        matched = _pick_plan_by_months(plans, months)
-        if matched:
-            plan_id = matched.get("plan_id")
-            amount = matched.get("amount") if matched.get("amount") is not None else matched.get("default_amount")
-            logger.info(
-                "price-overrides matched for user=%s months=%s → plan_id=%s amount=%s",
-                user_id, months, plan_id, amount,
-            )
-        else:
-            logger.warning(
-                "price-overrides had no plan matching %s months for user %s (plans=%s)",
-                months, user_id, [p.get("title") for p in plans],
-            )
-    except Exception as e:
-        logger.warning("get_price_overrides failed for user %s: %s (will fallback)", user_id, e)
+    # STEP 1: package_id (required) validated against /datacomplements, then
+    # plan_id + amount (optional) from the client's price-overrides / plans.
+    package_id = await resolve_package_id(package_id, months)
+    if adult is not None:  # painel SPA: "S/XXX" packages are the no-adult variants
+        package_id = (ADULT_TO_PLAIN if not adult else PLAIN_TO_ADULT).get(package_id, package_id)
+    plan_id, amount = await resolve_plan(user_id, months)
+    logger.info("RENEW user=%s months=%s package_id=%s plan_id=%s amount=%s",
+                user_id, months, package_id, plan_id, amount)
 
     # Now fire the OTHER two priming calls (plans + check-message) — these are
     # required for painel's `sessao_nao_renderizada` middleware to accept /renew.
@@ -1023,6 +1119,9 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
     if plan_id is not None:
         bodies_to_try.append({"package_id": package_id, "plan_id": plan_id, "amount": amount})
     bodies_to_try.append({"package_id": package_id})
+    if adult is not None:
+        for b in bodies_to_try:
+            b["adult_channels"] = bool(adult)
 
     last_resp = None
     last_body_used = None
@@ -1066,7 +1165,8 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
                 )
                 try:
                     from services.painel_browser import renew_user_via_browser
-                    data = await renew_user_via_browser(user_id=user_id, months=months)
+                    data = await renew_user_via_browser(user_id=user_id, months=months, package_id=package_id,
+                                                        plan_id_hint=plan_id, amount_hint=amount)
                     logger.info(
                         "✅ Browser fallback succeeded for user=%s", user_id,
                     )
@@ -1126,6 +1226,10 @@ async def renew_user(user_id: str, package_id: int, months: int | None = None) -
 
 
 # Package IDs mapping (from problem statement)
+ADULT_BOUQUET_ID = 47
+ADULT_TO_PLAIN = {17: 18, 42: 43, 55: 56, 57: 58}
+PLAIN_TO_ADULT = {v: k for k, v in ADULT_TO_PLAIN.items()}
+
 PACKAGE_IDS = {
     "iptv": {1: 17, 3: 43, 6: 56, 12: 58},
     "p2p": {1: 17, 3: 42, 6: 55, 12: 57},

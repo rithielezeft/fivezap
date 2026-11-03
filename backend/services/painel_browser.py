@@ -78,7 +78,8 @@ async def _pick_plan_id(plans: list, months: int) -> Optional[dict]:
     return None
 
 
-async def renew_user_via_browser(user_id: str, months: int = 1) -> dict:
+async def renew_user_via_browser(user_id: str, months: int = 1, package_id: int = 17,
+                                 plan_id_hint=None, amount_hint=None) -> dict:
     """Renew a painel.fun user by driving a real headless Chromium session.
 
     This is invoked as a fallback when the pure-HTTP path (painel.renew_user)
@@ -234,6 +235,8 @@ async def renew_user_via_browser(user_id: str, months: int = 1) -> dict:
             price_data = ((prep.get("price_data") or {}).get("data") or {})
             plans = price_data.get("plans") or []
             matched = await _pick_plan_id(plans, months)
+            if not matched and plan_id_hint is not None:
+                matched = {"plan_id": plan_id_hint, "amount": amount_hint, "title": "resolved via HTTP"}
             if not matched:
                 raise RuntimeError(
                     f"No plan matching {months} months for user {user_id}. "
@@ -266,7 +269,7 @@ async def renew_user_via_browser(user_id: str, months: int = 1) -> dict:
                 }""",
                 {
                     "uid": user_id,
-                    "pkg": 17,   # legacy package_id kept for compat — value only checked when plan_id missing
+                    "pkg": package_id,
                     "plid": plan_id,
                     "amt": amount,
                     "tok": token,

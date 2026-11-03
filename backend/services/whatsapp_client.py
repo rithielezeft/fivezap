@@ -70,15 +70,20 @@ _FOREIGN_CC_AFTER_55 = (
 
 
 async def _try_send_once(phone: str, message: str, image_url: str = None,
-                         typing_ms: int = 0) -> dict:
+                         typing_ms: int = 0, idempotency_key: str = None) -> dict:
     """Actual HTTP call to whatsapp-service. Raises on non-2xx."""
-    total_timeout = max(30, (typing_ms // 1000) + 20)
+    total_timeout = max(90, (typing_ms // 1000) + 60)
     async with httpx.AsyncClient(timeout=total_timeout) as client:
         payload = {"phone": phone, "message": message}
         if image_url:
-            payload["image_url"] = image_url
+            # Our own uploads are inlined (base64) so the WhatsApp service never
+            # has to download the public URL (fails behind NAT/tunnel/old host).
+            from routers.uploads import load_upload_as_data_uri
+            payload["image_url"] = (await load_upload_as_data_uri(image_url)) or image_url
         if typing_ms and typing_ms > 0:
             payload["typing_ms"] = int(typing_ms)
+        if idempotency_key:
+            payload["idempotency_key"] = idempotency_key
         resp = await client.post(f"{WA_SERVICE_URL}/send", json=payload)
         if resp.status_code >= 400:
             raise RuntimeError(f"WA send failed: {resp.status_code} {resp.text[:200]}")
@@ -86,7 +91,7 @@ async def _try_send_once(phone: str, message: str, image_url: str = None,
 
 
 async def send_message(phone: str, message: str, image_url: str = None,
-                       typing_ms: int = 0) -> dict:
+                       typing_ms: int = 0, idempotency_key: str = None) -> dict:
     """Send a WhatsApp message with automatic 55→foreign fallback.
 
     Historically some numbers were saved as `55<foreign_cc><local>` because
@@ -100,7 +105,7 @@ async def send_message(phone: str, message: str, image_url: str = None,
     `whatsapp_locked=1`). We just log so audits can find these cases.
     """
     try:
-        return await _try_send_once(phone, message, image_url, typing_ms)
+        return await _try_send_once(phone, message, image_url, typing_ms, idempotency_key)
     except RuntimeError as e:
         err = str(e)
         # Only retry on the specific "not on WhatsApp" 404, not on connection issues
@@ -122,7 +127,8 @@ async def send_message(phone: str, message: str, image_url: str = None,
             "WA 404 for %s; retrying as foreign +%s%s (leading 55 stripped)",
             phone, matched_cc, stripped[len(matched_cc):],
         )
-        result = await _try_send_once(stripped, message, image_url, typing_ms)
+        result = await _try_send_once(stripped, message, image_url, typing_ms,
+                                      f"{idempotency_key}:alt" if idempotency_key else None)
         # Fallback succeeded — persist the corrected phone on any customer
         # matching the original number, so future sends skip the fallback.
         # RESPECT whatsapp_locked=1 (admin's manual override wins).

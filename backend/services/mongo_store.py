@@ -23,6 +23,7 @@ Schema (customers collection, _id = painel user id as string):
 """
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -34,14 +35,31 @@ _client: Optional[AsyncIOMotorClient] = None
 _db = None
 
 
+def _clean_url(raw: Optional[str]) -> Optional[str]:
+    """Accept values pasted as a whole .env line (MONGO_URL="...") or cut off
+    by a terminal ('...retryWrites=tru>'): keep only a valid mongodb URI."""
+    if not raw:
+        return None
+    v = re.sub(r"^\s*[A-Z_]+\s*=\s*", "", raw).strip().strip("\"'").rstrip(">")
+    if "?" in v:
+        base, query = v.split("?", 1)
+        ok = all(re.fullmatch(r"\w+=(true|false|majority|\d+|[\w.-]+)", p) for p in query.split("&") if p)
+        if not ok or "retryWrites=tru" in query and "retryWrites=true" not in query:
+            v = base + "?retryWrites=true&w=majority"
+    return v if v.startswith(("mongodb://", "mongodb+srv://")) else None
+
+
 def _get_db():
     """Lazy-init the MongoDB client & database. Reads config from env each
     call (so tests can monkeypatch MONGO_URL/DB_NAME freely)."""
     global _client, _db
     if _db is not None:
         return _db
-    mongo_url = os.environ.get("MONGO_URL")
-    db_name = os.environ.get("DB_NAME", "whatsflow")
+    # The user's own Atlas cluster (shared with the Raspberry) wins over the
+    # platform-provided MONGO_URL when configured.
+    mongo_url = _clean_url(os.environ.get("WHATSFLOW_MONGO_URL")) or os.environ.get("MONGO_URL")
+    db_name = (os.environ.get("WHATSFLOW_DB_NAME") if os.environ.get("WHATSFLOW_MONGO_URL")
+               else None) or os.environ.get("DB_NAME", "whatsflow")
     if not mongo_url:
         raise RuntimeError("MONGO_URL not set")
     _client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=8000)

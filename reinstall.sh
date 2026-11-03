@@ -72,7 +72,7 @@ echo "▶ Recriando venv Python..."
 cd "$APP_DIR/backend"
 sudo -u "$APP_USER" python3 -m venv .venv
 sudo -u "$APP_USER" ./.venv/bin/pip install --upgrade pip wheel
-sudo -u "$APP_USER" ./.venv/bin/pip install -r requirements.txt
+sudo -u "$APP_USER" ./.venv/bin/pip install -r requirements-pi.txt
 sudo -u "$APP_USER" ./.venv/bin/pip install "curl_cffi>=0.7.4"
 
 echo "▶ Reinstalando WhatsApp service (Node)..."

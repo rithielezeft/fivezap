@@ -224,7 +224,7 @@ if [ ! -d .venv ]; then
   sudo -u "$APP_USER" python3 -m venv .venv
 fi
 sudo -u "$APP_USER" ./.venv/bin/pip install --upgrade pip wheel --quiet 2>&1 | tee -a "$LOG_FILE" || true
-sudo -u "$APP_USER" ./.venv/bin/pip install -r requirements.txt --quiet 2>&1 | tee -a "$LOG_FILE"
+sudo -u "$APP_USER" ./.venv/bin/pip install -r requirements-pi.txt --quiet 2>&1 | tee -a "$LOG_FILE"
 # Garante curl_cffi (bypass Cloudflare TLS)
 sudo -u "$APP_USER" ./.venv/bin/pip install "curl_cffi>=0.7.4" --quiet 2>&1 | tee -a "$LOG_FILE" || true
 
@@ -235,7 +235,7 @@ sudo -u "$APP_USER" yarn install --ignore-engines --silent 2>&1 | tee -a "$LOG_F
 
 # ----- 6) Frontend — rebuilda se mudou OU se o build está corrompido/incompleto -----
 NEED_REBUILD=0
-if [ "$FRONTEND_CHANGED" = "1" ]; then
+if [ "$FRONTEND_CHANGED" = "1" ] || [ "${FORCE_REBUILD:-0}" = "1" ]; then
   echo "▶ frontend/ mudou — rebuild necessário" | tee -a "$LOG_FILE"
   NEED_REBUILD=1
 elif [ ! -f "$APP_DIR/frontend/build/index.html" ]; then
@@ -243,6 +243,9 @@ elif [ ! -f "$APP_DIR/frontend/build/index.html" ]; then
   NEED_REBUILD=1
 elif [ ! -d "$APP_DIR/frontend/build/static" ]; then
   echo "▶ frontend/build/static ausente — rebuild forçado" | tee -a "$LOG_FILE"
+  NEED_REBUILD=1
+elif [ -n "$(find "$APP_DIR/frontend/src" "$APP_DIR/frontend/package.json" -newer "$APP_DIR/frontend/build/index.html" -print -quit 2>/dev/null)" ]; then
+  echo "▶ código do frontend mais novo que o build — rebuild necessário" | tee -a "$LOG_FILE"
   NEED_REBUILD=1
 fi
 

@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import aiosqlite
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -241,6 +241,15 @@ async def list_users(search: Optional[str] = None, force: bool = False,
         u["_days_until_expiry"] = exp["days_until_expiry"]
         u["_status"] = exp["status"]
 
+    try:
+        from services.upcoming import next_notification_map, is_trial_user
+        nxt = await next_notification_map(users)
+        trial_pkg = int(await get_setting("trial_package_id", "61") or 61)
+        for u in users:
+            u["_is_trial"] = is_trial_user(u, trial_pkg)
+            u["_next_notification"] = nxt.get(str(u.get("id") or u.get("user_id") or u.get("username") or ""))
+    except Exception:
+        logger.exception("next_notification_map failed (non-fatal)")
     if search:
         s = search.lower()
         def match(u):
@@ -267,6 +276,17 @@ async def list_users(search: Optional[str] = None, force: bool = False,
     }
 
 
+@router.get("/users/{user_id}/notifications")
+async def user_notifications(user_id: str):
+    """Planned + already-sent WhatsApp notifications for one painel user."""
+    from services.upcoming import user_notifications as _build
+    users, _ = await _read_cache()
+    u = next((x for x in users if str(x.get("id") or x.get("user_id") or x.get("username")) == user_id), None)
+    if not u:
+        raise HTTPException(404, "Cliente não encontrado no cache do painel")
+    return await _build(u)
+
+
 @router.post("/users/refresh")
 async def refresh_now():
     """Trigger an immediate cache refresh. Awaits result (may take up to 90s)."""
@@ -291,11 +311,20 @@ async def status():
     }
 
 
+class TestConnectionPayload(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
 @router.get("/test-connection")
-async def test_connection():
-    """Log into painel.fun and return credits + account info."""
+@router.post("/test-connection")
+async def test_connection(payload: Optional[TestConnectionPayload] = None):
+    """Log into painel.fun (with the typed credentials, if given) and return credits + account info."""
     try:
-        info = await painel.get_account_info()
+        p = payload or TestConnectionPayload()
+        info = await painel.get_account_info(
+            username=(p.username or "").strip() or None, password=p.password or None,
+        )
         data = info.get("data", {})
 
         # Try common credit field names
@@ -441,6 +470,7 @@ class NotifyExpiredPayload(BaseModel):
     within the past 60 minutes."""
     user_ids: list[str] = []
     force: bool = False
+    kind: Literal["all", "trial", "regular"] = "regular"
 
 
 @router.get("/expired")
@@ -449,7 +479,10 @@ async def list_expired():
     so the frontend can render a preview + selection UI before firing the
     manual-expired notification wave.
     """
+    from services.upcoming import is_trial_user
+    from database import get_setting
     users, _ = await _read_cache()
+    trial_pkg = int(await get_setting("trial_package_id", "61") or 61)
     result = []
     for u in users:
         # Cache stores raw painel data — compute status server-side here so
@@ -470,12 +503,15 @@ async def list_expired():
             "system_type": detect_system_type(u),
             "expires_at": exp.get("expires_at_iso"),
             "days_expired": abs(exp.get("days_until_expiry") or 0),
+            "is_trial": is_trial_user(u, trial_pkg),
         })
     # Sort: with-WhatsApp first, then by days_expired asc (most recent).
     result.sort(key=lambda x: (not x["has_whatsapp"], x["days_expired"]))
     return {
         "count": len(result),
         "count_with_whatsapp": sum(1 for r in result if r["has_whatsapp"]),
+        "count_trial": sum(1 for r in result if r["is_trial"]),
+        "count_regular": sum(1 for r in result if not r["is_trial"]),
         "users": result,
     }
 
@@ -497,6 +533,7 @@ async def notify_expired(payload: NotifyExpiredPayload):
        enqueued (used by the confirmation button in the UI).
     """
     from services.notifier import send_notification
+    from services.upcoming import is_trial_user
     from services.delivery_queue import find_recent_delivery, _resolve_dedup_config, _USE_SETTING
     from database import get_setting
 
@@ -528,16 +565,9 @@ async def notify_expired(payload: NotifyExpiredPayload):
         if selected_ids and uid_str not in selected_ids:
             continue
 
-        # Skip trials unless admin explicitly picked this ID.
-        if not selected_ids:
-            u_pkg = u.get("package_id") or u.get("current_package_id")
-            is_trial = (
-                (u_pkg is not None and str(u_pkg).isdigit() and int(u_pkg) == trial_pkg_id)
-                or bool(u.get("is_trial"))
-                or "trial" in str(u.get("type") or "").lower()
-                or "trial" in str(u.get("group") or "").lower()
-            )
-            if is_trial:
+        # Without explicit IDs, apply the kind filter (all / trial / regular).
+        if not selected_ids and payload.kind != "all":
+            if is_trial_user(u, trial_pkg_id) != (payload.kind == "trial"):
                 skipped_trial += 1
                 continue
 

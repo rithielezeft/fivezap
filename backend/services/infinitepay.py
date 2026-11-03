@@ -62,6 +62,7 @@ async def create_payment_link(
     customer_name: Optional[str] = None,
     customer_phone: Optional[str] = None,
     customer_email: Optional[str] = None,
+    handle: Optional[str] = None,
 ) -> dict:
     """Create an InfinitePay checkout link via the official API.
 
@@ -71,7 +72,7 @@ async def create_payment_link(
     (or the /test-link endpoint) will show the exact API error to the user
     so they can fix the root cause (bad handle, unverified account, etc).
     """
-    raw_handle = await get_setting("infinitepay_handle")
+    raw_handle = handle or await get_setting("infinitepay_handle")
     handle = _sanitize_handle(raw_handle or "")
     if not handle:
         raise RuntimeError(
@@ -202,6 +203,7 @@ async def check_payment(
     order_nsu: str,
     transaction_nsu: Optional[str] = None,
     slug: Optional[str] = None,
+    handle: Optional[str] = None,
 ) -> dict:
     """Check payment status via /payment_check.
 
@@ -209,7 +211,7 @@ async def check_payment(
     Body: { handle, order_nsu, transaction_nsu?, slug? }
     Returns: { success, paid, amount, paid_amount, installments, capture_method }
     """
-    raw_handle = await get_setting("infinitepay_handle")
+    raw_handle = handle or await get_setting("infinitepay_handle")
     handle = _sanitize_handle(raw_handle or "")
     if not handle:
         return {"paid": False, "error": "handle not configured"}

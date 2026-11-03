@@ -430,7 +430,7 @@ setTimeout(() => {
 
 // -------- HTTP API --------
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 
 // Reconnect state — how many retry attempts, when last ready was, etc.
 app.get('/reconnect-state', (req, res) => {
@@ -481,8 +481,36 @@ app.post('/pairing-code', async (req, res) => {
   }
 });
 
+// Idempotency: the backend sends its delivery id as `idempotency_key`. A retry
+// of an already-sent (or in-flight) delivery returns the original result
+// instead of sending the same message twice. Entries live for 6h.
+const _idem = new Map();
+app.post('/send', (req, res, next) => {
+  const key = req.body && req.body.idempotency_key;
+  if (!key) return next();
+  const now = Date.now();
+  for (const [k, v] of _idem) if (now - v.ts > 6 * 3600 * 1000) _idem.delete(k);
+  const hit = _idem.get(key);
+  if (hit) {
+    console.log('[WA] Duplicate send blocked (idempotency_key=' + key + ')');
+    if (hit.done) return res.status(hit.status).json({ ...hit.body, deduplicated: true });
+    return hit.waiters.push(res);
+  }
+  const entry = { ts: now, done: false, waiters: [] };
+  _idem.set(key, entry);
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    const status = res.statusCode;
+    if (status >= 200 && status < 300) Object.assign(entry, { done: true, status, body });
+    else _idem.delete(key);
+    entry.waiters.forEach((w) => w.status(status).json({ ...body, deduplicated: true }));
+    return origJson(body);
+  };
+  next();
+});
+
 app.post('/send', async (req, res) => {
-  const { phone, message, image_url } = req.body || {};
+  const { phone, message, image_url, filename } = req.body || {};
   if (!phone) return res.status(400).json({ error: 'phone required' });
   if (!ready) return res.status(503).json({ error: 'whatsapp not ready', state });
   try {
@@ -536,14 +564,14 @@ app.post('/send', async (req, res) => {
       if (image_url.startsWith('data:')) {
         const [meta, b64] = image_url.split(',');
         const mime = meta.split(':')[1].split(';')[0];
-        media = new MessageMedia(mime, b64, 'image');
+        media = new MessageMedia(mime, b64, filename || ('imagem.' + (mime.split('/')[1] || 'jpg')));
       } else {
         media = await MessageMedia.fromUrl(image_url, { unsafeMime: true });
       }
       result = await client.sendMessage(chatId, media, { caption: message || '' });
     } else {
       if (!message) return res.status(400).json({ error: 'message or image_url required' });
-      result = await client.sendMessage(chatId, message);
+      result = await client.sendMessage(chatId, message, { linkPreview: true });
     }
     // In some LID chats, `sendMessage` returns undefined even on success.
     // Treat undefined/null as "sent OK" — the message was delivered.
