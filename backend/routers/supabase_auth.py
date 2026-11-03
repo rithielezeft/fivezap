@@ -84,7 +84,7 @@ def _rate_limit(request: Request):
     entry = _failed.get(ip, [0, now])
     if now - entry[1] > 900:
         entry = [0, now]
-    if entry[0] >= 8:
+    if entry[0] >= 8 or _failed.get("*", [0, now])[0] >= 40 and now - _failed["*"][1] <= 900:
         raise HTTPException(429, "Muitas tentativas. Tente novamente em 15 minutos.")
     return ip, entry
 
@@ -92,6 +92,12 @@ def _rate_limit(request: Request):
 def _fail(ip, entry):
     entry[0] += 1
     _failed[ip] = entry
+    now = time.time()
+    g = _failed.get("*", [0, now])
+    if now - g[1] > 900:
+        g = [0, now]
+    g[0] += 1
+    _failed["*"] = g
 
 
 @router.get("/methods")

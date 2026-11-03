@@ -100,6 +100,11 @@ async def login(payload: LoginPayload, request: Request):
         entry = [0, now]
     if entry[0] >= 8:
         raise HTTPException(429, "Muitas tentativas. Tente novamente em 15 minutos.")
+    g = _failed.get("*", [0, now])
+    if now - g[1] > 900:
+        g = [0, now]
+    if g[0] >= 40:  # global cap so rotating forwarded IPs can't brute force
+        raise HTTPException(429, "Muitas tentativas. Tente novamente em 15 minutos.")
 
     # tiny slowdown to prevent timing attacks
     await asyncio.sleep(0.1)
@@ -113,6 +118,8 @@ async def login(payload: LoginPayload, request: Request):
         entry[0] += 1
         entry[1] = now
         _failed[ip] = entry
+        g[0] += 1
+        _failed["*"] = g
         raise HTTPException(401, "Senha incorreta")
 
     _failed.pop(ip, None)
