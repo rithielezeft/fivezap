@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { NavLink, useLocation } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChartLineUp, Users, Ticket, ChatText, Command,
+  ChartLineUp, Users, Ticket, ChatText, Command, SignOut,
   WhatsappLogo, CurrencyCircleDollar, Bell, Gear, List, X, Tag, Globe, Code, Queue, Clover,
 } from "@phosphor-icons/react";
 import { whatsappApi } from "@/lib/api";
@@ -41,6 +41,13 @@ export default function Sidebar() {
     refetchInterval: 8000,
   });
   const ready = waStatus?.ready;
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  const logout = () => {
+    localStorage.removeItem("wf_token");
+    qc.clear();
+    nav("/login", { replace: true });
+  };
 
   // Close drawer on route change (mobile).
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
@@ -113,6 +120,14 @@ export default function Sidebar() {
             </>
           )}
         </div>
+        <button
+          onClick={logout}
+          className="mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors duration-200"
+          data-testid="btn-logout"
+        >
+          <SignOut size={17} />
+          <span>Sair</span>
+        </button>
       </div>
     </>
   );
