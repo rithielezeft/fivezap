@@ -76,3 +76,5 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - [2026-06] Connected to user Atlas via WHATSFLOW_MONGO_URL / WHATSFLOW_DB_NAME (whatsflow) secrets; JWT_SECRET replaced with user value. Saved URL query is truncated (retryWrites=tru>), mongo_store._clean_url repairs it. Atlas shared with Raspberry/prod (1223 customers, 468 payments).
 
 - [2026-06] Raffle rounds: raffle_state (Mongo) round-based instead of month; new round starts at previous draw time; settings auto_restart/auto_renew; manual entries (raffle_manual_entries) add/remove; POST /api/raffle/new-round. Tested iteration_17.
+
+- [2026-06] Supabase: email+password login proxied to GoTrue (routers/supabase_auth.py) with TOTP 2FA; legacy password login toggle (requires TOTP on); mirror of customers/trials (SQLite+Atlas), activity_logs, painel users to Supabase tables whatsflow_* every 10 min (services/supabase_mirror.py, SUPABASE_DB_URL). Finance raffle panel (clover sales vs painel credits of prizes). Command templates mirrored to Atlas command_templates + startup restore. Tested iteration_18.

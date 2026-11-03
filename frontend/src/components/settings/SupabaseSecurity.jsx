@@ -50,8 +50,8 @@ export function EmailAccountCard() {
       {data?.email && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-black/20 p-3">
           <div><div className="text-sm">Permitir entrar só com a senha antiga</div>
-            <p className="text-[11px] text-white/40">Desligado: só entra com e-mail, senha e o código do autenticador.</p></div>
-          <Switch checked={!!data?.password_login} onCheckedChange={(v) => legacy.mutate(v)} className="data-[state=checked]:bg-[#10B981]" data-testid="security-legacy-switch" />
+            <p className="text-[11px] text-white/40">Desligado: só entra com e-mail, senha e o código do autenticador (ative o autenticador primeiro).</p></div>
+          <Switch checked={!!data?.password_login} disabled={!data?.totp_enabled && !!data?.password_login} onCheckedChange={(v) => legacy.mutate(v)} className="data-[state=checked]:bg-[#10B981]" data-testid="security-legacy-switch" />
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 """Email + password login via Supabase with authenticator-app (TOTP) 2-step verification."""
 import secrets
 import time
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -77,7 +78,8 @@ async def _session_for_admin(password: str) -> dict:
 
 
 def _rate_limit(request: Request):
-    ip = request.client.host if request.client else "unknown"
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
     now = time.time()
     entry = _failed.get(ip, [0, now])
     if now - entry[1] > 900:
@@ -179,7 +181,10 @@ async def totp_start(payload: PasswordPayload, user=Depends(require_admin)):
     _gc(_enrolls)
     eid = secrets.token_urlsafe(24)
     _enrolls[eid] = {"token": session["access_token"], "factor_id": f["id"], "exp": time.time() + 600}
-    return {"enroll_id": eid, "qr_code": f["totp"]["qr_code"], "secret": f["totp"]["secret"]}
+    qr = f["totp"]["qr_code"]
+    if not qr.startswith("data:"):
+        qr = "data:image/svg+xml;utf-8," + quote(qr)
+    return {"enroll_id": eid, "qr_code": qr, "secret": f["totp"]["secret"]}
 
 
 @router.post("/supabase/totp/confirm")
@@ -236,7 +241,7 @@ async def mirror_run():
 
 @router.put("/supabase/legacy")
 async def set_legacy(payload: LegacyPayload, user=Depends(require_admin)):
-    if not payload.enabled and not await _admin_email():
-        raise HTTPException(400, "Crie a conta de e-mail antes de desativar o login só com senha")
+    if not payload.enabled and (await get_setting("supabase_totp_enabled") or "false") != "true":
+        raise HTTPException(400, "Ative o app autenticador antes de desativar o login só com senha")
     await set_setting("legacy_password_login", "true" if payload.enabled else "false")
     return {"ok": True, "password_login": payload.enabled}
