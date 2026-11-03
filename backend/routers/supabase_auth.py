@@ -78,8 +78,8 @@ async def _session_for_admin(password: str) -> dict:
 
 
 def _rate_limit(request: Request):
-    fwd = request.headers.get("x-forwarded-for", "")
-    ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    fwd = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    ip = fwd or (request.client.host if request.client else "unknown")
     now = time.time()
     entry = _failed.get(ip, [0, now])
     if now - entry[1] > 900:

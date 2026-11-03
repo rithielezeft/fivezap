@@ -92,7 +92,8 @@ class ChangePasswordPayload(BaseModel):
 
 @router.post("/login")
 async def login(payload: LoginPayload, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    fwd = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    ip = fwd or (request.client.host if request.client else "unknown")
     now = time.time()
     entry = _failed.get(ip, [0, now])
     if now - entry[1] > 900:  # reset after 15 min
