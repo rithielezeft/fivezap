@@ -79,8 +79,59 @@ async def _linked_accounts(painel_id) -> list:
     return out
 
 
-async def _renew_extra_accounts(payment: dict, phone: str, source: str) -> list:
-    """Renew the additional logins bought in the same checkout + notify each."""
+def _new_expiration(res: dict, cache_user: dict, months) -> tuple:
+    """(dd/mm/aaaa, unix seconds) of the new expiration after a renewal."""
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    from zoneinfo import ZoneInfo
+    from services.expiration import compute_expiration_info
+    raw = (res or {}).get("exp_date") or (res or {}).get("expires_at") or (res or {}).get("expiration") or (res or {}).get("exp_date_iso")
+    dt = None
+    if isinstance(raw, (int, float)) or (isinstance(raw, str) and raw.isdigit()):
+        dt = _dt.fromtimestamp(int(raw), tz=_tz.utc)
+    elif isinstance(raw, str) and raw:
+        try:
+            dt = _dt.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("America/Sao_Paulo"))
+        except Exception:
+            dt = None
+    if dt is None:
+        now = _dt.now(_tz.utc)
+        base = None
+        cur = compute_expiration_info(cache_user or {}).get("expires_at_iso")
+        if cur:
+            try:
+                base = _dt.fromisoformat(cur.replace("Z", "+00:00"))
+            except Exception:
+                base = None
+        if base is None or base.tzinfo is None or base < now:
+            base = now
+        dt = base + _td(days=30 * int(months or 1))
+    return dt.astimezone(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y"), int(dt.timestamp())
+
+
+async def _patch_cache_expirations(updates: dict):
+    """Write new exp_date (unix) into the painel cache so /pay shows it right away."""
+    if not updates:
+        return
+    from routers.painel_users import _read_cache, _write_cache
+    users, _ = await _read_cache()
+    for u in users or []:
+        uid = str(u.get("id") or u.get("user_id") or "")
+        if uid in updates:
+            u["exp_date"] = updates[uid]
+            for k in ("expires_at", "expiration", "expiry_date", "expire_date", "expiration_date", "expires", "valid_until", "vencimento", "expira_em"):
+                u.pop(k, None)
+    await _write_cache(users or [])
+
+
+def _join_e(items: list) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " e " + items[-1]
+
+
+async def _renew_extra_accounts(payment: dict, source: str) -> list:
+    """Renew the additional logins bought in the same checkout (no message — the
+    main confirmation lists every login)."""
     import json as _json
     try:
         extra_ids = _json.loads(payment.get("extra_customer_ids") or "[]")
@@ -90,28 +141,20 @@ async def _renew_extra_accounts(payment: dict, phone: str, source: str) -> list:
     adult = payment.get("adult_channels")
     for eid in extra_ids:
         try:
+            u = await _cache_user(eid)
             res = await painel.renew_user(user_id=str(eid), package_id=payment["package_id"],
                                           months=payment.get("plan_months"),
                                           adult=None if adult is None else bool(adult))
-            u = await _cache_user(eid)
-            new_exp = res.get("exp_date") or res.get("expires_at") or ""
-            if isinstance(new_exp, (int, float)):
-                from datetime import datetime as _dt, timezone as _tz
-                new_exp = _dt.fromtimestamp(int(new_exp), tz=_tz.utc).strftime("%d/%m/%Y")
+            new_exp, new_unix = _new_expiration(res if isinstance(res, dict) else {}, u, payment.get("plan_months"))
             await log_activity("renewal_success", f"Renovação extra {payment['plan_months']}m (painel_id={eid}, source={source})",
                                str(eid), "success", res)
-            if phone:
-                from services.notifier import send_notification
-                await send_notification("renewal_success", phone, {
-                    "name": u.get("full_name") or u.get("username") or "cliente",
-                    "user": u.get("username") or str(eid),
-                    "password": u.get("password") or "",
-                    "plan_months": payment["plan_months"],
-                    "new_expires_at": new_exp,
-                    "system_type": "",
-                    **(await _clover_vars(payment)),
-                }, customer_id=str(eid))
-            results.append({"id": eid, "ok": True})
+            try:
+                from services import mongo_store
+                await mongo_store.upsert_customer({"_id": str(eid), "exp_date_iso": new_exp, "last_renewed_at": now_iso()})
+            except Exception:
+                logger.exception("Mongo mirror of extra renewal failed (non-fatal)")
+            results.append({"id": eid, "ok": True, "login": u.get("username") or str(eid),
+                            "password": u.get("password") or "", "new_expires_at": new_exp, "exp_unix": new_unix})
         except Exception as e:
             logger.exception("Extra renewal failed for %s", eid)
             results.append({"id": eid, "ok": False, "error": str(e)[:200]})
@@ -1037,6 +1080,21 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             except Exception:
                 logger.exception("Local expiration projection failed — leaving empty")
 
+        # Renew the other logins of the same checkout BEFORE notifying, so the
+        # client gets ONE confirmation listing every login.
+        main_cache = await _cache_user(painel_id)
+        extra_results = []
+        if payment.get("extra_customer_ids"):
+            extra_results = await _renew_extra_accounts(payment, source)
+        try:
+            exp_updates = {str(r["id"]): r["exp_unix"] for r in extra_results if r.get("ok")}
+            if painel_id:
+                exp_updates[str(painel_id)] = _new_expiration(result if isinstance(result, dict) else {}, main_cache, payment.get("plan_months"))[1]
+            await _patch_cache_expirations(exp_updates)
+        except Exception:
+            logger.exception("Cache expiration patch failed (non-fatal)")
+        extras_ok = [r for r in extra_results if r.get("ok")]
+
         # Notify client via WhatsApp — this is what the customer sees ("Renovação confirmada")
         try:
             from services.notifier import send_notification, send_admin_alert
@@ -1098,6 +1156,17 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
             except Exception:
                 pass
 
+            main_login = painel_user or main_cache.get("username") or customer["name"]
+            main_password = main_cache.get("password") or ""
+            msg_user, msg_password, msg_expires = main_login, main_password, new_expires
+            if extras_ok:
+                logins = [main_login] + [r["login"] for r in extras_ok]
+                pwds = [main_password] + [r["password"] for r in extras_ok]
+                exps = [new_expires] + [r["new_expires_at"] for r in extras_ok]
+                msg_user = " , ".join(logins)
+                msg_password = " , ".join(f"{p} ( {l} )" for p, l in zip(pwds, logins))
+                msg_expires = _join_e([f"{e} ( {l} )" for e, l in zip(exps, logins)])
+
             if phone:
                 # Cancel any pending trial reminders + queued deliveries —
                 # the client just paid + renewed. They don't need to hear
@@ -1126,11 +1195,11 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     "renewal_success", phone,
                     {
                         "name": customer["name"],
-                        "user": painel_user or customer["name"],
-                        "password": (await _cache_user(painel_id)).get("password") or "",
+                        "user": msg_user,
+                        "password": msg_password,
                         **(await _clover_vars(payment)),
                         "plan_months": payment["plan_months"],
-                        "new_expires_at": new_expires,
+                        "new_expires_at": msg_expires,
                         "system_type": customer.get("system_type") or "",
                     },
                     customer_id=customer["id"],
@@ -1148,7 +1217,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     )
                     try:
                         from services.notifier import send_hardcoded
-                        expires_txt = f" até {new_expires}" if new_expires else ""
+                        expires_txt = f" até {msg_expires}" if msg_expires else ""
                         fallback_msg_sent = await send_hardcoded(
                             phone,
                             f"✅ Pagamento confirmado, {customer['name']}!\n\n"
@@ -1183,7 +1252,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                 admin_msg = (
                     "💰 *Pagamento confirmado*\n\n"
                     f"👤 Cliente: {customer['name']}\n"
-                    f"👥 Login: {painel_user or '-'}\n"
+                    f"👥 Login: {msg_user or '-'}\n"
                     f"📱 WhatsApp: {phone or '-'}\n"
                     f"📦 Plano: {payment['plan_months']} mês(es)  |  {amount_brl}\n"
                     f"💳 Pagamento: {_prov}" + (f" · conta {payment.get('account_id')}" if payment.get("account_id") else "") + "\n"
@@ -1192,7 +1261,7 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     + (f"🏷️ Desconto: {payment.get('discount_percent')}%" + (f" (cupom {payment.get('coupon_code')})" if payment.get("coupon_code") else "") + "\n" if payment.get("discount_percent") else "")
                     + f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
                     f"🔗 Painel ID: {painel_id}\n"
-                    f"📆 Novo vencimento: {new_expires or '-'}\n"
+                    f"📆 Novo vencimento: {msg_expires or '-'}\n"
                     f"🛰️ Origem: {source}\n"
                     f"✉️ Cliente notificado: {notify_status}"
                 )
@@ -1229,9 +1298,6 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         except Exception:
             logger.exception("Failed to mirror renewal to MongoDB (non-fatal)")
 
-        extra_results = []
-        if payment.get("extra_customer_ids"):
-            extra_results = await _renew_extra_accounts(payment, phone, source)
         return {"ok": True, "status": "renewed", "payment_id": payment["id"], "painel_id": painel_id,
                 "result": result, "extra_renewals": extra_results}
     except Exception as e:
@@ -1896,6 +1962,16 @@ async def get_customer_payment_info(customer_id: str):
             f"Cliente {customer_id} não encontrado. "
             f"Atualize o cache do painel em Clientes → 'Atualizar do painel'."
         )
+
+    # Painel cache holds the freshest expiration (patched right after renewals).
+    try:
+        from services.expiration import compute_expiration_info
+        _cu = await _cache_user(customer_id)
+        _iso = compute_expiration_info(_cu).get("expires_at_iso") if _cu else None
+        if _iso:
+            customer["expires_at"] = _iso
+    except Exception:
+        logger.exception("cache expiration lookup failed")
 
     # If we resolved to a generic name, try harder — never show "Cliente"
     # or the raw painel_id when a real name exists in another source.

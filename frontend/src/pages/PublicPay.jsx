@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { paymentsApi, couponsApi } from "@/lib/api";
 import { CheckCircle, WarningCircle, CreditCard } from "@phosphor-icons/react";
 import { PLANS, CheckoutBackground, MobileHeader, BrandColumn, PlanButton, CouponField, CheckoutCta, HistoryLink } from "@/components/pay/PayParts";
@@ -68,11 +68,17 @@ export default function PublicPay() {
     return () => { cancelled = true; };
   }, [returnedFromPay, customerId, confirmationToken]);
 
+  const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["pay-customer", customerId],
     queryFn: () => paymentsApi.customerInfo(customerId),
     retry: 1,
   });
+
+  // After the renewal is confirmed, reload so every login shows its new expiration.
+  useEffect(() => {
+    if (renewalStatus === "renewed" || pixPaid) queryClient.invalidateQueries({ queryKey: ["pay-customer", customerId] });
+  }, [renewalStatus, pixPaid, customerId, queryClient]);
 
   // When provider is "painel", we skip our own UI and redirect straight
   // to the painel-generated pagme.xyz checkout. Panel handles the renewal

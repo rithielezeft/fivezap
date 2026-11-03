@@ -85,3 +85,7 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 
 ## 2026-11-03 — Import do branch fivezap4
 - Código do branch fivezap4 copiado para /app (backend, frontend, whatsapp-service), deps instaladas, backend/.env com JWT_SECRET + ADMIN_PASSWORD. Smoke test 100% (iteration_2). Sem mudanças de código.
+
+## 2026-11-03 — Confirmação única para vários logins
+- Pagamento com 2+ logins: logins extras renovados ANTES da mensagem; UMA confirmação renewal_success com {user}="a , b", {password}="pw ( a ) , pw2 ( b )", {new_expires_at}="dd/mm ( a ) e dd/mm ( b )". Sem mensagens separadas por login. Alerta admin mostra todos.
+- Cache do painel recebe exp_date novo de todos os logins na hora (/pay mostra o novo vencimento); /pay recarrega após confirmação; vencimento do login principal no /pay vem do cache. Teste: tests/test_multi_login_confirmation.py.
