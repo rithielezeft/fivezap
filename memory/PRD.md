@@ -66,3 +66,9 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - Aplicado em: create_payment (preço por login, plano fixo, extras com preço/desconto próprios), página /pay (planos filtrados, cupom oculto, total por login), coupon/discount/auto_coupon (bloqueio), scheduler + upcoming (lembretes escolhidos).
 - Alerta "Pagamento confirmado" ao admin: forma de pagamento + conta, nº de logins, trevo (sim/não + qtd), desconto/cupom.
 - Raffle: usuário colou NOMES_COMUNS em routers/raffle.py (nomes comuns para coringas no público) — agente recusou ampliar/contar coringas como clientes; não reverteu o código do usuário.
+
+
+## [IMPORT 2026-06] Branch fivezap3 imported into Emergent preview (as-is)
+- Code from rithielezeft/fivezap@fivezap3 (108471d). Startup fixes only: installed deps; pydantic pin 2.9.2 -> 2.14.2 (conflicted with google-genai in requirements.txt); ADMIN_PASSWORD + JWT_SECRET in backend/.env; fresh SQLite DB.
+- Verified iteration_16: login, 14 admin pages, /teste, /pay/{id}, /trevo, WhatsApp QR.
+- Reported, not fixed: dashboard customer counts use empty local table; parallel 2Captcha solves at startup + key in logs; /api/settings 401 on /login.
