@@ -1,0 +1,91 @@
+# --- Dependencies ---
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+.env
+!.env.example
+
+# --- Build outputs ---
+build/
+dist/
+*.tsbuildinfo
+.cache/
+next-env.d.ts
+/coverage
+
+# --- IDE ---
+.idea/
+.vscode/
+.DS_Store
+*.pem
+
+# --- Logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- WhatsFlow specific ---
+# Local database (never commit)
+backend/whatsflow.db
+backend/whatsflow.db-journal
+backend/whatsflow.db-shm
+backend/whatsflow.db-wal
+yarn.lock
+frontend/yarn.lock
+whatsapp-service/yarn.lock
+
+# WhatsApp session data
+whatsapp-service/.wwebjs_auth
+whatsapp-service/.wwebjs_auth/**
+whatsapp-service/.wwebjs_cache
+whatsapp-service/.wwebjs_cache/**
+
+# User uploads (each installation has its own)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Runtime artifacts
+test_reports/
+memory/test_credentials.md
+.emergent/
+design_guidelines.json
+backend/logs/
+
+# --- Sensitive ---
+credentials.json
+*token.json*
+*.key
+frontend/node_modules/.cache/default-development/9.pack
+.env.*
+*.env
+.credentials
+frontend/node_modules/.cache/default-development/7.pack
+frontend/node_modules/.cache/default-development/5.pack
+frontend/node_modules/.cache/default-development/10.pack
+frontend/node_modules/.cache/default-development/6.pack
+frontend/node_modules/.cache/default-development/2.pack
+frontend/node_modules/.cache/default-development/15.pack
+frontend/node_modules/.cache/default-development/14.pack
+frontend/node_modules/.cache/default-development/16.pack
+frontend/node_modules/.cache/default-development/11.pack
+frontend/node_modules/.cache/default-development/13.pack
+frontend/node_modules/.cache/default-development/19.pack
+frontend/node_modules/.cache/default-development/22.pack
+frontend/node_modules/.cache/default-development/21.pack
+frontend/node_modules/.cache/default-development/23.pack
+frontend/node_modules/.cache/default-development/26.pack
+frontend/node_modules/.cache/default-development/1.pack
+frontend/node_modules/.cache/default-development/20.pack
+frontend/node_modules/.cache/default-development/0.pack
+frontend/node_modules/.cache/default-development/4.pack
+frontend/node_modules/.cache/default-development/3.pack
+frontend/node_modules/.cache/default-development/12.pack
