@@ -74,3 +74,5 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - Reported, not fixed: dashboard customer counts use empty local table; parallel 2Captcha solves at startup + key in logs; /api/settings 401 on /login.
 
 - [2026-06] Connected to user Atlas via WHATSFLOW_MONGO_URL / WHATSFLOW_DB_NAME (whatsflow) secrets; JWT_SECRET replaced with user value. Saved URL query is truncated (retryWrites=tru>), mongo_store._clean_url repairs it. Atlas shared with Raspberry/prod (1223 customers, 468 payments).
+
+- [2026-06] Raffle rounds: raffle_state (Mongo) round-based instead of month; new round starts at previous draw time; settings auto_restart/auto_renew; manual entries (raffle_manual_entries) add/remove; POST /api/raffle/new-round. Tested iteration_17.

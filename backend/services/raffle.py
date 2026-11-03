@@ -86,8 +86,9 @@ async def start_new_round(start_iso: str = None) -> dict:
     tz = await _tz()
     now = datetime.now(tz)
     start = datetime.fromisoformat(start_iso) if start_iso else datetime(now.year, now.month, 1, tzinfo=tz)
-    state = {"round_id": await _new_round_id(mdb, now), "start": start.astimezone(timezone.utc).isoformat(),
-             "draw_at": _next_draw_at(now).isoformat(), "opened_at": datetime.now(timezone.utc).isoformat()}
+    draw_at = _next_draw_at(now)
+    state = {"round_id": await _new_round_id(mdb, draw_at), "start": start.astimezone(timezone.utc).isoformat(),
+             "draw_at": draw_at.isoformat(), "opened_at": datetime.now(timezone.utc).isoformat()}
     await mdb.raffle_state.update_one({"_id": "current"}, {"$set": state}, upsert=True)
     return state
 
@@ -281,7 +282,7 @@ async def _notify(winner, winner_id, months, renewed, data):
 async def history(limit: int = 12) -> list:
     from services.mongo_store import _get_db
     out = []
-    async for d in _get_db().raffle_draws.find({"status": "drawn"}).sort("_id", -1).limit(limit):
+    async for d in _get_db().raffle_draws.find({"status": "drawn"}).sort("created_at", -1).limit(limit):
         d["round_id"] = d.pop("_id")
         d["month"] = d.get("month") or d["round_id"]
         out.append(d)
