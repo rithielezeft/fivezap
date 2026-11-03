@@ -65,9 +65,9 @@ export default function Trials() {
 
       <div className="mt-6 surface rounded-xl p-6">
         <div className="flex items-start gap-3">
-          <WarningCircle size={20} className="text-[#FF9F0A] shrink-0 mt-0.5" />
+          <WarningCircle size={20} className="text-[#F59E0B] shrink-0 mt-0.5" />
           <div className="text-sm text-white/70 leading-relaxed">
-            Testes são criados via <span className="font-mono text-[#007AFF]">POST /api/trial_users</span> na
+            Testes são criados via <span className="font-mono text-[#3B82F6]">POST /api/trial_users</span> na
             <b> api.controle.fit</b> com <span className="font-mono">package_id = 61</span> e Cloudflare Turnstile
             resolvido pela 2Captcha. Para criar teste automaticamente pelo cliente, cadastre um
             <b> comando</b> na página <b>Comandos</b>.

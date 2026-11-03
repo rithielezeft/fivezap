@@ -58,7 +58,7 @@ export function ColumnPicker({ cols, columns, defaults, mobileDefaults }) {
           Colunas
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="bg-[#121212] border-white/10 text-white w-56">
+      <DropdownMenuContent className="bg-[#0D111A] border-white/10 text-white w-56">
         <DropdownMenuLabel className="text-xs text-white/60">
           Exibir colunas
         </DropdownMenuLabel>

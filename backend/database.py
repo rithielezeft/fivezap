@@ -306,6 +306,16 @@ async def init_db():
             await db.execute("ALTER TABLE payments ADD COLUMN original_amount_cents INTEGER")
         except Exception:
             pass
+        # Multi-provider / multi-account / multi-points checkout
+        for col_sql in (
+            "provider TEXT DEFAULT 'infinitepay'", "account_id TEXT", "extra_customer_ids TEXT",
+            "mp_payment_id TEXT", "adult_channels INTEGER", "pix_qr_code TEXT",
+            "pix_qr_base64 TEXT", "pix_ticket_url TEXT", "clovers INTEGER DEFAULT 0",
+        ):
+            try:
+                await db.execute(f"ALTER TABLE payments ADD COLUMN {col_sql}")
+            except Exception:
+                pass
         # Attribution bucket — where did this payment click come from?
         # Values match the reminder event_key (expiration_7d, expiration_3d,
         # expiration_1d, expiration_0d, expired_Xd, trial_ready) or 'manual'

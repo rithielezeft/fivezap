@@ -40,9 +40,14 @@ async def seed_admin_password():
     env_pw = os.environ.get("ADMIN_PASSWORD")
     if not env_pw:
         return
+    # Re-seed only when the env password itself changes, so in-app password changes persist.
+    import hashlib
+    fp = hashlib.sha256(env_pw.encode("utf-8")).hexdigest()
     current_hash = await get_setting("admin_password_hash", "")
-    if not current_hash or not verify_password(env_pw, current_hash):
-        await set_setting("admin_password_hash", hash_password(env_pw))
+    if not current_hash or (await get_setting("admin_password_seed_fp", "")) != fp:
+        if not current_hash or not verify_password(env_pw, current_hash):
+            await set_setting("admin_password_hash", hash_password(env_pw))
+        await set_setting("admin_password_seed_fp", fp)
 
 
 async def verify_admin_password(plain: str) -> bool:
@@ -68,6 +73,8 @@ def is_public(path: str, method: str = "GET") -> bool:
         return True
     if path.startswith("/api/health"):  # includes /api/health/poller
         return True
+    if path.startswith("/api/cron/"):  # protected by WEBHOOK_CRON_SECRET instead
+        return True
     if path.startswith("/api/auth/"):
         return True
     if path.startswith("/api/public/"):
@@ -89,6 +96,11 @@ def is_public(path: str, method: str = "GET") -> bool:
     # Public status check: /pay/{id}?ok=1 page calls this after returning
     # from InfinitePay to speed up the "Renovação confirmada" flow.
     if path.startswith("/api/payments/check-status/") and method.upper() == "POST":
+        return True
+    # Mercado Pago Pix: page polling + provider webhook (both re-verify with MP).
+    if path.startswith("/api/payments/mp-status/") and method.upper() == "GET":
+        return True
+    if path == "/api/payments/mp-webhook" and method.upper() == "POST":
         return True
     # Public coupon validation — called by /pay/{id} to preview the discount
     # before creating the checkout link.

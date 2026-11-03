@@ -2,11 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
+import { PaymentAccounts } from "@/components/settings/PaymentAccounts";
+import { SecurityPanel } from "@/components/settings/SecurityPanel";
 import { settingsApi, painelApi, paymentsApi, systemApi, setDisplayTimezone } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin, MapTrifold, Lightning, Bell, Ticket, ArrowsClockwise, CreditCard, Tag, Download, Warning } from "@phosphor-icons/react";
+import { FloppyDisk, PlugsConnected, CheckCircle, WarningCircle, Coin, MapTrifold, Lightning, Bell, Ticket, ArrowsClockwise, CreditCard, Tag, Download, Warning, ShieldCheck } from "@phosphor-icons/react";
 
 const FIELDS = [
   { key: "painel_username", label: "Painel.fun — Usuário", group: "painel" },
@@ -22,6 +24,10 @@ const FIELDS = [
     group: "pay", placeholder: "infinitepay",
     options: ["infinitepay", "painel"],
     help: "infinitepay = usa a página /pay do WhatsFlow (checkout InfinitePay direto). painel = pega o link pagme.xyz gerado pelo próprio painel.fun (bypass total do bloqueio sessao_nao_renderizada)." },
+  { key: "brand_name", label: "Página de pagamento — Nome da marca (aparece no checkout)", group: "pay", placeholder: "Zeferius" },
+  { key: "brand_logo_url", label: "Página de pagamento — URL do logo (quadrado)", group: "pay", placeholder: "https://.../logo.png" },
+  { key: "credit_unit_cost", label: "Financeiro — Custo de 1 crédito do painel (R$), pela sua última recarga", group: "pay", placeholder: "2,40" },
+  { key: "credits_per_plan", label: "Financeiro — Créditos gastos por plano (meses:créditos)", group: "pay", placeholder: "1:1,3:3,6:6,12:12" },
   { key: "plan_price_1m", label: "Preço 1 mês (R$)", group: "pay", placeholder: "35,00" },
   { key: "plan_price_3m", label: "Preço 3 meses (R$)", group: "pay", placeholder: "90,00" },
   { key: "plan_price_6m", label: "Preço 6 meses (R$)", group: "pay", placeholder: "160,00" },
@@ -51,6 +57,54 @@ const GROUPS = {
   notify: "Notificações & Público",
 };
 
+const SECTIONS = [
+  { key: "painel", label: "Painel.fun", desc: "Login e conexão com o painel", icon: PlugsConnected },
+  { key: "captcha", label: "2Captcha", desc: "Resolve o captcha do login", icon: Lightning },
+  { key: "pay", label: "Pagamentos", desc: "Contas, preços e formas de pagamento", icon: CreditCard },
+  { key: "discounts", label: "Descontos", desc: "Desconto automático por evento", icon: Tag },
+  { key: "notify", label: "Notificações", desc: "Horários, link público e alertas", icon: Bell },
+  { key: "security", label: "Segurança", desc: "Senha e verificação em 2 etapas", icon: ShieldCheck },
+  { key: "system", label: "Sistema", desc: "Atualização do Raspberry", icon: Download },
+  { key: "guide", label: "Guia de uso", desc: "Como cada configuração é usada", icon: MapTrifold },
+];
+
+const sectionOf = (key) => (key === "discount_panel" ? "discounts" : FIELDS.find((f) => f.key === key)?.group || "guide");
+
+function SettingsNav({ active, onSelect }) {
+  return (
+    <nav className="surface rounded-xl p-2 lg:sticky lg:top-6 flex lg:flex-col gap-1 overflow-x-auto" data-testid="settings-nav">
+      {SECTIONS.map(({ key, label, desc, icon: Icon }) => (
+        <button key={key} onClick={() => onSelect(key)} data-testid={`settings-nav-${key}`} aria-current={active === key}
+          className={"group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left shrink-0 transition-colors duration-200 " +
+            (active === key ? "bg-white/[0.07] text-white" : "text-white/55 hover:text-white hover:bg-white/[0.03]")}>
+          <span className={"mt-0.5 grid place-items-center w-7 h-7 rounded-md shrink-0 transition-colors " + (active === key ? "bg-[#10B981]/15 text-[#34D399]" : "bg-white/[0.04] text-white/50 group-hover:text-white/80")}>
+            <Icon size={15} weight="duotone" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold leading-tight">{label}</span>
+            <span className="hidden lg:block text-[11px] text-white/40 leading-snug mt-0.5">{desc}</span>
+          </span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function SectionHeader({ section }) {
+  const sec = SECTIONS.find((x) => x.key === section);
+  if (!sec) return null;
+  const Icon = sec.icon;
+  return (
+    <div className="flex items-center gap-3 pb-1" data-testid="settings-section-header">
+      <span className="grid place-items-center w-10 h-10 rounded-xl bg-[#10B981]/10 text-[#34D399]"><Icon size={20} weight="duotone" /></span>
+      <div>
+        <h2 className="font-display text-xl font-bold leading-tight">{sec.label}</h2>
+        <p className="text-xs text-white/45">{sec.desc}</p>
+      </div>
+    </div>
+  );
+}
+
 // Visual "playbook": maps each app flow → the settings that feed it. Clicking
 // a chip scrolls to and highlights that field so admins can find it fast.
 // Purpose: prevent accidental changes ("I bumped discount_7d_percent thinking
@@ -68,7 +122,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: Tag, color: "#34C759",
+    icon: Tag, color: "#10B981",
     title: "Descontos automáticos por vencimento",
     desc: "Configure % de desconto para cada evento (7 dias antes, 3 dias antes, no dia, ou após vencer). Quando o cliente abre o link no mesmo dia, o % é aplicado no checkout automaticamente e o lembrete usa {discount_line} / {discount_percent} na mensagem.",
     settings: [
@@ -76,7 +130,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: Lightning, color: "#007AFF",
+    icon: Lightning, color: "#3B82F6",
     title: "Anti-duplicação de mensagens",
     desc: "3 redes de segurança: dedup por (telefone+evento), por conteúdo (body_hash) e pacer global entre sends.",
     settings: [
@@ -93,7 +147,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: ArrowsClockwise, color: "#5AC8FA",
+    icon: ArrowsClockwise, color: "#60A5FA",
     title: "Sincronia com painel.fun",
     desc: "Intervalo de refresh do cache painel + credenciais de bypass do Turnstile (2Captcha).",
     settings: [
@@ -104,7 +158,7 @@ const FLOWS = [
     ],
   },
   {
-    icon: CreditCard, color: "#FF3B30",
+    icon: CreditCard, color: "#EF4444",
     title: "Pagamentos & Preços",
     desc: "Preços por plano + integração InfinitePay (checkout + webhook). Retry automático nos erros transitórios.",
     settings: [
@@ -146,11 +200,11 @@ function scrollToSetting(key) {
 
 function DiscountRow({ event, onToggle, onChangePercent, saving }) {
   const active = event.enabled && event.percent > 0;
-  const badgeColor = event.kind === "before" ? "#FF9500" : "#FF3B30";
+  const badgeColor = event.kind === "before" ? "#FF9500" : "#EF4444";
   return (
     <div
       className={"rounded-lg border transition p-3 flex items-center gap-3 " +
-        (active ? "border-[#34C759]/40 bg-[#34C759]/5" : "border-white/10 bg-white/[0.02]")}
+        (active ? "border-[#10B981]/40 bg-[#10B981]/5" : "border-white/10 bg-white/[0.02]")}
       data-testid={`discount-row-${event.event_key}`}
     >
       <span
@@ -186,7 +240,7 @@ function DiscountRow({ event, onToggle, onChangePercent, saving }) {
             className="sr-only peer"
             data-testid={`discount-toggle-${event.event_key}`}
           />
-          <div className="w-11 h-6 bg-white/10 peer-checked:bg-[#34C759] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+          <div className="w-11 h-6 bg-white/10 peer-checked:bg-[#10B981] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
         </label>
       </div>
     </div>
@@ -221,18 +275,18 @@ function DiscountsPanel() {
   return (
     <div className="surface rounded-xl p-6" data-testid="settings-discounts">
       <div className="flex items-center gap-2 mb-1">
-        <Tag size={18} className="text-[#34C759]" weight="duotone" />
+        <Tag size={18} className="text-[#10B981]" weight="duotone" />
         <h2 className="font-display text-lg font-bold">Descontos automáticos por vencimento</h2>
         {activeCount > 0 && (
-          <span className="ml-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#34C759]/15 text-[#34C759] border border-[#34C759]/30">
+          <span className="ml-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
             {activeCount} ativo{activeCount > 1 ? "s" : ""}
           </span>
         )}
       </div>
       <p className="text-xs text-white/50 mb-4 leading-relaxed">
         Configure um <b className="text-white/80">% de desconto</b> para cada evento de vencimento.
-        Quando ativo, a notificação usa as variáveis <code className="text-[#34C759] bg-[#34C759]/10 px-1 rounded">{`{discount_line}`}</code> e{" "}
-        <code className="text-[#34C759] bg-[#34C759]/10 px-1 rounded">{`{discount_percent}`}</code>{" "}
+        Quando ativo, a notificação usa as variáveis <code className="text-[#10B981] bg-[#10B981]/10 px-1 rounded">{`{discount_line}`}</code> e{" "}
+        <code className="text-[#10B981] bg-[#10B981]/10 px-1 rounded">{`{discount_percent}`}</code>{" "}
         automaticamente, e o link de pagamento aplica o % <b>no mesmo dia</b> em que a mensagem foi disparada.
         No dia seguinte, o desconto expira.
       </p>
@@ -260,7 +314,7 @@ function DiscountsPanel() {
           </div>
           <div>
             <div className="text-xs font-medium text-white/60 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FF3B30]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
               Após o vencimento (recuperação)
             </div>
             <div className="space-y-2">
@@ -278,7 +332,7 @@ function DiscountsPanel() {
         </div>
       )}
 
-      <div className="mt-4 p-3 rounded-md bg-[#007AFF]/5 border border-[#007AFF]/20 text-xs text-white/70">
+      <div className="mt-4 p-3 rounded-md bg-[#3B82F6]/5 border border-[#3B82F6]/20 text-xs text-white/70">
         💡 <b>Dica:</b> use % pequenos (5-10%) para lembretes <i>antes</i> do vencimento e maiores (15-25%) para
         recuperação <i>após</i> vencer — quanto mais tempo o cliente fica sem renovar, mais desconto ele precisa
         pra voltar.
@@ -376,12 +430,12 @@ function UpdatePiCard() {
             </span>
           )}
           {state === "success" && (
-            <span className="text-xs px-2 py-1 rounded-full bg-[#34C759]/15 text-[#34C759] border border-[#34C759]/30">
+            <span className="text-xs px-2 py-1 rounded-full bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
               Concluído
             </span>
           )}
           {state === "error" && (
-            <span className="text-xs px-2 py-1 rounded-full bg-[#FF3B30]/15 text-[#FF3B30] border border-[#FF3B30]/30">
+            <span className="text-xs px-2 py-1 rounded-full bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30">
               Erro
             </span>
           )}
@@ -447,6 +501,8 @@ export default function Settings() {
   const { data, refetch } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
   const [form, setForm] = useState({});
   const [testResult, setTestResult] = useState(null);
+  const [section, setSection] = useState("painel");
+  const goToSetting = (key) => { setSection(sectionOf(key)); setTimeout(() => scrollToSetting(key), 120); };
 
   useEffect(() => {
     if (data) setForm(data);
@@ -509,23 +565,25 @@ export default function Settings() {
       title="Configurações"
       subtitle="Credenciais e parâmetros do sistema"
       actions={
-        <Button className="bg-[#007AFF] hover:bg-[#005BB5]" onClick={handleSave} disabled={saveMut.isPending} data-testid="btn-save-settings">
+        <Button className="bg-[#3B82F6] hover:bg-[#2563EB]" onClick={handleSave} disabled={saveMut.isPending} data-testid="btn-save-settings">
           <FloppyDisk size={16} className="mr-2" />
           {saveMut.isPending ? "Salvando..." : "Salvar tudo"}
         </Button>
       }
     >
-      <div className="space-y-6">
-        {/* UPDATE PI — remote self-update trigger */}
-        <UpdatePiCard />
+      <div className="grid lg:grid-cols-[260px_1fr] gap-6 items-start">
+        <SettingsNav active={section} onSelect={setSection} />
+        <div className="space-y-6 min-w-0" data-testid={`settings-section-${section}`}>
+        <SectionHeader section={section} />
+        {section === "system" && <UpdatePiCard />}
+        {section === "security" && <SecurityPanel />}
 
-        {/* DISCOUNTS — per-event configurable discount % */}
-        <DiscountsPanel />
+        {section === "discounts" && <DiscountsPanel />}
 
-        {/* PLAYBOOK — visual map of settings → app flows */}
+        {section === "guide" && (
         <div className="surface rounded-xl p-6" data-testid="settings-playbook">
           <div className="flex items-center gap-2 mb-2">
-            <MapTrifold size={18} className="text-[#34C759]" weight="duotone" />
+            <MapTrifold size={18} className="text-[#10B981]" weight="duotone" />
             <h2 className="font-display text-lg font-bold">Como cada configuração é usada</h2>
           </div>
           <p className="text-xs text-white/50 mb-4">
@@ -554,14 +612,14 @@ export default function Settings() {
                     {flow.settings.map((s) => (
                       <button
                         key={s.key}
-                        onClick={() => scrollToSetting(s.key)}
-                        data-testid={`flow-chip-${s.key}`}
+                        onClick={() => goToSetting(s.key)}
+                        data-testid={`flow-chip-${flow.title.slice(0, 12).replace(/\W+/g, "-")}-${s.key}`}
                         title={s.note || s.key}
                         className="text-[10px] font-mono px-2 py-1 rounded-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-colors"
                       >
                         {s.key}
                         {s.note.startsWith("⚡") && (
-                          <span className="ml-1 text-[#FF9F0A]">{s.note.slice(0, 2)}</span>
+                          <span className="ml-1 text-[#F59E0B]">{s.note.slice(0, 2)}</span>
                         )}
                       </button>
                     ))}
@@ -571,8 +629,9 @@ export default function Settings() {
             })}
           </div>
         </div>
+        )}
 
-        {Object.entries(GROUPS).map(([groupKey, groupTitle]) => (
+        {Object.entries(GROUPS).filter(([groupKey]) => groupKey === section).map(([groupKey, groupTitle]) => (
           <div key={groupKey} className="surface rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display text-xl font-bold">{groupTitle}</h2>
@@ -580,7 +639,7 @@ export default function Settings() {
                 <Button
                   variant="outline"
                   className="border-white/10 hover:bg-white/[0.05]"
-                  onClick={() => { setTestResult(null); testMut.mutate(); }}
+                  onClick={() => { setTestResult(null); testMut.mutate({ username: form.painel_username || "", password: form.painel_password || "" }); }}
                   disabled={testMut.isPending}
                   data-testid="btn-test-painel"
                 >
@@ -606,12 +665,12 @@ export default function Settings() {
               <div className={
                 "mb-4 p-3 rounded-lg border text-xs " +
                 (payTestResult.success !== false
-                  ? "border-[#34C759]/30 bg-[#34C759]/5"
-                  : "border-[#FF3B30]/30 bg-[#FF3B30]/5")
+                  ? "border-[#10B981]/30 bg-[#10B981]/5"
+                  : "border-[#EF4444]/30 bg-[#EF4444]/5")
               }>
                 {payTestResult.success !== false ? (
                   <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 text-[#34C759] font-medium">
+                    <div className="flex items-center gap-2 text-[#10B981] font-medium">
                       <CheckCircle size={14} /> Link gerado com sucesso (HTTP {payTestResult.http_status})
                     </div>
                     <div className="font-mono text-white/60 text-[10px]">
@@ -621,7 +680,7 @@ export default function Settings() {
                       href={payTestResult.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-block text-[#5AC8FA] underline break-all"
+                      className="inline-block text-[#60A5FA] underline break-all"
                       data-testid="test-link-url"
                     >
                       {payTestResult.url}
@@ -635,7 +694,7 @@ export default function Settings() {
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 text-[#FF3B30] font-medium">
+                    <div className="flex items-center gap-2 text-[#EF4444] font-medium">
                       <WarningCircle size={14} /> {payTestResult.error}
                     </div>
                     <div className="text-[10px] text-white/50">
@@ -651,19 +710,19 @@ export default function Settings() {
               <div className={
                 "mb-4 p-3 rounded-md border " +
                 (testResult.success
-                  ? "bg-[#34C759]/10 border-[#34C759]/30"
-                  : "bg-[#FF3B30]/10 border-[#FF3B30]/30")
+                  ? "bg-[#10B981]/10 border-[#10B981]/30"
+                  : "bg-[#EF4444]/10 border-[#EF4444]/30")
               } data-testid="painel-test-result">
                 {testResult.success ? (
                   <div className="flex items-center gap-3 text-sm">
-                    <CheckCircle size={20} className="text-[#34C759] shrink-0" weight="fill" />
+                    <CheckCircle size={20} className="text-[#10B981] shrink-0" weight="fill" />
                     <div className="flex-1">
-                      <div className="font-medium text-[#34C759]">Conectado com sucesso ao painel.fun</div>
+                      <div className="font-medium text-[#10B981]">Conectado com sucesso ao painel.fun</div>
                       <div className="text-white/70 text-xs mt-1 flex flex-wrap gap-4">
                         {testResult.username && <span>👤 <b>{testResult.username}</b></span>}
                         {testResult.credits != null && (
                           <span className="flex items-center gap-1">
-                            <Coin size={12} weight="fill" className="text-[#FF9F0A]" />
+                            <Coin size={12} weight="fill" className="text-[#F59E0B]" />
                             <b>{testResult.credits}</b> créditos disponíveis
                           </span>
                         )}
@@ -672,9 +731,9 @@ export default function Settings() {
                   </div>
                 ) : (
                   <div className="flex items-start gap-3 text-sm">
-                    <WarningCircle size={20} className="text-[#FF3B30] shrink-0 mt-0.5" weight="fill" />
+                    <WarningCircle size={20} className="text-[#EF4444] shrink-0 mt-0.5" weight="fill" />
                     <div className="flex-1">
-                      <div className="font-medium text-[#FF3B30]">Falha na conexão</div>
+                      <div className="font-medium text-[#EF4444]">Falha na conexão</div>
                       <div className="text-white/60 text-xs mt-1 break-all font-mono">{testResult.error}</div>
                     </div>
                   </div>
@@ -715,8 +774,10 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+            {groupKey === "pay" && <PaymentAccounts />}
           </div>
         ))}
+        </div>
       </div>
     </Layout>
   );

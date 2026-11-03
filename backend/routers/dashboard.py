@@ -34,7 +34,7 @@ async def stats():
         expiring_soon = (await cur.fetchone())["c"]
         # Revenue this week (paid)
         cur = await db.execute(
-            "SELECT COALESCE(SUM(amount_cents), 0) as t FROM payments WHERE status = 'paid' AND paid_at >= ?",
+            "SELECT COALESCE(SUM(amount_cents), 0) as t FROM payments WHERE status IN ('paid', 'paid_renewal_failed') AND paid_at >= ?",
             (week_start,),
         )
         revenue_week_cents = (await cur.fetchone())["t"]
@@ -77,22 +77,52 @@ async def attribution(days: int = 30):
     Buckets pagos vs criados no período. Deduzimos "conversion_rate" (paid /
     total). Ordenado por receita descendente.
     """
-    since = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+    days = max(1, min(days, 365))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT COALESCE(NULLIF(ref_bucket, ''), 'direct') as bucket,"
             " COUNT(*) as total,"
-            " SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paid_count,"
-            " COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_cents ELSE 0 END), 0) as revenue_cents"
+            " SUM(CASE WHEN status IN ('paid', 'paid_renewal_failed') THEN 1 ELSE 0 END) as paid_count,"
+            " COALESCE(SUM(CASE WHEN status IN ('paid', 'paid_renewal_failed') THEN amount_cents ELSE 0 END), 0) as revenue_cents"
             " FROM payments WHERE created_at >= ?"
             " GROUP BY bucket ORDER BY revenue_cents DESC",
             (since,),
         )
         rows = [dict(r) for r in await cur.fetchall()]
+        cur = await db.execute(
+            "SELECT event_key, COUNT(*) c FROM notification_deliveries "
+            "WHERE status = 'sent' AND COALESCE(sent_at, created_at) >= ? GROUP BY event_key",
+            (since,),
+        )
+        sent_by_event = {r["event_key"]: r["c"] for r in await cur.fetchall()
+                         if r["event_key"].startswith(("expiration_", "expired_", "trial_", "manual_expired", "auto_recovery"))}
+    by_bucket = {r["bucket"]: r for r in rows}
+    for ev, c in sent_by_event.items():
+        if ev not in by_bucket:
+            by_bucket[ev] = {"bucket": ev, "total": 0, "paid_count": 0, "revenue_cents": 0}
+    rows = sorted(by_bucket.values(), key=lambda r: (-r["revenue_cents"], -r["paid_count"]))
+    total_rev = sum(r["revenue_cents"] for r in rows) or 0
     for r in rows:
         r["conversion_rate"] = round(r["paid_count"] / r["total"] * 100, 1) if r["total"] else 0.0
-    return {"since": since, "buckets": rows}
+        r["messages_sent"] = sent_by_event.get(r["bucket"], 0)
+        r["message_conversion_rate"] = (
+            round(r["paid_count"] / r["messages_sent"] * 100, 1) if r["messages_sent"] else None
+        )
+        r["avg_ticket_cents"] = r["revenue_cents"] // r["paid_count"] if r["paid_count"] else 0
+        r["revenue_share"] = round(r["revenue_cents"] * 100 / total_rev, 1) if total_rev else 0.0
+    return {
+        "since": since,
+        "days": days,
+        "buckets": rows,
+        "totals": {
+            "messages_sent": sum(sent_by_event.values()),
+            "links_opened": sum(r["total"] for r in rows),
+            "paid": sum(r["paid_count"] for r in rows),
+            "revenue_cents": total_rev,
+        },
+    }
 
 
 @router.get("/revenue-by-day")
@@ -105,7 +135,7 @@ async def revenue_by_day(days: int = 14):
             "SELECT SUBSTR(paid_at, 1, 10) as day,"
             " COUNT(*) as count,"
             " COALESCE(SUM(amount_cents), 0) as revenue_cents"
-            " FROM payments WHERE status = 'paid' AND paid_at >= ?"
+            " FROM payments WHERE status IN ('paid', 'paid_renewal_failed') AND paid_at >= ?"
             " GROUP BY day ORDER BY day",
             (since,),
         )

@@ -40,7 +40,7 @@ async def _pending_payments(max_age_hours: int) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT id, order_nsu, created_at FROM payments "
+            "SELECT id, order_nsu, created_at, provider, account_id, mp_payment_id FROM payments "
             "WHERE status = 'pending' AND created_at >= ? "
             "ORDER BY created_at DESC LIMIT 100",
             (cutoff,),
@@ -62,11 +62,9 @@ async def check_pending_once() -> dict:
 
     for pmt in pending:
         try:
-            check = await infinitepay.check_payment(pmt["order_nsu"])
-            # STRICT: only accept when InfinitePay explicitly says paid=true.
-            # `success:true` alone from /payment_check means "found the record",
-            # not paid — we would falsely renew clients otherwise.
-            is_paid = check.get("paid") is True
+            from services.payment_accounts import check_paid
+            # STRICT: only accept when the provider explicitly says paid.
+            is_paid, check = await check_paid(pmt)
             if is_paid:
                 proc = await _process_payment_confirmation(
                     pmt["order_nsu"], paid=True, source="poller", raw=check,

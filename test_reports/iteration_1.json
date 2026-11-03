@@ -1,0 +1,18 @@
+{
+  "summary": "Read-only smoke test of imported WhatsFlow (fivezap) app. Backend: 49/49 pytest checks passed (health, login ok/wrong pw, 23 authenticated GETs return 200 JSON, 22 protected GETs return 401 without a token, public pay lookup). Frontend: admin login with Rithi0518@ redirects to the dashboard. All 12 sidebar pages render with an h1 and content, with no JS page errors and no API calls returning 4xx/5xx. The WhatsApp page shows state awaiting_qr with a QR image rendered. Public /teste form loads without login. /pay/227427597 (real painel customer) shows the renewal plans, and /pay/999999 shows a 'Link inválido' message. No real trials, payments, messages or system updates were triggered.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_import_smoke.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Observation (as-is behaviour): when the backend starts, background loops log in to painel.fun via 2Captcha Turnstile solving (each solve uses paid 2Captcha credit, balance $0.16) and sync to MongoDB Atlas. This is the original repo's design, not a defect of the import.",
+    "Dashboard 'Clientes ativos' shows 0 while the painel cache holds 13 users. This looks like original logic (the count comes from the local customers table, not the painel cache). Not changed."
+  ],
+  "updated_files": ["/app/backend/tests/test_import_smoke.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin password Rithi0518@ (from /app/memory/test_credentials.md) - works",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use /app/backend/tests/test_import_smoke.py for read-only regression checks. The other files in /app/backend/tests came from the repo and were not run. They may hit external services (painel.fun, InfinitePay, WhatsApp). Real painel customer id for /pay testing: 227427597."
+}

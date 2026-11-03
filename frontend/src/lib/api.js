@@ -19,7 +19,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (error) => {
-    if (error.response?.status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/teste") && !window.location.pathname.startsWith("/pay/")) {
+    if (error.response?.status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/teste") && !window.location.pathname.startsWith("/pay/") && !window.location.pathname.startsWith("/trevo")) {
       localStorage.removeItem("wf_token");
       window.location.href = "/login";
     }
@@ -31,6 +31,22 @@ export const authApi = {
   login: (password) => api.post("/auth/login", { password }).then((r) => r.data),
   me: () => api.get("/auth/me").then((r) => r.data),
   changePassword: (data) => api.post("/auth/change-password", data).then((r) => r.data),
+  verify2fa: (data) => api.post("/auth/login/verify", data).then((r) => r.data),
+  twofaStatus: () => api.get("/auth/2fa/status").then((r) => r.data),
+  twofaSetup: (email) => api.post("/auth/2fa/setup", { email }).then((r) => r.data),
+  twofaConfirm: (code) => api.post("/auth/2fa/confirm", { code }).then((r) => r.data),
+  twofaDisable: (password) => api.post("/auth/2fa/disable", { password }).then((r) => r.data),
+  methods: () => api.get("/auth/methods").then((r) => r.data),
+  emailLogin: (email, password) => api.post("/auth/email-login", { email, password }).then((r) => r.data),
+  emailVerify: (challenge_id, code) => api.post("/auth/email-login/verify", { challenge_id, code }).then((r) => r.data),
+  sbStatus: () => api.get("/auth/supabase/status").then((r) => r.data),
+  sbAccount: (email, password) => api.post("/auth/supabase/account", { email, password }).then((r) => r.data),
+  totpStart: (password) => api.post("/auth/supabase/totp/start", { password }).then((r) => r.data),
+  totpConfirm: (enroll_id, code) => api.post("/auth/supabase/totp/confirm", { enroll_id, code }).then((r) => r.data),
+  totpDisable: (password, code) => api.post("/auth/supabase/totp/disable", { password, code }).then((r) => r.data),
+  setLegacy: (enabled) => api.put("/auth/supabase/legacy", { enabled }).then((r) => r.data),
+  mirrorStatus: () => api.get("/supabase/mirror").then((r) => r.data),
+  mirrorRun: () => api.post("/supabase/mirror/run").then((r) => r.data),
 };
 
 export const uploadsApi = {
@@ -103,6 +119,28 @@ export const paymentsApi = {
   diagnostics: () => api.get("/payments/diagnostics").then((r) => r.data),
   painelLink: (customerId) =>
     api.get(`/payments/painel-link/${customerId}`).then((r) => r.data),
+  mpStatus: (paymentId) => api.get(`/payments/mp-status/${paymentId}`).then((r) => r.data),
+};
+
+export const customerPrefsApi = {
+  get: (id) => api.get(`/customer-prefs/${id}`).then((r) => r.data),
+  save: (id, body) => api.put(`/customer-prefs/${id}`, body).then((r) => r.data),
+};
+
+export const raffleApi = {
+  overview: () => api.get("/raffle").then((r) => r.data),
+  saveSettings: (body) => api.put("/raffle/settings", body).then((r) => r.data),
+  drawNow: () => api.post("/raffle/draw").then((r) => r.data),
+  newRound: () => api.post("/raffle/new-round").then((r) => r.data),
+  addEntry: (customer, clovers) => api.post("/raffle/entries", { customer, clovers }).then((r) => r.data),
+  removeEntry: (id) => api.delete(`/raffle/entries/${id}`).then((r) => r.data),
+  renameParticipant: (customer_id, name) => api.put("/raffle/participant-name", { customer_id, name }).then((r) => r.data),
+};
+
+export const paymentAccountsApi = {
+  list: () => api.get("/payment-accounts").then((r) => r.data),
+  save: (accounts) => api.put("/payment-accounts", { accounts }).then((r) => r.data),
+  test: (id) => api.post(`/payment-accounts/${id}/test`).then((r) => r.data),
 };
 
 export const settingsApi = {
@@ -115,6 +153,7 @@ export const settingsApi = {
 export const analyticsApi = {
   geography: (scope = "all") =>
     api.get("/analytics/geography", { params: { scope } }).then((r) => r.data),
+  geographyCustomers: () => api.get("/analytics/geography/customers", { timeout: 60000 }).then((r) => r.data),
 };
 
 export const systemApi = {
@@ -151,18 +190,31 @@ export const notificationsApi = {
   retryDelivery: (id) => api.post(`/notifications/deliveries/${id}/retry`).then((r) => r.data),
 };
 
+export const financeApi = {
+  summary: (month) => api.get("/finance/summary", { params: { month } }).then((r) => r.data),
+  customerPayments: (id) => api.get(`/finance/customer/${id}/payments`).then((r) => r.data),
+  reportPdf: (month) => api.get("/finance/report.pdf", { params: { month }, responseType: "blob", timeout: 60000 }).then((r) => r.data),
+  sendReport: (month) => api.post("/finance/report/send", null, { params: { month }, timeout: 120000 }).then((r) => r.data),
+};
+
+export const queueApi = {
+  get: () => api.get("/queue").then((r) => r.data),
+  cancel: (payload) => api.post("/queue/cancel", payload).then((r) => r.data),
+};
+
 export const painelApi = {
   listUsers: (params) => api.get("/painel/users", { params }).then((r) => r.data),
   refresh: () => api.post("/painel/users/refresh").then((r) => r.data),
   status: () => api.get("/painel/status").then((r) => r.data),
-  testConnection: () => api.get("/painel/test-connection", { timeout: 120000 }).then((r) => r.data),
+  testConnection: (creds) => api.post("/painel/test-connection", creds || {}, { timeout: 120000 }).then((r) => r.data),
   renew: (data) => api.post("/painel/renew", data).then((r) => r.data),
   packageIds: () => api.get("/painel/package-ids").then((r) => r.data),
   expiring: () => api.get("/painel/expiring").then((r) => r.data),
   notifyNow: () => api.post("/painel/notify-now", null, { timeout: 120000 }).then((r) => r.data),
   debugSample: () => api.get("/painel/debug-sample").then((r) => r.data),
   listExpired: () => api.get("/painel/expired").then((r) => r.data),
-  notifyExpired: (user_ids, force) => api.post("/painel/notify-expired", { user_ids: user_ids || [], force: !!force }, { timeout: 180000 }).then((r) => r.data),
+  notifyExpired: (user_ids, force, kind) => api.post("/painel/notify-expired", { user_ids: user_ids || [], force: !!force, kind: kind || "regular" }, { timeout: 180000 }).then((r) => r.data),
+  userNotifications: (id) => api.get(`/painel/users/${id}/notifications`).then((r) => r.data),
 };
 
 export function formatMoney(cents) {

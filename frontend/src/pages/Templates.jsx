@@ -97,12 +97,12 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
         <div className="text-xs text-white/40 mt-1 space-y-1">
           <div>
             <span className="text-white/60 font-medium">Dados do teste:</span>{" "}
-            <code className="text-[#007AFF]">{"{user}"}</code>{" "}
-            <code className="text-[#007AFF]">{"{pass}"}</code>{" "}
-            <code className="text-[#007AFF]">{"{expires}"}</code>{" "}
-            <code className="text-[#007AFF]">{"{mac}"}</code>{" "}
-            <code className="text-[#007AFF]">{"{system_type}"}</code>{" "}
-            <code className="text-[#007AFF]">{"{name}"}</code>
+            <code className="text-[#3B82F6]">{"{user}"}</code>{" "}
+            <code className="text-[#3B82F6]">{"{pass}"}</code>{" "}
+            <code className="text-[#3B82F6]">{"{expires}"}</code>{" "}
+            <code className="text-[#3B82F6]">{"{mac}"}</code>{" "}
+            <code className="text-[#3B82F6]">{"{system_type}"}</code>{" "}
+            <code className="text-[#3B82F6]">{"{name}"}</code>
           </div>
           <div>
             <span className="text-white/60 font-medium">Links de pagamento:</span>{" "}
@@ -131,7 +131,7 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
             data-testid="input-template-image-upload"
             className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:bg-white/10 file:text-white file:border-0 file:hover:bg-white/20 cursor-pointer"
           />
-          {uploading && <span className="text-xs text-[#FF9F0A]">Enviando...</span>}
+          {uploading && <span className="text-xs text-[#F59E0B]">Enviando...</span>}
           {f.image_url && (
             <>
               <a href={f.image_url.startsWith("http") ? f.image_url : `${process.env.REACT_APP_BACKEND_URL}${f.image_url}`} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-400 underline">
@@ -140,7 +140,7 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
               <button
                 type="button"
                 onClick={() => setF({ ...f, image_url: "" })}
-                className="text-xs text-[#FF3B30] hover:underline"
+                className="text-xs text-[#EF4444] hover:underline"
                 data-testid="btn-template-image-remove"
               >
                 remover
@@ -162,7 +162,7 @@ function TemplateForm({ initial, onSubmit, onCancel }) {
       </div>
       <div className="col-span-2 flex justify-end gap-2 mt-2">
         <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
-        <Button className="bg-[#007AFF] hover:bg-[#005BB5]" onClick={() => onSubmit(f)} data-testid="btn-save-template">Salvar</Button>
+        <Button className="bg-[#3B82F6] hover:bg-[#2563EB]" onClick={() => onSubmit(f)} data-testid="btn-save-template">Salvar</Button>
       </div>
     </div>
   );
@@ -195,11 +195,11 @@ export default function Templates() {
       actions={
         <Dialog open={creating} onOpenChange={setCreating}>
           <DialogTrigger asChild>
-            <Button className="bg-[#007AFF] hover:bg-[#005BB5]" data-testid="btn-new-template">
+            <Button className="bg-[#3B82F6] hover:bg-[#2563EB]" data-testid="btn-new-template">
               <Plus size={16} className="mr-2" /> Novo comando
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-[#121212] border-white/10 text-white max-w-2xl">
+          <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-2xl">
             <DialogHeader><DialogTitle className="font-display">Novo comando</DialogTitle></DialogHeader>
             <TemplateForm onCancel={() => setCreating(false)} onSubmit={(f) => createMut.mutate(f)} />
           </DialogContent>
@@ -211,7 +211,7 @@ export default function Templates() {
           <div key={t.id} className="surface rounded-xl p-5 flex flex-col" data-testid={`template-card-${t.id}`}>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-md bg-[#007AFF]/15 text-[#007AFF] flex items-center justify-center">
+                <div className="w-8 h-8 rounded-md bg-[#3B82F6]/15 text-[#3B82F6] flex items-center justify-center">
                   <Command size={16} weight="duotone" />
                 </div>
                 <div>
@@ -221,7 +221,7 @@ export default function Templates() {
                   </div>
                 </div>
               </div>
-              <span className={"text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " + (t.enabled ? "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30" : "bg-white/5 text-white/40 border-white/10")}>
+              <span className={"text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " + (t.enabled ? "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/30" : "bg-white/5 text-white/40 border-white/10")}>
                 {t.enabled ? "Ativo" : "Off"}
               </span>
             </div>
@@ -233,7 +233,7 @@ export default function Templates() {
               <Button size="sm" variant="ghost" onClick={() => setEditing(t)} className="text-xs" data-testid={`btn-edit-template-${t.id}`}>
                 <PencilSimple size={14} className="mr-1" /> Editar
               </Button>
-              <Button size="sm" variant="ghost" className="text-xs text-[#FF3B30]" onClick={() => removeMut.mutate(t.id)} data-testid={`btn-delete-template-${t.id}`}>
+              <Button size="sm" variant="ghost" className="text-xs text-[#EF4444]" onClick={() => removeMut.mutate(t.id)} data-testid={`btn-delete-template-${t.id}`}>
                 <Trash size={14} className="mr-1" /> Remover
               </Button>
             </div>
@@ -247,7 +247,7 @@ export default function Templates() {
       </div>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-2xl">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-2xl">
           <DialogHeader><DialogTitle className="font-display">Editar comando</DialogTitle></DialogHeader>
           {editing && <TemplateForm initial={editing} onCancel={() => setEditing(null)} onSubmit={(f) => updateMut.mutate({ id: editing.id, data: f })} />}
         </DialogContent>

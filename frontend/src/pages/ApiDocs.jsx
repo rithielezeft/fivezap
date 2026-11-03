@@ -7,10 +7,10 @@ import { MagnifyingGlass, Copy, CheckCircle } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
 const METHOD_COLORS = {
-  GET: "bg-[#34C759]/15 text-[#34C759] border-[#34C759]/30",
-  POST: "bg-[#007AFF]/15 text-[#007AFF] border-[#007AFF]/30",
+  GET: "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30",
+  POST: "bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30",
   PUT: "bg-[#FF9500]/15 text-[#FF9500] border-[#FF9500]/30",
-  DELETE: "bg-[#FF3B30]/15 text-[#FF3B30] border-[#FF3B30]/30",
+  DELETE: "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30",
   PATCH: "bg-[#AF52DE]/15 text-[#AF52DE] border-[#AF52DE]/30",
 };
 
@@ -186,7 +186,7 @@ export default function ApiDocs() {
                         data-testid={`btn-copy-${item.method}-${item.path}`}
                       >
                         {copied ? (
-                          <CheckCircle size={14} weight="fill" className="text-[#34C759]" />
+                          <CheckCircle size={14} weight="fill" className="text-[#10B981]" />
                         ) : (
                           <Copy size={14} />
                         )}

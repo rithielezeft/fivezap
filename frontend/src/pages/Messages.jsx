@@ -69,7 +69,7 @@ export default function Messages() {
               <div className="flex-1 overflow-y-auto p-4 space-y-2 flex flex-col-reverse">
                 {(msgs || []).map((m) => (
                   <div key={m.id} className={"flex " + (m.direction === "out" ? "justify-end" : "justify-start")}>
-                    <div className={"max-w-[70%] px-3 py-2 rounded-lg text-sm " + (m.direction === "out" ? "bg-[#007AFF] text-white" : "bg-white/[0.06]")}>
+                    <div className={"max-w-[70%] px-3 py-2 rounded-lg text-sm " + (m.direction === "out" ? "bg-[#3B82F6] text-white" : "bg-white/[0.06]")}>
                       <div className="whitespace-pre-wrap">{m.message}</div>
                       <div className="text-[10px] opacity-60 mt-1">{formatDateBR(m.timestamp)}</div>
                     </div>
@@ -79,7 +79,7 @@ export default function Messages() {
               <div className="p-3 border-t border-white/10 flex gap-2">
                 <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Digite uma mensagem..." onKeyDown={(e) => e.key === "Enter" && text && sendMut.mutate({ phone: selected, message: text })} data-testid="input-message" />
                 <Button
-                  className="bg-[#007AFF] hover:bg-[#005BB5]"
+                  className="bg-[#3B82F6] hover:bg-[#2563EB]"
                   disabled={!text || sendMut.isPending}
                   onClick={() => sendMut.mutate({ phone: selected, message: text })}
                   data-testid="btn-send-message"

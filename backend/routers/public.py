@@ -15,12 +15,17 @@ logger = logging.getLogger(__name__)
 @router.post("/trial")
 async def public_request_trial(payload: PublicTrialRequest):
     """Public form on /teste page — creates trial and returns credentials."""
-    phone_digits = "".join(c for c in payload.whatsapp if c.isdigit())
+    from services.phone_extractor import _clean, br_variants
+    phone_digits = _clean(payload.whatsapp or "")
+    if not 12 <= len(phone_digits) <= 15:
+        from fastapi import HTTPException
+        raise HTTPException(400, "Número de WhatsApp inválido. Use DDD + número, ex.: (31) 98658-2251")
 
     # Find or create customer
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM customers WHERE whatsapp = ?", (phone_digits,))
+        v = br_variants(phone_digits)
+        cur = await db.execute(f"SELECT * FROM customers WHERE whatsapp IN ({','.join('?' * len(v))})", v)
         row = await cur.fetchone()
         if row:
             customer_id = row["id"]

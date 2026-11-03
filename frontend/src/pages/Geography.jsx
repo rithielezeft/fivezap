@@ -4,6 +4,7 @@ import Globe from "react-globe.gl";
 import Layout from "@/components/Layout";
 import { analyticsApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { RegionCustomers } from "@/components/RegionCustomers";
 import { Globe as GlobeIcon, MapPin, Users, CaretDown, CaretRight } from "@phosphor-icons/react";
 
 const SCOPES = [
@@ -86,14 +87,14 @@ export default function Geography() {
       lat: c.lat, lng: c.lng, count: c.count,
       label: `${c.flag} ${c.name} — ${c.count} cliente${c.count > 1 ? "s" : ""}`,
       radius: 0.35 + 0.9 * Math.sqrt(c.count / max),
-      color: "#007AFF",
+      color: "#3B82F6",
     }));
 
     const brPoints = brStates.map((s) => ({
       lat: s.lat, lng: s.lng, count: s.count,
       label: `🇧🇷 ${s.region} (${s.uf}, DDD ${s.ddd}) — ${s.count} cliente${s.count > 1 ? "s" : ""}`,
       radius: 0.28 + 0.9 * Math.sqrt(s.count / max),
-      color: "#34C759",
+      color: "#10B981",
     }));
 
     return [...brPoints, ...nonBrPoints];
@@ -137,7 +138,7 @@ export default function Geography() {
               className={
                 "px-3 py-1.5 rounded text-xs font-medium transition-colors " +
                 (scope === s.key
-                  ? "bg-[#007AFF] text-white"
+                  ? "bg-[#3B82F6] text-white"
                   : "text-white/60 hover:text-white hover:bg-white/5")
               }
             >
@@ -197,7 +198,7 @@ export default function Geography() {
         <div className="space-y-4">
           <div className="surface rounded-2xl p-5" data-testid="index-countries">
             <div className="flex items-center gap-2 mb-3">
-              <GlobeIcon size={16} className="text-[#007AFF]" />
+              <GlobeIcon size={16} className="text-[#3B82F6]" />
               <div className="text-xs uppercase tracking-widest text-white/50">Por país</div>
             </div>
             {(!data?.by_country || data.by_country.length === 0) ? (
@@ -218,7 +219,7 @@ export default function Geography() {
                       className={
                         "text-xs font-mono px-2 py-0.5 rounded-full " +
                         (c.code === "BR"
-                          ? "bg-[#34C759]/15 text-[#34C759]"
+                          ? "bg-[#10B981]/15 text-[#10B981]"
                           : "bg-white/5 text-white/70")
                       }
                     >
@@ -238,7 +239,7 @@ export default function Geography() {
               data-testid="btn-toggle-br"
             >
               <div className="flex items-center gap-2">
-                <MapPin size={16} className="text-[#34C759]" />
+                <MapPin size={16} className="text-[#10B981]" />
                 <div className="text-xs uppercase tracking-widest text-white/50">
                   Brasil por DDD
                 </div>
@@ -291,6 +292,7 @@ export default function Geography() {
           )}
         </div>
       </div>
+      <RegionCustomers />
     </Layout>
   );
 }

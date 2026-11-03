@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 RETRY_INTERVAL_SECONDS = 10
 LOOP_TICK_SECONDS = 5   # scan the queue every 5s → up to +5s of latency
 DEFAULT_MAX_ATTEMPTS = 5
+CLAIM_TIMEOUT_SECONDS = 1800
 
 # Sentinel so callers can distinguish "use the setting" from "explicit 0".
 _USE_SETTING = -1
@@ -79,7 +80,7 @@ async def _find_recent_by_body_hash(body_hash: str, window_minutes: int) -> Opti
             "SELECT * FROM notification_deliveries "
             "WHERE body_hash = ? "
             "  AND ("
-            "    status = 'pending' "
+            "    status IN ('pending', 'sending') "
             "    OR (status = 'sent' AND sent_at IS NOT NULL AND sent_at >= ?)"
             "  ) "
             "ORDER BY created_at DESC LIMIT 1",
@@ -161,7 +162,7 @@ async def find_recent_delivery(
             "SELECT * FROM notification_deliveries "
             "WHERE phone = ? AND event_key = ? "
             "  AND ("
-            "    status = 'pending' "
+            "    status IN ('pending', 'sending') "
             "    OR (status = 'sent' AND sent_at IS NOT NULL AND sent_at >= ?)"
             "  ) "
             "ORDER BY created_at DESC LIMIT 1",
@@ -262,6 +263,9 @@ async def enqueue(
     # Encode typing_ms into a lightweight side-channel: we keep a "hint" in
     # last_error until first send happens; overwritten on real error.
     hint = f"__typing_ms__:{int(typing_ms)}" if typing_ms and typing_ms > 0 else None
+    # The inline attempt below handles the first try; push next_retry_at out so
+    # the retry loop doesn't grab the same row while it's in flight.
+    first_retry_at = (datetime.now(timezone.utc) + timedelta(seconds=CLAIM_TIMEOUT_SECONDS)).isoformat()
     async with aiosqlite.connect(database.DB_PATH) as db:
         await db.execute(
             "INSERT INTO notification_deliveries "
@@ -269,7 +273,7 @@ async def enqueue(
             " attempts, max_attempts, next_retry_at, last_error, body_hash, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)",
             (did, event_key, phone, body, image_url, customer_id, max_attempts,
-             created_at, hint, body_hash, created_at),
+             first_retry_at, hint, body_hash, created_at),
         )
         await db.commit()
 
@@ -292,8 +296,21 @@ async def _attempt(delivery_id: str) -> bool:
 
     if d["status"] == "sent":
         return True
-    if d["status"] == "failed_permanent":
+    if d["status"] != "pending":
         return False
+
+    # Atomic claim: only ONE caller (inline enqueue or retry loop) may send.
+    claim_until = (datetime.now(timezone.utc) + timedelta(seconds=CLAIM_TIMEOUT_SECONDS)).isoformat()
+    async with aiosqlite.connect(database.DB_PATH) as db:
+        cur = await db.execute(
+            "UPDATE notification_deliveries SET status = 'sending', next_retry_at = ? "
+            "WHERE id = ? AND status = 'pending'",
+            (claim_until, delivery_id),
+        )
+        await db.commit()
+        if cur.rowcount != 1:
+            logger.info("delivery id=%s already claimed by another sender — skipping", delivery_id)
+            return False
 
     attempts = int(d["attempts"]) + 1
     # Extract typing_ms hint from last_error (set at enqueue time), if any.
@@ -308,9 +325,18 @@ async def _attempt(delivery_id: str) -> bool:
         # Global pacer — enforce `send_min_gap_seconds` between any two
         # actual WhatsApp sends. Callers into the queue don't burst.
         await _wait_for_pace_slot()
+        # Admin may have cancelled it from the Fila de envio while it waited.
+        async with aiosqlite.connect(database.DB_PATH) as db:
+            cur = await db.execute(
+                "SELECT status FROM notification_deliveries WHERE id = ?", (delivery_id,)
+            )
+            row = await cur.fetchone()
+        if not row or row[0] != "sending":
+            logger.info("delivery id=%s cancelled before send — skipping", delivery_id)
+            return False
         await whatsapp_client.send_message(
             d["phone"], d["body"], image_url=d["image_url"] or None,
-            typing_ms=typing_ms,
+            typing_ms=typing_ms, idempotency_key=delivery_id,
         )
         async with aiosqlite.connect(database.DB_PATH) as db:
             await db.execute(
@@ -335,7 +361,7 @@ async def _attempt(delivery_id: str) -> bool:
                     "UPDATE notification_deliveries "
                     "SET status = 'failed_permanent', attempts = ?, "
                     "    last_error = ?, next_retry_at = NULL "
-                    "WHERE id = ?",
+                    "WHERE id = ? AND status = 'sending'",
                     (attempts, err, delivery_id),
                 )
                 await db.commit()
@@ -368,7 +394,7 @@ async def _attempt(delivery_id: str) -> bool:
                 await db.execute(
                     "UPDATE notification_deliveries "
                     "SET status = 'pending', attempts = ?, last_error = ?, next_retry_at = ? "
-                    "WHERE id = ?",
+                    "WHERE id = ? AND status = 'sending'",
                     (attempts, err, next_at, delivery_id),
                 )
                 await db.commit()
@@ -388,6 +414,14 @@ async def retry_loop_iteration() -> int:
     now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(database.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+        # Release stale claims (process died mid-send). The WhatsApp service
+        # dedupes by delivery id, so a resend of an already-sent row is a no-op.
+        await db.execute(
+            "UPDATE notification_deliveries SET status = 'pending' "
+            "WHERE status = 'sending' AND next_retry_at <= ?",
+            (now,),
+        )
+        await db.commit()
         cur = await db.execute(
             "SELECT id FROM notification_deliveries "
             "WHERE status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= ?) "

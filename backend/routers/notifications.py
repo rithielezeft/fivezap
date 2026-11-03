@@ -1,4 +1,5 @@
 """Notification templates CRUD (vencimento, renovação, teste)."""
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ from database import DB_PATH
 from models import now_iso
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+logger = logging.getLogger(__name__)
 
 
 class NotifTemplate(BaseModel):

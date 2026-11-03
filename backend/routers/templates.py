@@ -5,6 +5,7 @@ import aiosqlite
 
 from database import DB_PATH
 from models import Template, TemplateCreate, TemplateUpdate, new_id, now_iso
+from services import mongo_store
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -89,7 +90,9 @@ async def create_template(payload: TemplateCreate):
             raise HTTPException(409, "Trigger command already exists")
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM command_templates WHERE id = ?", (tid,))
-        return _row_to_template(await cur.fetchone())
+        row = await cur.fetchone()
+    await mongo_store.upsert_command_template(dict(row))
+    return _row_to_template(row)
 
 
 @router.put("/{template_id}", response_model=Template)
@@ -112,7 +115,9 @@ async def update_template(template_id: str, payload: TemplateUpdate):
         await db.commit()
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM command_templates WHERE id = ?", (template_id,))
-        return _row_to_template(await cur.fetchone())
+        row = await cur.fetchone()
+    await mongo_store.upsert_command_template(dict(row))
+    return _row_to_template(row)
 
 
 @router.delete("/{template_id}")
@@ -122,4 +127,5 @@ async def delete_template(template_id: str):
         if cur.rowcount == 0:
             raise HTTPException(404, "Template not found")
         await db.commit()
+    await mongo_store.delete_command_template(template_id)
     return {"success": True}

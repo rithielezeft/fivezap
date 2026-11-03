@@ -83,6 +83,9 @@ async def get_active_discount(customer_id: str) -> Optional[dict]:
     """
     if not customer_id:
         return None
+    from services.customer_prefs import discount_blocked
+    if await discount_blocked(customer_id):
+        return None
     today = datetime.now(timezone.utc).date().isoformat()
 
     # Fetch all `notified_{customer_id}_*_{today}` marker keys in one query.

@@ -14,6 +14,115 @@ router = APIRouter(prefix="/api/payments", tags=["payments"])
 logger = logging.getLogger(__name__)
 
 
+async def _cache_user(painel_id) -> dict:
+    from routers.painel_users import _read_cache
+    users, _ = await _read_cache()
+    return next((u for u in users or [] if str(u.get("id") or u.get("user_id")) == str(painel_id)), None) or {}
+
+
+def _has_adult(u: dict) -> bool:
+    import json as _json
+    raw = u.get("bouquet") or u.get("packages") or "[]"
+    try:
+        ids = _json.loads(raw) if isinstance(raw, str) else list(raw)
+    except Exception:
+        ids = []
+    return painel.ADULT_BOUQUET_ID in [int(x) for x in ids if str(x).isdigit()]
+
+
+async def _clover_vars(payment: dict) -> dict:
+    if "clovers" not in payment and payment.get("id"):
+        async with aiosqlite.connect(DB_PATH) as db:
+            row = await (await db.execute("SELECT clovers FROM payments WHERE id = ?", (payment["id"],))).fetchone()
+        payment = {**payment, "clovers": row[0] if row else 0}
+    n = int(payment.get("clovers") or 0)
+    coupons = []
+    if n:
+        try:
+            from services.raffle import coupons_for_payment
+            coupons = await coupons_for_payment(payment["id"])
+        except Exception:
+            logger.exception("clover coupons lookup failed")
+    return {"clovers": n, "clover_coupons": ", ".join(f"#{c}" for c in coupons) if coupons else ("—" if not n else "")}
+
+
+async def _public_raffle():
+    from routers.raffle import raffle_public
+    try:
+        return await raffle_public()
+    except Exception:
+        logger.exception("raffle info failed")
+        return {"enabled": False}
+
+
+async def _linked_accounts(painel_id) -> list:
+    """Other (non-trial) painel logins registered with the same WhatsApp number."""
+    from routers.painel_users import _read_cache
+    from services.phone_extractor import extract_whatsapp
+    from services.expiration import compute_expiration_info
+    users, _ = await _read_cache()
+    main = next((u for u in users or [] if str(u.get("id") or u.get("user_id")) == str(painel_id)), None)
+    phone = extract_whatsapp(main) if main else ""
+    if not phone:
+        return []
+    out = []
+    for u in users:
+        uid = str(u.get("id") or u.get("user_id") or "")
+        if uid == str(painel_id) or u.get("is_trial") or extract_whatsapp(u) != phone:
+            continue
+        from services.customer_prefs import price_for, get_prefs
+        pf = await get_prefs(uid)
+        out.append({"id": uid, "login": u.get("username"),
+                    "expires_at": compute_expiration_info(u).get("expires_at_iso"),
+                    "prices": {m: await price_for(uid, m) for m in (1, 3, 6, 12)},
+                    "fixed_plan": pf.get("fixed_plan"), "discounts_blocked": bool(pf.get("no_discount"))})
+    return out
+
+
+async def _renew_extra_accounts(payment: dict, phone: str, source: str) -> list:
+    """Renew the additional logins bought in the same checkout + notify each."""
+    import json as _json
+    try:
+        extra_ids = _json.loads(payment.get("extra_customer_ids") or "[]")
+    except Exception:
+        extra_ids = []
+    results = []
+    adult = payment.get("adult_channels")
+    for eid in extra_ids:
+        try:
+            res = await painel.renew_user(user_id=str(eid), package_id=payment["package_id"],
+                                          months=payment.get("plan_months"),
+                                          adult=None if adult is None else bool(adult))
+            u = await _cache_user(eid)
+            new_exp = res.get("exp_date") or res.get("expires_at") or ""
+            if isinstance(new_exp, (int, float)):
+                from datetime import datetime as _dt, timezone as _tz
+                new_exp = _dt.fromtimestamp(int(new_exp), tz=_tz.utc).strftime("%d/%m/%Y")
+            await log_activity("renewal_success", f"Renovação extra {payment['plan_months']}m (painel_id={eid}, source={source})",
+                               str(eid), "success", res)
+            if phone:
+                from services.notifier import send_notification
+                await send_notification("renewal_success", phone, {
+                    "name": u.get("full_name") or u.get("username") or "cliente",
+                    "user": u.get("username") or str(eid),
+                    "password": u.get("password") or "",
+                    "plan_months": payment["plan_months"],
+                    "new_expires_at": new_exp,
+                    "system_type": "",
+                    **(await _clover_vars(payment)),
+                }, customer_id=str(eid))
+            results.append({"id": eid, "ok": True})
+        except Exception as e:
+            logger.exception("Extra renewal failed for %s", eid)
+            results.append({"id": eid, "ok": False, "error": str(e)[:200]})
+            try:
+                from services.notifier import send_admin_alert
+                await send_admin_alert(f"⚠️ *Renovação extra falhou*\n\nPainel ID: {eid}\nPagamento: {payment['id']}\nErro: {str(e)[:150]}\n\nRenove manualmente no painel.")
+            except Exception:
+                pass
+    return results
+
+
 @router.get("", response_model=List[Payment])
 async def list_payments():
     """Admin list — enriched with `customer_login` (painel.fun username) and
@@ -217,14 +326,11 @@ async def create_payment(payload: PaymentCreate):
             await db.commit()
         logger.info("Auto-created customer from painel cache: %s (%s)", customer["name"], customer["id"])
 
-    price_key = f"plan_price_{payload.plan_months}m"
-    price_str = await get_setting(price_key, "35,00")
-    # Convert "35,00" or "35.00" to cents
-    normalized = price_str.replace(",", ".").strip()
-    try:
-        amount = int(round(float(normalized) * 100))
-    except ValueError:
-        amount = 3500
+    from services import customer_prefs
+    fixed = (await customer_prefs.get_prefs(payload.customer_id)).get("fixed_plan")
+    if fixed and int(fixed) != int(payload.plan_months):
+        raise HTTPException(400, "Plano indisponível para este cliente")
+    amount = await customer_prefs.price_for(payload.customer_id, payload.plan_months)
     original_amount = amount
 
     # Coupon (optional) — validates + applies discount. Cap 50%. Enforces
@@ -281,9 +387,41 @@ async def create_payment(payload: PaymentCreate):
 
     package_id = painel.get_package_id(customer["system_type"], payload.plan_months)
 
+    # Multi-points: extra logins must share this customer's WhatsApp number.
+    import json as _json
+    extra_ids = []
+    if payload.extra_customer_ids:
+        allowed = {a["id"] for a in await _linked_accounts(payload.customer_id)}
+        extra_ids = [str(x) for x in dict.fromkeys(payload.extra_customer_ids) if str(x) in allowed]
+    points = 1 + len(extra_ids)
+    # Each extra login pays its own (custom or default) price; it gets the same
+    # discount % unless that login is blocked from discounts.
+    for eid in extra_ids:
+        e_fixed = (await customer_prefs.get_prefs(eid)).get("fixed_plan")
+        if e_fixed and int(e_fixed) != int(payload.plan_months):
+            raise HTTPException(400, "Um dos logins selecionados só pode renovar em outro plano")
+        e_price = await customer_prefs.price_for(eid, payload.plan_months)
+        original_amount += e_price
+        blocked = await customer_prefs.discount_blocked(eid)
+        amount += apply_discount(e_price, 0 if blocked else discount_percent) if discount_percent else e_price
+
+    from services import payment_accounts
+    providers = await payment_accounts.enabled_providers()
+    provider = payload.provider if payload.provider in providers else (providers[0] if providers else "infinitepay")
+    account = await payment_accounts.pick_account(provider)
+    clovers = 0
+    from services import raffle as raffle_svc
+    rcfg = await raffle_svc.config()
+    if rcfg["enabled"] and payload.clovers:
+        clovers = max(0, min(int(payload.clovers), rcfg["max_clovers"]))
+        amount += clovers * rcfg["clover_cents"]
+    if provider == "mercadopago":
+        amount = payment_accounts.mp_amount(amount)
+
     public_base = await get_setting("public_base_url")
-    order_nsu = f"renew-{payload.customer_id}-{payload.plan_months}m"
     payment_id = new_id()
+    order_nsu = (f"mp-{payload.customer_id}-{payload.plan_months}m-{payment_id[:8]}" if provider == "mercadopago"
+                 else f"renew-{payload.customer_id}-{payload.plan_months}m")
     # Per-payment secret used by /pay/{id}?ok=1&t=<token> to prove that the
     # browser actually returned from the InfinitePay checkout that we
     # ourselves created. Prevents attackers from POSTing to
@@ -302,17 +440,29 @@ async def create_payment(payload: PaymentCreate):
                            or customer.get("name")
                            or "")
 
-        link_data = await infinitepay.create_payment_link(
-            order_nsu=order_nsu,
-            amount_cents=amount,
-            description=f"Renovação {customer['system_type'].upper()} — {payload.plan_months} mês(es)",
-            redirect_url=f"{public_base}/pay/{payload.customer_id}?ok=1&t={confirmation_token}",
-            webhook_url=await infinitepay.build_webhook_url(public_base),
-            customer_name=painel_username or None,
-            customer_phone=None,
-        )
+        description = f"Renovação {customer['system_type'].upper()} — {payload.plan_months} mês(es)" + (f" × {points} pontos" if points > 1 else "")
+        if provider == "mercadopago":
+            from services import mercadopago
+            host = (public_base or "").split("://")[-1].split("/")[0] or "whatsflow.app"
+            pix = await mercadopago.create_pix(
+                account["access_token"], amount, description, external_reference=payment_id,
+                payer_email=(await get_setting("mercadopago_payer_email") or "").strip() or f"cliente{payload.customer_id}@{host}",
+                notification_url=f"{public_base}/api/payments/mp-webhook" if public_base else None,
+            )
+            link_data = {"url": pix.get("ticket_url"), **pix}
+        else:
+            link_data = await infinitepay.create_payment_link(
+                order_nsu=order_nsu,
+                amount_cents=amount,
+                description=description,
+                redirect_url=f"{public_base}/pay/{payload.customer_id}?ok=1&t={confirmation_token}",
+                webhook_url=await infinitepay.build_webhook_url(public_base),
+                customer_name=painel_username or None,
+                customer_phone=None,
+                handle=(account or {}).get("handle"),
+            )
     except Exception as e:
-        raise HTTPException(502, f"InfinitePay error: {e}")
+        raise HTTPException(502, f"{'Mercado Pago' if provider == 'mercadopago' else 'InfinitePay'} error: {e}")
 
     # Sanitize/whitelist the attribution bucket. Values must be one of the
     # known reminder events or a short admin-supplied label — never an
@@ -330,11 +480,17 @@ async def create_payment(payload: PaymentCreate):
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, ref_bucket, coupon_code, coupon_id, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO payments (id, customer_id, plan_months, amount_cents, package_id, status, infinitepay_url, order_nsu, confirmation_token, discount_percent, original_amount_cents, ref_bucket, coupon_code, coupon_id, created_at,"
+            " provider, account_id, extra_customer_ids, mp_payment_id, adult_channels, pix_qr_code, pix_qr_base64, pix_ticket_url, clovers)"
+            " VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (payment_id, payload.customer_id, payload.plan_months, amount, package_id,
              link_data.get("url"), order_nsu, confirmation_token,
              discount_percent, original_amount, ref_bucket,
-             coupon_code_norm or None, coupon_id_final or None, now_iso()),
+             coupon_code_norm or None, coupon_id_final or None, now_iso(),
+             provider, (account or {}).get("id"), _json.dumps(extra_ids) if extra_ids else None,
+             link_data.get("id") if provider == "mercadopago" else None,
+             None if payload.adult_channels is None else int(bool(payload.adult_channels)),
+             link_data.get("qr_code"), link_data.get("qr_code_base64"), link_data.get("ticket_url"), clovers),
         )
         await db.commit()
 
@@ -362,7 +518,12 @@ async def create_payment(payload: PaymentCreate):
 
     return {
         "payment_id": payment_id,
+        "provider": provider,
         "url": link_data.get("url"),
+        "pix_qr_code": link_data.get("qr_code"),
+        "pix_qr_base64": link_data.get("qr_code_base64"),
+        "points": points,
+        "clovers": clovers,
         "amount_cents": amount,
         "original_amount_cents": original_amount,
         "discount_percent": discount_percent,
@@ -804,10 +965,12 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         payment["plan_months"], source,
     )
     try:
+        adult_pref = payment.get("adult_channels")
         result = await painel.renew_user(
             user_id=painel_id,
             package_id=payment["package_id"],
             months=payment.get("plan_months"),
+            adult=None if adult_pref is None else bool(adult_pref),
         )
         logger.info(
             "✅ PAINEL RENEWED payment=%s painel_id=%s result=%s",
@@ -964,6 +1127,8 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     {
                         "name": customer["name"],
                         "user": painel_user or customer["name"],
+                        "password": (await _cache_user(painel_id)).get("password") or "",
+                        **(await _clover_vars(payment)),
                         "plan_months": payment["plan_months"],
                         "new_expires_at": new_expires,
                         "system_type": customer.get("system_type") or "",
@@ -1011,13 +1176,21 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     notify_status = "❌ falhou (WhatsApp indisponível)"
                 else:
                     notify_status = "❌ falhou (sem número no cadastro)"
+                import json as _j
+                _extra = len(_j.loads(payment.get("extra_customer_ids") or "[]"))
+                _clov = int(payment.get("clovers") or 0)
+                _prov = "Mercado Pago (Pix)" if payment.get("provider") == "mercadopago" else "InfinitePay"
                 admin_msg = (
                     "💰 *Pagamento confirmado*\n\n"
                     f"👤 Cliente: {customer['name']}\n"
                     f"👥 Login: {painel_user or '-'}\n"
                     f"📱 WhatsApp: {phone or '-'}\n"
                     f"📦 Plano: {payment['plan_months']} mês(es)  |  {amount_brl}\n"
-                    f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
+                    f"💳 Pagamento: {_prov}" + (f" · conta {payment.get('account_id')}" if payment.get("account_id") else "") + "\n"
+                    + (f"👥 Logins no pagamento: {1 + _extra}\n" if _extra else "")
+                    + (f"🍀 Trevo da Sorte: sim — {_clov} {'trevo' if _clov == 1 else 'trevos'}\n" if _clov else "🍀 Trevo da Sorte: não\n")
+                    + (f"🏷️ Desconto: {payment.get('discount_percent')}%" + (f" (cupom {payment.get('coupon_code')})" if payment.get("coupon_code") else "") + "\n" if payment.get("discount_percent") else "")
+                    + f"🎯 Sistema: {(customer.get('system_type') or '-').upper()}\n"
                     f"🔗 Painel ID: {painel_id}\n"
                     f"📆 Novo vencimento: {new_expires or '-'}\n"
                     f"🛰️ Origem: {source}\n"
@@ -1056,7 +1229,11 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
         except Exception:
             logger.exception("Failed to mirror renewal to MongoDB (non-fatal)")
 
-        return {"ok": True, "status": "renewed", "payment_id": payment["id"], "painel_id": painel_id, "result": result}
+        extra_results = []
+        if payment.get("extra_customer_ids"):
+            extra_results = await _renew_extra_accounts(payment, phone, source)
+        return {"ok": True, "status": "renewed", "payment_id": payment["id"], "painel_id": painel_id,
+                "result": result, "extra_renewals": extra_results}
     except Exception as e:
         logger.exception("Renewal painel call failed for payment %s", payment["id"])
         err_str = str(e)
@@ -1297,6 +1474,7 @@ async def resend_notification(payment_id: str):
             "plan_months": pmt["plan_months"],
             "new_expires_at": new_expires_at,
             "system_type": pmt["customer_system_type"] or "",
+            **(await _clover_vars({"id": pmt["id"]})),
         },
     )
     if ok:
@@ -1538,7 +1716,7 @@ async def check_status_by_customer(customer_id: str, request: Request):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT id, order_nsu, infinitepay_url, confirmation_token, created_at "
+            "SELECT id, order_nsu, infinitepay_url, confirmation_token, created_at, provider, account_id, mp_payment_id "
             "FROM payments WHERE customer_id = ? AND status = 'pending' AND created_at >= ? "
             "ORDER BY created_at DESC LIMIT 5",
             (str(customer_id), cutoff),
@@ -1551,8 +1729,9 @@ async def check_status_by_customer(customer_id: str, request: Request):
     # Strategy 1: InfinitePay official /payment_check (strict)
     for pmt in pendings:
         try:
-            check = await infinitepay.check_payment(pmt["order_nsu"])
-            if check.get("paid") is True:
+            from services.payment_accounts import check_paid
+            is_paid, check = await check_paid(pmt)
+            if is_paid:
                 proc = await _process_payment_confirmation(
                     pmt["order_nsu"], paid=True, source="pay_page_return", raw=check,
                 )
@@ -1570,6 +1749,8 @@ async def check_status_by_customer(customer_id: str, request: Request):
     if provided_token:
         for pmt in pendings:
             stored = (pmt.get("confirmation_token") or "")
+            if pmt.get("provider") == "mercadopago":
+                continue
             if stored and _secrets.compare_digest(stored, provided_token):
                 logger.info("Signed redirect trust confirmed for %s (token match)",
                             pmt["order_nsu"])
@@ -1728,13 +1909,11 @@ async def get_customer_payment_info(customer_id: str):
             pass
 
     # Fetch prices for all 4 plans
-    prices = {}
-    for m in (1, 3, 6, 12):
-        v = await get_setting(f"plan_price_{m}m", "35,00")
-        try:
-            prices[m] = int(round(float(v.replace(",", ".").strip()) * 100))
-        except ValueError:
-            prices[m] = 3500
+    from services import customer_prefs
+    prefs = await customer_prefs.get_prefs(customer["id"])
+    prices = {m: await customer_prefs.price_for(customer["id"], m) for m in (1, 3, 6, 12)}
+    if prefs.get("fixed_plan"):
+        prices = {prefs["fixed_plan"]: prices[prefs["fixed_plan"]]}
 
     # Recent payments (last 10) — with receipts. Shown on /pay/{id} so the
     # client always sees their own history and proof-of-payment.
@@ -1796,15 +1975,44 @@ async def get_customer_payment_info(customer_id: str):
     except Exception:
         logger.exception("Failed to load messages history for %s", customer["id"])
 
+    # Login shown on the checkout ("Cobrança para <login>").
+    login = None
+    try:
+        from routers.painel_users import _read_cache
+        cached, _ = await _read_cache()
+        u = next((x for x in cached or [] if str(x.get("id") or x.get("user_id")) == str(customer["id"])), None)
+        login = u and (u.get("username") or u.get("login"))
+        if not login:
+            async with aiosqlite.connect(DB_PATH) as db:
+                cur = await db.execute("SELECT painel_username FROM customers WHERE id = ?", (customer["id"],))
+                row = await cur.fetchone()
+                login = row[0] if row else None
+    except Exception:
+        logger.exception("login lookup failed for %s", customer["id"])
+    customer["login"] = login
+
+    from services import payment_accounts
+    providers = await payment_accounts.enabled_providers()
+    cu = await _cache_user(customer["id"])
     return {
         "customer": customer,
         "prices_cents": prices,
+        "discounts_blocked": bool(prefs.get("no_discount")),
+        "providers": providers or ["infinitepay"],
+        "mp_fee_percent": payment_accounts.MP_PIX_FEE_PERCENT,
+        "linked_accounts": await _linked_accounts(customer["id"]),
+        "adult_default": _has_adult(cu) if cu else True,
+        "raffle": await _public_raffle(),
         "payments_history": payments_history,
         "messages_history": messages_history,
         "active_discount": await _get_active_discount_for_public(str(customer["id"])),
         # Which payment provider is currently active. When "painel", the /pay page
         # will redirect straight to the painel-generated pagme.xyz link.
         "payment_link_provider": (await get_setting("payment_link_provider") or "infinitepay").strip().lower(),
+        "brand": {
+            "name": (await get_setting("brand_name") or "").strip() or "WhatsFlow",
+            "logo_url": (await get_setting("brand_logo_url") or "").strip() or None,
+        },
     }
 
 
@@ -1863,3 +2071,49 @@ async def _get_active_discount_for_public(customer_id: str) -> dict | None:
         return await get_active_discount(customer_id)
     except Exception:
         return None
+
+
+@router.get("/mp-status/{payment_id}")
+async def mp_payment_status(payment_id: str):
+    """Public: polled by the /pay page while the customer pays the Mercado Pago Pix."""
+    from services.payment_accounts import check_paid
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        row = await (await db.execute(
+            "SELECT id, order_nsu, status, provider, account_id, mp_payment_id FROM payments WHERE id = ?",
+            (payment_id,))).fetchone()
+    if not row or row["provider"] != "mercadopago":
+        raise HTTPException(404, "Pagamento não encontrado")
+    pmt = dict(row)
+    if pmt["status"] != "pending":
+        return {"status": "renewed" if pmt["status"] == "paid" else pmt["status"]}
+    paid, raw = await check_paid(pmt)
+    if not paid:
+        return {"status": "pending", "mp_status": raw.get("mp_status")}
+    proc = await _process_payment_confirmation(pmt["order_nsu"], paid=True, source="mercadopago_page", raw=raw)
+    return {"status": proc.get("status")}
+
+
+@router.post("/mp-webhook")
+async def mp_webhook(request: Request):
+    """Mercado Pago notification → re-check the payment with its own account token."""
+    from services.payment_accounts import check_paid
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    mp_id = str((body.get("data") or {}).get("id") or request.query_params.get("data.id")
+                or request.query_params.get("id") or "").strip()
+    if not mp_id:
+        return {"received": True}
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        row = await (await db.execute(
+            "SELECT id, order_nsu, status, provider, account_id, mp_payment_id FROM payments WHERE mp_payment_id = ?",
+            (mp_id,))).fetchone()
+    if not row or row["status"] != "pending":
+        return {"received": True}
+    paid, raw = await check_paid(dict(row))
+    if paid:
+        await _process_payment_confirmation(row["order_nsu"], paid=True, source="mercadopago_webhook", raw=raw)
+    return {"received": True, "paid": paid}

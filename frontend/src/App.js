@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useEffect } from "react";
 import "@/App.css";
@@ -10,15 +10,18 @@ import Trials from "@/pages/Trials";
 import Templates from "@/pages/Templates";
 import WhatsAppPage from "@/pages/WhatsAppPage";
 import Messages from "@/pages/Messages";
-import Payments from "@/pages/Payments";
+import Finance from "@/pages/Finance";
 import Settings from "@/pages/Settings";
 import Notifications from "@/pages/Notifications";
+import SendQueue from "@/pages/SendQueue";
 import Coupons from "@/pages/Coupons";
 import Geography from "@/pages/Geography";
+import Raffle from "@/pages/Raffle";
 import ApiDocs from "@/pages/ApiDocs";
 import Login from "@/pages/Login";
 import PublicTest from "@/pages/PublicTest";
 import PublicPay from "@/pages/PublicPay";
+import PublicRaffle from "@/pages/PublicRaffle";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
 const P = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
@@ -27,6 +30,7 @@ export default function App() {
   // Load the admin's timezone preference once at startup so ALL formatted
   // dates on the app reflect it (formatDateBR reads this value).
   useEffect(() => {
+    if (/^\/(pay\/|teste|trevo)/.test(window.location.pathname)) return;
     settingsApi
       .get()
       .then((s) => setDisplayTimezone(s?.display_timezone || "America/Sao_Paulo"))
@@ -40,6 +44,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/teste" element={<PublicTest />} />
           <Route path="/pay/:customerId" element={<PublicPay />} />
+          <Route path="/trevo" element={<PublicRaffle />} />
 
           <Route path="/" element={<P><Dashboard /></P>} />
           <Route path="/customers" element={<P><Customers /></P>} />
@@ -47,10 +52,13 @@ export default function App() {
           <Route path="/templates" element={<P><Templates /></P>} />
           <Route path="/whatsapp" element={<P><WhatsAppPage /></P>} />
           <Route path="/messages" element={<P><Messages /></P>} />
-          <Route path="/payments" element={<P><Payments /></P>} />
+          <Route path="/payments" element={<P><Finance /></P>} />
           <Route path="/notifications" element={<P><Notifications /></P>} />
+          <Route path="/fila" element={<P><SendQueue /></P>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
           <Route path="/coupons" element={<P><Coupons /></P>} />
           <Route path="/geografia" element={<P><Geography /></P>} />
+          <Route path="/sorteio" element={<P><Raffle /></P>} />
           <Route path="/documentacao" element={<P><ApiDocs /></P>} />
           <Route path="/settings" element={<P><Settings /></P>} />
         </Routes>

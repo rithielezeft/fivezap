@@ -18,7 +18,9 @@ from database import init_db
 from services.scheduler import check_expirations_loop
 from services.reminders import reminder_loop
 from services.auth import seed_admin_password, is_public, require_admin
-from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads, reminders, coupons, analytics, system_update
+from routers import raffle as raffle_router
+from routers import customer_prefs as customer_prefs_router
+from routers import customers, trials, templates, whatsapp, settings, payments, public, dashboard, messages, painel_users, notifications, auth, uploads, reminders, coupons, analytics, system_update, queue, finance, cron, payment_accounts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -146,7 +148,21 @@ async def lifespan(app: FastAPI):
     from services.coupon_cleanup import coupon_cleanup_loop as _coupon_cleanup_loop
     task_coupon_cleanup = asyncio.create_task(_coupon_cleanup_loop())
 
+    # Payments ⇄ MongoDB sync: restores finance history lost locally and keeps
+    # every field persisted in Atlas.
+    from services.payments_sync import payments_sync_loop
+    task_payments_sync = asyncio.create_task(payments_sync_loop())
+    from services.raffle import auto_draw_loop
+    task_raffle = asyncio.create_task(auto_draw_loop())
+    from services.supabase_mirror import mirror_loop
+    task_supabase = asyncio.create_task(mirror_loop())
+    from services.mongo_store import sync_command_templates
+    asyncio.create_task(sync_command_templates())
+
     yield
+    task_payments_sync.cancel()
+    task_raffle.cancel()
+    task_supabase.cancel()
     task_exp.cancel()
     task_rem.cancel()
     task_painel_refresh.cancel()
@@ -224,6 +240,15 @@ app.include_router(reminders.router)
 app.include_router(coupons.router)
 app.include_router(analytics.router)
 app.include_router(system_update.router)
+app.include_router(queue.router)
+app.include_router(finance.router)
+app.include_router(cron.router)
+app.include_router(payment_accounts.router)
+app.include_router(raffle_router.router)
+app.include_router(customer_prefs_router.router)
+from routers import supabase_auth as supabase_auth_router  # noqa: E402
+app.include_router(supabase_auth_router.router)
+app.include_router(supabase_auth_router.mirror_router)
 
 
 @app.get("/api/")

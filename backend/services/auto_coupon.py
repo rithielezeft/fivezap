@@ -134,6 +134,11 @@ async def sweep_once() -> int:
         logger.warning("auto_coupon: painel unreachable — skipping. %s", e)
         return 0
 
+    from services.notifier import get_template
+    if not await get_template("auto_recovery_coupon"):
+        logger.info("auto_coupon: template auto_recovery_coupon missing/disabled — skipping sweep")
+        return 0
+
     sent = 0
     for u in users:
         try:
@@ -156,6 +161,9 @@ async def sweep_once() -> int:
 
             user_id = str(u.get("id") or u.get("user_id") or u.get("username") or "")
             if not user_id:
+                continue
+            from services.customer_prefs import discount_blocked
+            if await discount_blocked(user_id):
                 continue
 
             # Idempotency: never re-send for the same customer.
@@ -188,11 +196,13 @@ async def sweep_once() -> int:
                 "days_expired": str(days_expired),
             }
 
+            # Mark BEFORE sending: a queued (not-yet-sent) delivery is retried by
+            # the queue, so re-sending next hour would duplicate the coupon.
+            await set_setting(key, now_iso())
             ok = await send_notification(
                 "auto_recovery_coupon", phone, ctx, customer_id=user_id,
             )
             if ok:
-                await set_setting(key, now_iso())
                 sent += 1
                 logger.info(
                     "auto_coupon: sent %s to %s (customer=%s, %.1f%%, expires_in %dh)",

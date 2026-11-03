@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Layout from "@/components/Layout";
 import { useColumnVisibility, ColumnPicker } from "@/components/ColumnPicker";
+import { CustomerNotificationsDialog } from "@/components/CustomerNotificationsDialog";
 import { painelApi, trialsApi, customersApi, formatDateBR } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk } from "@phosphor-icons/react";
+import { ArrowClockwise, MagnifyingGlass, Ticket, WarningCircle, CloudArrowDown, Link as LinkIcon, Copy, Bug, PaperPlaneTilt, PencilSimple, FloppyDisk, BellRinging, CurrencyCircleDollar, DotsThreeVertical, ArrowSquareOut, ArrowsClockwise } from "@phosphor-icons/react";
+import { CustomerPrefsDialog } from "@/components/CustomerPrefsDialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const PLAN_MONTHS = [
   { value: 1, label: "1 mês" },
@@ -42,9 +45,9 @@ function detectSystemType(user) {
 }
 
 const SYSTEM_STYLES = {
-  iptv:   { bg: "bg-[#007AFF]/15",  text: "text-[#5AC8FA]", border: "border-[#007AFF]/30", label: "IPTV" },
+  iptv:   { bg: "bg-[#3B82F6]/15",  text: "text-[#60A5FA]", border: "border-[#3B82F6]/30", label: "IPTV" },
   p2p:    { bg: "bg-[#BF5AF2]/15",  text: "text-[#BF5AF2]", border: "border-[#BF5AF2]/30", label: "P2P" },
-  hybrid: { bg: "bg-[#FF9F0A]/15",  text: "text-[#FF9F0A]", border: "border-[#FF9F0A]/30", label: "HYBRID" },
+  hybrid: { bg: "bg-[#F59E0B]/15",  text: "text-[#F59E0B]", border: "border-[#F59E0B]/30", label: "HYBRID" },
 };
 
 function StatusBadge({ user }) {
@@ -54,21 +57,21 @@ function StatusBadge({ user }) {
   const st = user?._status;
   if (st === "active") {
     return (
-      <span data-testid="status-badge-active" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30">
+      <span data-testid="status-badge-active" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#10B981]/10 text-[#10B981] border-[#10B981]/30">
         Ativo
       </span>
     );
   }
   if (st === "expiring_soon") {
     return (
-      <span data-testid="status-badge-expiring" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30">
+      <span data-testid="status-badge-expiring" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/30">
         Vencendo
       </span>
     );
   }
   if (st === "expired") {
     return (
-      <span data-testid="status-badge-expired" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#FF3B30]/10 text-[#FF3B30] border-[#FF3B30]/30">
+      <span data-testid="status-badge-expired" className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]/30">
         Vencido
       </span>
     );
@@ -86,8 +89,8 @@ function StatusBadge({ user }) {
       className={
         "text-[10px] uppercase tracking-widest px-2 py-1 rounded-full border " +
         (isActive
-          ? "bg-[#34C759]/10 text-[#34C759] border-[#34C759]/30"
-          : "bg-[#FF9F0A]/10 text-[#FF9F0A] border-[#FF9F0A]/30")
+          ? "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/30"
+          : "bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/30")
       }
     >
       {isActive ? "Ativo" : "Inativo"}
@@ -113,19 +116,32 @@ export default function Customers() {
     { key: "system", label: "Sistema" },
     { key: "expires", label: "Expira" },
     { key: "status", label: "Status" },
+    { key: "nextnotif", label: "Próximo aviso" },
     { key: "paylink", label: "Link de pagamento" },
     { key: "actions", label: "Ações" },
   ];
-  const CUSTOMER_DEFAULTS = { username: true, name: true, whatsapp: true, system: true, expires: true, status: true, paylink: true, actions: true };
-  const CUSTOMER_MOBILE_DEFAULTS = { username: true, name: false, whatsapp: true, system: false, expires: true, status: true, paylink: false, actions: true };
+  const CUSTOMER_DEFAULTS = { username: true, name: true, whatsapp: true, system: true, expires: true, status: true, nextnotif: true, paylink: true, actions: true };
+  const CUSTOMER_MOBILE_DEFAULTS = { username: true, name: false, whatsapp: true, system: false, expires: true, status: true, nextnotif: true, paylink: false, actions: true };
   const cols = useColumnVisibility("customers-cols", CUSTOMER_DEFAULTS, CUSTOMER_MOBILE_DEFAULTS);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugData, setDebugData] = useState(null);
   const [expiredOpen, setExpiredOpen] = useState(false);
   const [expiredData, setExpiredData] = useState(null);
   const [expiredSelected, setExpiredSelected] = useState({}); // { user_id: true }
+  const [expiredKind, setExpiredKind] = useState("all"); // all | trial | regular
+  const kindMatch = (u, kind) => kind === "all" || (kind === "trial" ? !!u.is_trial : !u.is_trial);
+  const expiredUsers = (expiredData?.users || []).filter((u) => kindMatch(u, expiredKind));
+  const selectExpiredKind = (kind, users = expiredData?.users || []) => {
+    setExpiredKind(kind);
+    const pre = {};
+    users.forEach((u) => { if (kindMatch(u, kind) && u.has_whatsapp) pre[u.user_id] = true; });
+    setExpiredSelected(pre);
+  };
+  const expiredSelectedIds = expiredUsers.filter((u) => expiredSelected[u.user_id]).map((u) => u.user_id);
   const [dupConfirm, setDupConfirm] = useState(null); // {duplicates, fresh_count, duplicate_count, selectedIds}
   const [editPhoneFor, setEditPhoneFor] = useState(null); // {uid, name, current}
+  const [notifFor, setNotifFor] = useState(null); // painel user id
+  const [prefsFor, setPrefsFor] = useState(null);
 
   // debounce search
   useEffect(() => {
@@ -196,18 +212,14 @@ export default function Customers() {
     onSuccess: (d) => {
       setExpiredData(d);
       // Pre-select only users WITH whatsapp — no point sending to the rest.
-      const pre = {};
-      (d?.users || []).forEach((u) => {
-        if (u.has_whatsapp) pre[u.user_id] = true;
-      });
-      setExpiredSelected(pre);
+      selectExpiredKind("all", d?.users || []);
       setExpiredOpen(true);
     },
     onError: (e) => toast.error("Erro: " + (e.response?.data?.detail || e.message)),
   });
 
   const notifyExpiredMut = useMutation({
-    mutationFn: ({ ids, force }) => painelApi.notifyExpired(ids, !!force),
+    mutationFn: ({ ids, force }) => painelApi.notifyExpired(ids, !!force, expiredKind),
     onSuccess: (r, vars) => {
       // Two-step flow: backend returns `needs_confirmation:true` when some
       // of the selected clients already got the same template in the last
@@ -262,6 +274,7 @@ export default function Customers() {
       const s = u._system_type || null;
       if (systemFilter === "unknown" ? s : s !== systemFilter) return false;
     }
+    if (statusFilter === "trial") return !!u._is_trial;
     if (statusFilter !== "all") {
       const st = u._status || "unknown";
       if (st !== statusFilter) return false;
@@ -281,12 +294,12 @@ export default function Customers() {
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span data-testid="subtitle-total">{data?.count ?? 0} usuários</span>
           {data?.by_status?.expired > 0 && (
-            <span className="text-[#FF3B30]" data-testid="subtitle-expired">
+            <span className="text-[#EF4444]" data-testid="subtitle-expired">
               • {data.by_status.expired} vencidos
             </span>
           )}
           {data?.by_status?.expiring_soon > 0 && (
-            <span className="text-[#FF9F0A]" data-testid="subtitle-expiring">
+            <span className="text-[#F59E0B]" data-testid="subtitle-expiring">
               • {data.by_status.expiring_soon} vencendo
             </span>
           )}
@@ -313,7 +326,7 @@ export default function Customers() {
           </Button>
           <Button
             variant="outline"
-            className="border-[#FF3B30]/30 text-[#FF3B30] hover:bg-[#FF3B30]/10"
+            className="border-[#EF4444]/30 text-[#EF4444] hover:bg-[#EF4444]/10"
             onClick={() => expiredPreviewMut.mutate()}
             disabled={expiredPreviewMut.isPending}
             data-testid="btn-notify-expired"
@@ -324,7 +337,7 @@ export default function Customers() {
           </Button>
           <Button
             variant="outline"
-            className="border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10"
+            className="border-[#F59E0B]/30 text-[#F59E0B] hover:bg-[#F59E0B]/10"
             onClick={() => notifyMut.mutate()}
             disabled={notifyMut.isPending}
             data-testid="btn-notify-now"
@@ -348,7 +361,7 @@ export default function Customers() {
         <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
         <Input
           placeholder="Buscar por nome, usuário ou WhatsApp..."
-          className="pl-9 bg-[#121212] border-white/10"
+          className="pl-9 bg-[#0D111A] border-white/10"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -362,9 +375,9 @@ export default function Customers() {
       <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="system-filter-bar">
         {[
           { key: "all",     label: "Todos",   cls: "border-white/10 hover:bg-white/[0.05]" },
-          { key: "iptv",    label: "IPTV",    cls: "border-[#007AFF]/30 text-[#5AC8FA] hover:bg-[#007AFF]/10" },
+          { key: "iptv",    label: "IPTV",    cls: "border-[#3B82F6]/30 text-[#60A5FA] hover:bg-[#3B82F6]/10" },
           { key: "p2p",     label: "P2P",     cls: "border-[#BF5AF2]/30 text-[#BF5AF2] hover:bg-[#BF5AF2]/10" },
-          { key: "hybrid",  label: "Hybrid",  cls: "border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10" },
+          { key: "hybrid",  label: "Hybrid",  cls: "border-[#F59E0B]/30 text-[#F59E0B] hover:bg-[#F59E0B]/10" },
           { key: "unknown", label: "Sem sistema", cls: "border-white/10 text-white/60 hover:bg-white/[0.05]" },
         ].map((f) => {
           const active = systemFilter === f.key;
@@ -388,14 +401,17 @@ export default function Customers() {
       <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="status-filter-bar">
         {[
           { key: "all",            label: "Todos status",  cls: "border-white/10 hover:bg-white/[0.05]" },
-          { key: "expired",        label: "Vencidos",      cls: "border-[#FF3B30]/30 text-[#FF3B30] hover:bg-[#FF3B30]/10" },
-          { key: "expiring_soon",  label: "Vencendo",      cls: "border-[#FF9F0A]/30 text-[#FF9F0A] hover:bg-[#FF9F0A]/10" },
-          { key: "active",         label: "Ativos",        cls: "border-[#34C759]/30 text-[#34C759] hover:bg-[#34C759]/10" },
+          { key: "expired",        label: "Vencidos",      cls: "border-[#EF4444]/30 text-[#EF4444] hover:bg-[#EF4444]/10" },
+          { key: "expiring_soon",  label: "Vencendo",      cls: "border-[#F59E0B]/30 text-[#F59E0B] hover:bg-[#F59E0B]/10" },
+          { key: "active",         label: "Ativos",        cls: "border-[#10B981]/30 text-[#10B981] hover:bg-[#10B981]/10" },
+          { key: "trial",          label: "Testes",        cls: "border-[#60A5FA]/30 text-[#60A5FA] hover:bg-[#60A5FA]/10" },
         ].map((f) => {
           const active = statusFilter === f.key;
           const n = f.key === "all"
             ? users.length
-            : (data?.by_status?.[f.key] || 0);
+            : f.key === "trial"
+              ? users.filter((u) => u._is_trial).length
+              : (data?.by_status?.[f.key] || 0);
           return (
             <button
               key={f.key}
@@ -416,9 +432,9 @@ export default function Customers() {
           <div className="flex items-start gap-3">
             {data?.refreshing ? (
               <>
-                <div className="w-5 h-5 rounded-full border-2 border-[#007AFF] border-t-transparent animate-spin shrink-0 mt-0.5" />
+                <div className="w-5 h-5 rounded-full border-2 border-[#3B82F6] border-t-transparent animate-spin shrink-0 mt-0.5" />
                 <div className="text-sm">
-                  <div className="font-medium text-[#007AFF]">Buscando usuários no painel.fun...</div>
+                  <div className="font-medium text-[#3B82F6]">Buscando usuários no painel.fun...</div>
                   <div className="text-white/50 text-xs mt-1">
                     Resolvendo Cloudflare Turnstile via 2Captcha. Isso pode levar 30-60s no primeiro carregamento.
                   </div>
@@ -426,9 +442,9 @@ export default function Customers() {
               </>
             ) : (
               <>
-                <WarningCircle size={20} className="text-[#FF9F0A] shrink-0 mt-0.5" />
+                <WarningCircle size={20} className="text-[#F59E0B] shrink-0 mt-0.5" />
                 <div className="text-sm">
-                  <div className="font-medium text-[#FF9F0A]">Última tentativa falhou</div>
+                  <div className="font-medium text-[#F59E0B]">Última tentativa falhou</div>
                   <div className="text-white/60 mt-1 text-xs break-all">{data?.last_error}</div>
                 </div>
               </>
@@ -446,9 +462,9 @@ export default function Customers() {
       {error && (
         <div className="surface rounded-xl p-6 mb-4" data-testid="painel-error">
           <div className="flex items-start gap-3">
-            <WarningCircle size={20} className="text-[#FF3B30] shrink-0" />
+            <WarningCircle size={20} className="text-[#EF4444] shrink-0" />
             <div className="text-sm">
-              <div className="font-medium text-[#FF3B30]">Não foi possível carregar clientes do painel.fun</div>
+              <div className="font-medium text-[#EF4444]">Não foi possível carregar clientes do painel.fun</div>
               <div className="text-white/60 mt-1 text-xs">
                 {error.response?.data?.detail || error.message}
               </div>
@@ -470,13 +486,14 @@ export default function Customers() {
               {cols.isVisible("system") && <th className="px-4 py-3">Sistema</th>}
               {cols.isVisible("expires") && <th className="px-4 py-3">Expira</th>}
               {cols.isVisible("status") && <th className="px-4 py-3">Status</th>}
+              {cols.isVisible("nextnotif") && <th className="px-4 py-3">Próximo aviso</th>}
               {cols.isVisible("paylink") && <th className="px-4 py-3">Link de pagamento</th>}
               {cols.isVisible("actions") && <th className="px-4 py-3 text-right">Ações</th>}
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-white/40">
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-white/40">
                 <CloudArrowDown size={32} className="mx-auto mb-2 animate-pulse" />
                 Buscando no painel.fun...
               </td></tr>
@@ -535,6 +552,24 @@ export default function Customers() {
                   </td>}
                   {cols.isVisible("expires") && <td className="px-4 py-3 text-xs text-white/60">{expires ? formatDateBR(expires) : "—"}</td>}
                   {cols.isVisible("status") && <td className="px-4 py-3"><StatusBadge user={u} /></td>}
+                  {cols.isVisible("nextnotif") && <td className="px-4 py-3">
+                    <button
+                      onClick={() => setNotifFor(uid)}
+                      className="text-left text-xs hover:text-white text-white/70 transition-colors"
+                      data-testid={`next-notif-${uid}`}
+                    >
+                      {u._next_notification ? (
+                        <>
+                          <div className="font-medium">{u._next_notification.title}</div>
+                          <div className="font-mono text-[10px] text-white/40">
+                            {/^\d{4}-\d{2}-\d{2}$/.test(u._next_notification.date)
+                              ? u._next_notification.date.split("-").reverse().join("/")
+                              : formatDateBR(u._next_notification.date)}
+                          </div>
+                        </>
+                      ) : <span className="text-white/30">Ver histórico</span>}
+                    </button>
+                  </td>}
                   {cols.isVisible("paylink") && <td className="px-4 py-3">
                     {payLink ? (
                       <div className="flex items-center gap-1">
@@ -542,7 +577,7 @@ export default function Customers() {
                           href={payLink}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[#007AFF] hover:underline text-xs font-mono truncate max-w-[200px] flex items-center gap-1"
+                          className="text-[#3B82F6] hover:underline text-xs font-mono truncate max-w-[200px] flex items-center gap-1"
                           data-testid={`pay-link-${uid}`}
                         >
                           <LinkIcon size={12} weight="bold" />
@@ -560,42 +595,62 @@ export default function Customers() {
                     ) : <span className="text-white/30 text-xs">—</span>}
                   </td>}
                   {cols.isVisible("actions") && <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setTrialFor({ ...u, _uid: uid, _system: system, _mac: mac, _name: name, _whatsapp: whatsapp })}
-                        data-testid={`btn-trial-${uid}`}
-                      >
-                        <Ticket size={16} className="mr-1" /> Teste
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="bg-[#007AFF] hover:bg-[#005BB5] h-8"
-                        onClick={() => { setRenewFor({ ...u, _uid: uid, _system: system, _name: name }); setRenewPlan(1); }}
-                        data-testid={`btn-renew-${uid}`}
-                      >
-                        Renovar
-                      </Button>
+                    <div className="flex justify-end">
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" data-testid={`btn-actions-${uid}`} title="Ações">
+                            <DotsThreeVertical size={20} weight="bold" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56 bg-[#0D111A] border-white/10 text-white">
+                          {name && name !== "-" && <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-white/40">{name}</DropdownMenuLabel>}
+                          <DropdownMenuItem disabled={!payLink} data-testid={`menu-copy-link-${uid}`}
+                            onSelect={() => { navigator.clipboard.writeText(payLink); toast.success("Link copiado"); }}>
+                            <LinkIcon size={16} className="mr-2 text-[#60A5FA]" /> Copiar link de pagamento
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled={!payLink} data-testid={`menu-open-link-${uid}`}
+                            onSelect={() => window.open(payLink, "_blank", "noopener")}>
+                            <ArrowSquareOut size={16} className="mr-2 text-[#60A5FA]" /> Abrir página de pagamento
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <DropdownMenuItem data-testid={`btn-notifs-${uid}`} onSelect={() => setNotifFor(uid)}>
+                            <BellRinging size={16} className="mr-2 text-[#F59E0B]" /> Avisos
+                          </DropdownMenuItem>
+                          <DropdownMenuItem data-testid={`btn-prefs-${uid}`} onSelect={() => setPrefsFor({ ...u, _uid: uid, _name: name })}>
+                            <CurrencyCircleDollar size={16} className="mr-2 text-[#10B981]" /> Preço e plano
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-white/10" />
+                          <DropdownMenuItem data-testid={`btn-trial-${uid}`}
+                            onSelect={() => setTrialFor({ ...u, _uid: uid, _system: system, _mac: mac, _name: name, _whatsapp: whatsapp })}>
+                            <Ticket size={16} className="mr-2 text-[#BF5AF2]" /> Gerar teste
+                          </DropdownMenuItem>
+                          <DropdownMenuItem data-testid={`btn-renew-${uid}`}
+                            onSelect={() => { setRenewFor({ ...u, _uid: uid, _system: system, _name: name }); setRenewPlan(1); }}>
+                            <ArrowsClockwise size={16} className="mr-2 text-[#3B82F6]" /> Renovar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </td>}
                 </tr>
               );
             })}
             {!isLoading && filteredUsers.length === 0 && !error && (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-white/40">
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-white/40">
                 {users.length === 0
                   ? "Nenhum cliente encontrado no painel.fun"
-                  : `Nenhum cliente ${systemFilter === "unknown" ? "sem sistema definido" : systemFilter.toUpperCase()} encontrado`}
+                  : "Nenhum cliente encontrado com esses filtros"}
               </td></tr>
             )}
           </tbody>
         </table>
       </div>
 
+      <CustomerNotificationsDialog userId={notifFor} onClose={() => setNotifFor(null)} />
+
       {/* Renew Dialog */}
       <Dialog open={!!renewFor} onOpenChange={(o) => !o && setRenewFor(null)}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white">
           <DialogHeader>
             <DialogTitle className="font-display">Renovar {renewFor?._name}</DialogTitle>
           </DialogHeader>
@@ -618,7 +673,7 @@ export default function Customers() {
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setRenewFor(null)}>Cancelar</Button>
               <Button
-                className="bg-[#007AFF] hover:bg-[#005BB5]"
+                className="bg-[#3B82F6] hover:bg-[#2563EB]"
                 disabled={renewMut.isPending}
                 onClick={() => renewMut.mutate({ user_id: renewFor?._uid, system_type: renewFor?._system, plan_months: renewPlan })}
                 data-testid="btn-confirm-renew"
@@ -632,7 +687,7 @@ export default function Customers() {
 
       {/* Trial Dialog */}
       <Dialog open={!!trialFor} onOpenChange={(o) => !o && setTrialFor(null)}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white">
           <DialogHeader>
             <DialogTitle className="font-display">Criar teste para {trialFor?._name}</DialogTitle>
           </DialogHeader>
@@ -643,7 +698,7 @@ export default function Customers() {
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={() => setTrialFor(null)}>Cancelar</Button>
             <Button
-              className="bg-[#007AFF] hover:bg-[#005BB5]"
+              className="bg-[#3B82F6] hover:bg-[#2563EB]"
               disabled={trialMut.isPending}
               onClick={() => trialMut.mutate({
                 system_type: trialFor?._system,
@@ -661,12 +716,12 @@ export default function Customers() {
       </Dialog>
       {/* Debug: raw fields dialog */}
       <Dialog open={debugOpen} onOpenChange={setDebugOpen}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">Campos brutos do painel.fun</DialogTitle>
           </DialogHeader>
           {debugData?.error ? (
-            <p className="text-sm text-[#FF9F0A]">{debugData.error}</p>
+            <p className="text-sm text-[#F59E0B]">{debugData.error}</p>
           ) : (
             <div className="space-y-4 text-sm">
               <div>
@@ -713,7 +768,7 @@ export default function Customers() {
       </Dialog>
       {/* Notify Expired: preview + selection dialog */}
       <Dialog open={expiredOpen} onOpenChange={setExpiredOpen}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="font-display">
               Notificar clientes vencidos
@@ -723,27 +778,35 @@ export default function Customers() {
             </DialogDescription>
           </DialogHeader>
           {expiredData && (
+            <div className="flex gap-1 p-1 rounded-lg bg-black/30 border border-white/[0.06] w-fit" data-testid="expired-kind-filter">
+              {[
+                { key: "all", label: "Todos", n: expiredData.count },
+                { key: "trial", label: "Só testes", n: expiredData.count_trial ?? 0 },
+                { key: "regular", label: "Só regulares", n: expiredData.count_regular ?? 0 },
+              ].map((k) => (
+                <button key={k.key} onClick={() => selectExpiredKind(k.key)} data-testid={`expired-kind-${k.key}`}
+                  className={`px-3 py-1.5 rounded-md text-xs transition-colors ${expiredKind === k.key ? "bg-white/10 text-white" : "text-white/50 hover:text-white"}`}>
+                  {k.label} <span className="font-mono text-white/40">{k.n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {expiredData && (
             <div className="text-xs text-white/60 mb-2 flex items-center gap-3 flex-wrap">
               <span data-testid="expired-total">
-                {expiredData.count} vencidos
+                {expiredUsers.length} vencidos
               </span>
               <span className="text-white/40">•</span>
               <span data-testid="expired-with-wa">
-                {expiredData.count_with_whatsapp} com WhatsApp
+                {expiredUsers.filter((u) => u.has_whatsapp).length} com WhatsApp
               </span>
               <span className="text-white/40">•</span>
               <span data-testid="expired-selected">
-                {Object.values(expiredSelected).filter(Boolean).length} selecionados
+                {expiredSelectedIds.length} selecionados
               </span>
               <div className="ml-auto flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    const all = {};
-                    (expiredData.users || []).forEach((u) => {
-                      if (u.has_whatsapp) all[u.user_id] = true;
-                    });
-                    setExpiredSelected(all);
-                  }}
+                  onClick={() => selectExpiredKind(expiredKind)}
                   className="px-2 py-1 rounded-md border border-white/10 hover:bg-white/[0.05] text-[11px]"
                   data-testid="btn-expired-select-all"
                 >
@@ -773,7 +836,7 @@ export default function Customers() {
                 </tr>
               </thead>
               <tbody>
-                {(expiredData?.users || []).map((u) => {
+                {expiredUsers.map((u) => {
                   const st = SYSTEM_STYLES[u.system_type];
                   const disabled = !u.has_whatsapp;
                   return (
@@ -797,9 +860,12 @@ export default function Customers() {
                         />
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{u.username || "—"}</td>
-                      <td className="px-3 py-2">{u.name || "—"}</td>
+                      <td className="px-3 py-2">
+                        {u.name || "—"}
+                        {u.is_trial && <span className="ml-2 text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded border border-[#A78BFA]/30 text-[#A78BFA]" data-testid={`expired-trial-badge-${u.user_id}`}>Teste</span>}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs text-white/70">
-                        {u.whatsapp || <span className="text-[#FF3B30]">sem WhatsApp</span>}
+                        {u.whatsapp || <span className="text-[#EF4444]">sem WhatsApp</span>}
                       </td>
                       <td className="px-3 py-2">
                         {st ? (
@@ -810,16 +876,16 @@ export default function Customers() {
                           <span className="text-white/40 text-xs">—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right text-xs text-[#FF3B30] font-mono">
+                      <td className="px-3 py-2 text-right text-xs text-[#EF4444] font-mono">
                         {u.days_expired}d
                       </td>
                     </tr>
                   );
                 })}
-                {expiredData && (expiredData.users || []).length === 0 && (
+                {expiredData && expiredUsers.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-white/40">
-                      Nenhum cliente vencido no momento 🎉
+                      {expiredKind === "trial" ? "Nenhum teste vencido" : expiredKind === "regular" ? "Nenhum cliente regular vencido" : "Nenhum cliente vencido no momento"}
                     </td>
                   </tr>
                 )}
@@ -836,23 +902,15 @@ export default function Customers() {
               Cancelar
             </Button>
             <Button
-              className="bg-[#FF3B30] hover:bg-[#D9251B]"
-              disabled={
-                notifyExpiredMut.isPending ||
-                Object.values(expiredSelected).filter(Boolean).length === 0
-              }
-              onClick={() => {
-                const ids = Object.entries(expiredSelected)
-                  .filter(([, v]) => v)
-                  .map(([k]) => k);
-                notifyExpiredMut.mutate({ ids, force: false });
-              }}
+              className="bg-[#EF4444] hover:bg-[#D9251B]"
+              disabled={notifyExpiredMut.isPending || expiredSelectedIds.length === 0}
+              onClick={() => notifyExpiredMut.mutate({ ids: expiredSelectedIds, force: false })}
               data-testid="btn-expired-confirm"
             >
               <PaperPlaneTilt size={16} className="mr-2" />
               {notifyExpiredMut.isPending
                 ? "Enfileirando..."
-                : `Enviar para ${Object.values(expiredSelected).filter(Boolean).length}`}
+                : `Enviar para ${expiredSelectedIds.length}`}
             </Button>
           </div>
         </DialogContent>
@@ -861,10 +919,10 @@ export default function Customers() {
       {/* Duplicate confirmation dialog: shown when notify-expired detects
           clients who already got the same template in the last 60 min. */}
       <Dialog open={!!dupConfirm} onOpenChange={(open) => { if (!open) setDupConfirm(null); }}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="font-display flex items-center gap-2">
-              <WarningCircle size={22} className="text-[#FF9F0A]" weight="fill" />
+              <WarningCircle size={22} className="text-[#F59E0B]" weight="fill" />
               Alguns clientes já foram notificados
             </DialogTitle>
             <DialogDescription className="text-white/60 text-xs">
@@ -906,8 +964,8 @@ export default function Customers() {
                     <td className="px-3 py-2">
                       <span className={`text-[10px] uppercase font-semibold px-2 py-1 rounded-md ${
                         d.status === "sent"
-                          ? "bg-[#34C759]/10 text-[#34C759] border border-[#34C759]/30"
-                          : "bg-[#FF9F0A]/10 text-[#FF9F0A] border border-[#FF9F0A]/30"
+                          ? "bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/30"
+                          : "bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/30"
                       }`}>
                         {d.status === "sent" ? "entregue" : "na fila"}
                       </span>
@@ -940,7 +998,7 @@ export default function Customers() {
               Enviar só os {dupConfirm?.fresh_count ?? 0} novos
             </Button>
             <Button
-              className="bg-[#FF9F0A] hover:bg-[#D97F00] text-black font-medium"
+              className="bg-[#F59E0B] hover:bg-[#D97F00] text-black font-medium"
               onClick={() => {
                 notifyExpiredMut.mutate({ ids: dupConfirm?.selectedIds || [], force: true });
               }}
@@ -956,10 +1014,10 @@ export default function Customers() {
       {/* Edit Phone Dialog — sets whatsapp_locked=1 so painel refresh
           NEVER overwrites the admin's manual choice */}
       <Dialog open={!!editPhoneFor} onOpenChange={(o) => !o && setEditPhoneFor(null)}>
-        <DialogContent className="bg-[#121212] border-white/10 text-white max-w-md">
+        <DialogContent className="bg-[#0D111A] border-white/10 text-white max-w-md">
           <DialogHeader>
             <DialogTitle className="font-display flex items-center gap-2">
-              <PencilSimple size={18} className="text-[#007AFF]" />
+              <PencilSimple size={18} className="text-[#3B82F6]" />
               Editar telefone
             </DialogTitle>
             <DialogDescription className="text-white/50 text-sm">
@@ -979,6 +1037,7 @@ export default function Customers() {
           />
         </DialogContent>
       </Dialog>
+      <CustomerPrefsDialog customer={prefsFor} onClose={() => setPrefsFor(null)} />
     </Layout>
   );
 }
@@ -1000,7 +1059,7 @@ function PhoneEditForm({ initial, onCancel, onSave, saving }) {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && valid) onSave(digits); }}
           placeholder="+34612345678"
-          className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#007AFF] focus:ring-1 focus:ring-[#007AFF]"
+          className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#3B82F6] focus:ring-1 focus:ring-[#3B82F6]"
           data-testid="input-edit-phone"
           autoFocus
         />
@@ -1008,11 +1067,11 @@ function PhoneEditForm({ initial, onCancel, onSave, saving }) {
           {valid ? (
             <>Salva como: <span className="font-mono text-white/70">{digits}</span></>
           ) : (
-            <span className="text-[#FF9F0A]">Mínimo 10 dígitos</span>
+            <span className="text-[#F59E0B]">Mínimo 10 dígitos</span>
           )}
         </div>
       </div>
-      <div className="text-[11px] text-white/50 bg-[#007AFF]/5 border border-[#007AFF]/20 rounded p-2 leading-relaxed">
+      <div className="text-[11px] text-white/50 bg-[#3B82F6]/5 border border-[#3B82F6]/20 rounded p-2 leading-relaxed">
         💡 Use <code className="text-white/70">+</code> seguido do código do país (ex: <code className="text-white/70">+34</code> Espanha,{" "}
         <code className="text-white/70">+1</code> USA, <code className="text-white/70">+55</code> Brasil) para evitar ambiguidade.
       </div>
@@ -1027,7 +1086,7 @@ function PhoneEditForm({ initial, onCancel, onSave, saving }) {
         <button
           onClick={() => onSave(digits)}
           disabled={!valid || saving}
-          className="px-4 py-2 text-sm bg-[#007AFF] hover:bg-[#005BB5] disabled:opacity-50 disabled:cursor-not-allowed rounded-md flex items-center gap-2"
+          className="px-4 py-2 text-sm bg-[#3B82F6] hover:bg-[#2563EB] disabled:opacity-50 disabled:cursor-not-allowed rounded-md flex items-center gap-2"
           data-testid="btn-save-edit-phone"
         >
           <FloppyDisk size={14} />
