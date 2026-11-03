@@ -72,3 +72,5 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - Code from rithielezeft/fivezap@fivezap3 (108471d). Startup fixes only: installed deps; pydantic pin 2.9.2 -> 2.14.2 (conflicted with google-genai in requirements.txt); ADMIN_PASSWORD + JWT_SECRET in backend/.env; fresh SQLite DB.
 - Verified iteration_16: login, 14 admin pages, /teste, /pay/{id}, /trevo, WhatsApp QR.
 - Reported, not fixed: dashboard customer counts use empty local table; parallel 2Captcha solves at startup + key in logs; /api/settings 401 on /login.
+
+- [2026-06] Connected to user Atlas via WHATSFLOW_MONGO_URL / WHATSFLOW_DB_NAME (whatsflow) secrets; JWT_SECRET replaced with user value. Saved URL query is truncated (retryWrites=tru>), mongo_store._clean_url repairs it. Atlas shared with Raspberry/prod (1223 customers, 468 payments).
