@@ -82,3 +82,6 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - [2026-06] Login lockout keyed on CF-Connecting-IP/X-Forwarded-For (+ global cap 40/15min). Production Pi (whatsflow.zeferius.com) still runs old code: needs GitHub push + update + SUPABASE_* env on Pi.
 
 - [2026-06] Removed emergent-main.js + PostHog (ap.emergent.sh) from public/index.html; prod build verified clean (dev-only craco plugins remain for preview).
+
+## 2026-11-03 — Import do branch fivezap4
+- Código do branch fivezap4 copiado para /app (backend, frontend, whatsapp-service), deps instaladas, backend/.env com JWT_SECRET + ADMIN_PASSWORD. Smoke test 100% (iteration_2). Sem mudanças de código.

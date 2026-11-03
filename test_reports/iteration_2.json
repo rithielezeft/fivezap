@@ -1,0 +1,29 @@
+{
+  "summary": "Read-only smoke test of fivezap4 branch (WhatsFlow). Backend: 62/62 pytest pass (health, login ok/wrong pw, /auth/me, 29 authenticated GETs return 200, same endpoints return 401 without token, public raffle). Frontend: login with Rithi0518@ redirects to dashboard; all 14 sidebar pages render with titles and content, no JS page errors; all 8 Configurações sections render; WhatsApp Conexão shows QR (base64 PNG, state awaiting_qr); Sair logs out and /customers redirects to /login; public /teste, /trevo, /pay/<painel id> (andrecartv) and invalid /pay id ('Link inválido') load without login. No write actions performed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/dashboard/stats", "issue": "Returns total_customers=0 / active_customers=0 (local customers table empty) while Clientes page (painel cache /api/painel/users) shows 13 active users. Dashboard 'Clientes ativos 0' is inconsistent with Clientes page - data-source difference in upstream code, not a crash."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Login page load", "issue": "App.js calls GET /api/settings at startup even on /login (no token) -> one benign 401 in network log. Harmless.", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_fivezap4_readonly_smoke.py", "/app/test_reports/pytest/pytest_fivezap4.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "App.js: catch-all <Route path='*'> is declared before /coupons,/geografia,/sorteio,/documentacao,/settings - works due to RR v6 ranking, but cleaner to put it last.",
+    "App.js startup settingsApi.get() should be skipped on /login to avoid the 401."
+  ],
+  "updated_files": ["/app/backend/tests/test_fivezap4_readonly_smoke.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin password Rithi0518@ (from /app/memory/test_credentials.md) - works",
+  "seed_data_creation": "None. No data created or modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "fivezap4 branch, SQLite backend. /api/auth/methods is intentionally public (email_login=false, password_login=true so login form is password-only). Customers list comes from /api/painel/users (painel.fun cache); a valid /pay id is a painel user id e.g. 227427597. Read-only constraint: no trials, renewals, raffle draws, WhatsApp sends, settings/password changes, system update."
+}
