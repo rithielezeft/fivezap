@@ -84,3 +84,5 @@ Reseller admin; end customers (public /teste, /pay/{id}).
 - [2026-06] Removed emergent-main.js + PostHog (ap.emergent.sh) from public/index.html; prod build verified clean (dev-only craco plugins remain for preview).
 
 - [2026-06] Multi-login checkout: extras renewed before notify; ONE client msg (template renewal_success_multi, {logins}/{count}) + ONE admin msg listing each login; also on auto-retry path. API docs page completed (pt descriptions, public badges, body examples). Logout button. Tested iteration_21-23.
+
+- [2026-06] Config durability: services/config_sync.py — primary (Pi, default) writes Atlas config_settings/config_notifications on every save + pushes at startup, restores from Atlas on fresh install; replica (preview, CONFIG_SYNC_MODE=replica) never writes config to Atlas, pulls every 10 min. Banner on Configurações/Notificações. Tested iteration_24.
