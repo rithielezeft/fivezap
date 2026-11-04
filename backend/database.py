@@ -226,6 +226,12 @@ async def init_db():
                 "INSERT OR IGNORE INTO notification_templates (id, event_key, title, body, image_url, enabled, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
                 (str(_uuid.uuid4()), nt["event_key"], nt["title"], nt["body"], nt["image_url"], datetime.now(timezone.utc).isoformat()),
             )
+        # Upgrade the first multi-login default (never edited) to the new layout.
+        await db.execute(
+            "UPDATE notification_templates SET body = ? WHERE event_key = 'renewal_success_multi' AND body = ?",
+            (next(t["body"] for t in DEFAULT_TEMPLATES if t["event_key"] == "renewal_success_multi"),
+             "✅ Pagamento confirmado, {name}!\n\nSeus *{count} logins* foram renovados por *{plan_months} mês(es)*:\n{logins}\n\nObrigado pela preferência! 🎉"),
+        )
         await db.commit()
 
         # Seed default settings

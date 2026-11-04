@@ -116,9 +116,11 @@ async def _sweep_once():
             new_expires = _fmt_exp(new_expires)
             if phone and extras:
                 try:
+                    from routers.payments import _cache_user
+                    _cu = await _cache_user(painel_id)
                     await _send_multi_confirmation(payment, phone, customer.get("name") or "cliente",
-                                                   painel_login or customer.get("name") or "", new_expires,
-                                                   extras, customer.get("id"))
+                                                   painel_login or _cu.get("username") or customer.get("name") or "",
+                                                   new_expires, extras, customer.get("id"), _cu.get("password") or "")
                 except Exception:
                     logger.exception("renewal_retry: multi notify failed")
             elif phone:

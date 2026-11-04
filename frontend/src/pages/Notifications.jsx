@@ -86,7 +86,7 @@ const EVENT_META = {
     icon: "👥",
     color: "#10B981",
     description: "Enviado uma única vez quando o cliente paga vários logins juntos",
-    vars: ["{name}", "{logins}", "{count}", "{plan_months}", "{user}", "{new_expires_at}", "{clovers}", "{clover_coupons}"],
+    vars: ["{name}", "{acessos}", "{count}", "{clovers}", "{clover_coupons}", "{plan_months}", "{logins}", "{user}", "{password}", "{new_expires_at}"],
   },
   trial_ready: {
     icon: "🎁",

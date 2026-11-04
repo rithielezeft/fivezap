@@ -103,7 +103,8 @@ async def _renew_extra_accounts(payment: dict, source: str) -> list:
     adult = payment.get("adult_channels")
     for eid in extra_ids:
         u = await _cache_user(eid)
-        item = {"id": str(eid), "login": u.get("username") or str(eid), "ok": False, "new_expires": ""}
+        item = {"id": str(eid), "login": u.get("username") or str(eid), "password": u.get("password") or "",
+                "ok": False, "new_expires": ""}
         try:
             res = await painel.renew_user(user_id=str(eid), package_id=payment["package_id"],
                                           months=payment.get("plan_months"),
@@ -126,6 +127,15 @@ async def _renew_extra_accounts(payment: dict, source: str) -> list:
     return results
 
 
+def _access_blocks(main: dict, extras: list) -> str:
+    """Per-login block for the client: user, password and new expiry."""
+    out = []
+    for x in [main] + extras:
+        exp = x.get("new_expires") or "-" if x.get("ok", True) else "renovação em andamento, nossa equipe vai concluir em breve"
+        out.append(f"👤 Usuário: {x.get('login') or '-'}\n🔑 Senha: {x.get('password') or '-'}\n📅 Vence em: {exp}")
+    return "\n\n".join(out)
+
+
 def _logins_lines(main_login: str, main_exp: str, extras: list, admin: bool = False) -> str:
     rows = [(main_login, True, main_exp, "")] + [(x["login"], x["ok"], x.get("new_expires"), x.get("error", "")) for x in extras]
     out = []
@@ -139,19 +149,21 @@ def _logins_lines(main_login: str, main_exp: str, extras: list, admin: bool = Fa
 
 
 async def _send_multi_confirmation(payment: dict, phone: str, name: str, main_login: str, main_exp: str,
-                                   extras: list, customer_id: str) -> str:
+                                   extras: list, customer_id: str, main_password: str = "") -> str:
     """One WhatsApp message confirming every login of the checkout. Returns notify status text."""
     from services.notifier import send_notification, send_hardcoded
     lines = _logins_lines(main_login, main_exp, extras)
-    ctx = {**(await _clover_vars(payment)), "name": name, "user": main_login, "logins": lines,
+    clover = await _clover_vars(payment)
+    acessos = _access_blocks({"login": main_login, "password": main_password, "new_expires": main_exp}, extras)
+    ctx = {**clover, "name": name, "user": main_login, "password": main_password, "logins": lines, "acessos": acessos,
            "count": 1 + len(extras), "plan_months": payment["plan_months"], "new_expires_at": main_exp}
     if await send_notification("renewal_success_multi", phone, ctx, customer_id=customer_id):
         await save_message(phone, "renewal_confirmed_multi", "out", customer_id)
         return "sim (mensagem única para todos os logins)"
+    from services.notifier import render
+    from services.default_templates import DEFAULT_TEMPLATES_BY_EVENT as DEFAULT_BY_EVENT
     ok = await send_hardcoded(
-        phone,
-        f"✅ Pagamento confirmado, {name}!\n\nSeus *{1 + len(extras)} logins* foram renovados por "
-        f"*{payment['plan_months']} mês(es)*:\n{lines}\n\nObrigado pela preferência! 🎉",
+        phone, render(DEFAULT_BY_EVENT["renewal_success_multi"]["body"], ctx),
         event_key="renewal_success_multi_fallback", customer_id=customer_id)
     return "sim (mensagem padrão única)" if ok else "❌ falhou (WhatsApp indisponível)"
 
@@ -1161,11 +1173,12 @@ async def _process_payment_confirmation(order_nsu: str, paid: bool, source: str 
                     logger.exception("Failed to cancel pending reminders for %s", phone)
 
                 if extra_results:
-                    main_login = painel_user or (await _cache_user(painel_id)).get("username") or customer["name"]
+                    _cu = await _cache_user(painel_id)
+                    main_login = painel_user or _cu.get("username") or customer["name"]
                     try:
                         multi_status = await _send_multi_confirmation(
                             payment, phone, customer["name"], main_login, new_expires,
-                            extra_results, customer["id"])
+                            extra_results, customer["id"], _cu.get("password") or "")
                     except Exception:
                         logger.exception("Multi-login confirmation failed")
                         multi_status = "❌ falhou (erro ao enviar)"
