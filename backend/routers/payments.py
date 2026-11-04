@@ -132,7 +132,7 @@ def _access_blocks(main: dict, extras: list) -> str:
     out = []
     for x in [main] + extras:
         exp = x.get("new_expires") or "-" if x.get("ok", True) else "renovação em andamento, nossa equipe vai concluir em breve"
-        out.append(f"👤 Usuário: {x.get('login') or '-'}\n🔑 Senha: {x.get('password') or '-'}\n📅 Vence em: {exp}")
+        out.append(f"👤 Usuário: {x.get('login') or '-'}\n🔑 senha: {x.get('password') or '-'}\n📅 Vence em: {exp}")
     return "\n\n".join(out)
 
 

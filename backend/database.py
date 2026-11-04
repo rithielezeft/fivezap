@@ -228,9 +228,10 @@ async def init_db():
             )
         # Upgrade the first multi-login default (never edited) to the new layout.
         await db.execute(
-            "UPDATE notification_templates SET body = ? WHERE event_key = 'renewal_success_multi' AND body = ?",
+            "UPDATE notification_templates SET body = ? WHERE event_key = 'renewal_success_multi' AND body IN (?, ?)",
             (next(t["body"] for t in DEFAULT_TEMPLATES if t["event_key"] == "renewal_success_multi"),
-             "✅ Pagamento confirmado, {name}!\n\nSeus *{count} logins* foram renovados por *{plan_months} mês(es)*:\n{logins}\n\nObrigado pela preferência! 🎉"),
+             "✅ Pagamento confirmado, {name}!\n\nSeus *{count} logins* foram renovados por *{plan_months} mês(es)*:\n{logins}\n\nObrigado pela preferência! 🎉",
+             "✅ Pagamento confirmado! Obrigado, {name} 🎉\n\nSeus dados de acesso:\n\n{acessos}\n\n🍀 Trevo: {clovers} e {clover_coupons}\n\nSeu acesso já está renovado. Bom proveito! 😃\n\n{name}, não esqueça de fazer parte do nosso Canal: \nhttps://shre.ink/zeferius"),
         )
         await db.commit()
 

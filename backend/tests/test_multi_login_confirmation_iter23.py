@@ -27,9 +27,10 @@ from services import renewal_retry  # noqa: E402
 
 DB = os.environ["SQLITE_PATH"]
 MAIN, X1, X2 = "900000001", "900000002", "900000003"
-USERS = {MAIN: {"id": MAIN, "username": "TEST_main", "password": "p"},
-         X1: {"id": X1, "username": "TEST_extra1"},
-         X2: {"id": X2, "username": "TEST_extra2"}}
+USERS = {MAIN: {"id": MAIN, "username": "TEST_main", "password": "pmain"},
+         X1: {"id": X1, "username": "TEST_extra1", "password": "px1"},
+         X2: {"id": X2, "username": "TEST_extra2", "password": "px2"}}
+INPROG = "renovação em andamento, nossa equipe vai concluir em breve"
 MULTI_TPL = next(t for t in default_templates.DEFAULT_TEMPLATES if t["event_key"] == "renewal_success_multi") \
     if hasattr(default_templates, "DEFAULT_TEMPLATES") else None
 
@@ -128,9 +129,20 @@ def test_multi_all_renewed_single_client_and_admin_msg(env):
     assert "✅ TEST_extra1 — novo vencimento 11/04/2026" in a
     assert "✅ TEST_extra2 — novo vencimento 12/05/2026" in a
     assert "Cliente notificado: sim (mensagem única" in a
+    # Iter25: per-login access blocks with password + new expiry
+    ac = n["ctx"]["acessos"]
+    assert ac == ("👤 Usuário: TEST_main\n🔑 senha: pmain\n📅 Vence em: 10/03/2026\n\n"
+                  "👤 Usuário: TEST_extra1\n🔑 senha: px1\n📅 Vence em: 11/04/2026\n\n"
+                  "👤 Usuário: TEST_extra2\n🔑 senha: px2\n📅 Vence em: 12/05/2026"), ac
+    assert n["ctx"]["password"] == "pmain" and n["ctx"]["user"] == "TEST_main"
+    assert n["ctx"]["new_expires_at"] == "10/03/2026"
     if MULTI_TPL:
-        body = MULTI_TPL["body"].format_map({**n["ctx"]})
-        assert "TEST_extra2" in body and "{" not in body
+        body = notifier.render(MULTI_TPL["body"], n["ctx"])
+        assert "{" not in body, body
+        assert body.startswith("✅ Pagamento confirmado! Obrigado, TEST Cliente 🎉\n\nSeus dados de acesso:\n")
+        assert "🍀 Trevo: 0 e —" in body and body.count("🍀 Trevo") == 1
+        assert body.endswith("Seu acesso já está renovado. Bom proveito! 😃\n\nTEST Cliente, não esqueça de fazer parte do nosso Canal: \nhttps://shre.ink/zeferius")
+        print("RENDERED BODY:\n" + body)
     print("CLIENT CTX logins:\n" + logins + "\nADMIN:\n" + a)
 
 
@@ -144,7 +156,10 @@ def test_multi_template_disabled_fallback_single(env):
     assert len(client_msgs) == 2  # 1 attempted template (returned False) + 1 fallback
     assert [h["event"] for h in env["hard"]] == ["renewal_success_multi_fallback"]
     body = env["hard"][0]["body"]
-    assert "*2 logins*" in body and "TEST_extra1" in body and "11/04/2026" in body
+    assert body.startswith("✅ Pagamento confirmado! Obrigado, TEST Cliente 🎉")
+    assert "👤 Usuário: TEST_extra1\n🔑 senha: px1\n📅 Vence em: 11/04/2026" in body
+    assert "👤 Usuário: TEST_main\n🔑 senha: pmain\n📅 Vence em: 10/03/2026" in body
+    assert "https://shre.ink/zeferius" in body and "{" not in body
     assert len(env["admin"]) == 1 and "mensagem padrão única" in env["admin"][0]
 
 
@@ -158,6 +173,9 @@ def test_multi_one_extra_fails(env):
     assert len(env["notif"]) == 1 and not env["hard"]
     logins = env["notif"][0]["ctx"]["logins"]
     assert "• *TEST_extra2* — nossa equipe vai concluir a renovação em breve" in logins
+    ac = env["notif"][0]["ctx"]["acessos"]
+    assert "👤 Usuário: TEST_extra2\n🔑 senha: px2\n📅 Vence em: " + INPROG in ac, ac
+    assert "📅 Vence em: 11/04/2026" in ac
     assert "TEST_extra1* — ativo até 11/04/2026" in logins
     assert len(env["admin"]) == 1
     a = env["admin"][0]
@@ -210,6 +228,9 @@ def test_retry_path_multi(env):
     assert env["notif"][0]["at_renew_count"] >= 3
     logins = env["notif"][0]["ctx"]["logins"]
     assert "TEST_main* — ativo até 10/03/2026" in logins and "TEST_extra2* — ativo até 12/05/2026" in logins
+    ctx = env["notif"][0]["ctx"]
+    assert ctx["password"] == "pmain" and ctx["user"] == "TEST_main"
+    assert "👤 Usuário: TEST_main\n🔑 senha: pmain\n📅 Vence em: 10/03/2026" in ctx["acessos"]
     admin = [a for a in env["admin"] if "auto-retry" in a]
     assert len(admin) == 1 and "Logins no pagamento: 3" in admin[0]
     print("RETRY ADMIN:\n" + admin[0])
@@ -221,3 +242,34 @@ def test_main_fails_extras_not_renewed_no_success_msg(env):
     _confirm(nsu)
     assert env["renew"] == [MAIN]
     assert not any(n["event"] in ("renewal_success", "renewal_success_multi") for n in env["notif"])
+
+
+# --- Iter25: init_db migration of old untouched default body
+OLD_MULTI = "✅ Pagamento confirmado, {name}!\n\nSeus *{count} logins* foram renovados por *{plan_months} mês(es)*:\n{logins}\n\nObrigado pela preferência! 🎉"
+
+
+def _set_body(body):
+    async def go():
+        async with aiosqlite.connect(DB) as db:
+            await db.execute("UPDATE notification_templates SET body=? WHERE event_key='renewal_success_multi'", (body,))
+            await db.commit()
+            return (await (await db.execute("SELECT body FROM notification_templates WHERE event_key='renewal_success_multi'")).fetchone())[0]
+    return asyncio.run(go())
+
+
+def test_init_db_migrates_old_default(env):
+    assert _set_body(OLD_MULTI) == OLD_MULTI
+    asyncio.run(database.init_db())
+    assert asyncio.run(_get_body()) == MULTI_TPL["body"]
+
+
+def test_init_db_keeps_edited_body(env):
+    edited = OLD_MULTI + " (editado)"
+    _set_body(edited)
+    asyncio.run(database.init_db())
+    assert asyncio.run(_get_body()) == edited
+
+
+async def _get_body():
+    async with aiosqlite.connect(DB) as db:
+        return (await (await db.execute("SELECT body FROM notification_templates WHERE event_key='renewal_success_multi'")).fetchone())[0]

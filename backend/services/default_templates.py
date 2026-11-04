@@ -56,7 +56,7 @@ DEFAULT_TEMPLATES = [
     {
         "event_key": "renewal_success_multi",
         "title": "Renovação confirmada (vários logins)",
-        "body": "✅ Pagamento confirmado! Obrigado, {name} 🎉\n\nSeus dados de acesso:\n\n{acessos}\n\n🍀 Trevo: {clovers} e {clover_coupons}\n\nSeu acesso já está renovado. Bom proveito! 😃\n\n{name}, não esqueça de fazer parte do nosso Canal: \nhttps://shre.ink/zeferius",
+        "body": "✅ Pagamento confirmado! Obrigado, {name} 🎉\n\nSeus dados de acesso:\n{acessos}\n🍀 Trevo: {clovers} e {clover_coupons}\n\nSeu acesso já está renovado. Bom proveito! 😃\n\n{name}, não esqueça de fazer parte do nosso Canal: \nhttps://shre.ink/zeferius",
         "image_url": "",
     },
     {
