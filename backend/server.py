@@ -153,6 +153,9 @@ async def lifespan(app: FastAPI):
     from services.payments_sync import payments_sync_loop
     task_payments_sync = asyncio.create_task(payments_sync_loop())
     from services.raffle import auto_draw_loop
+    from services import config_sync
+    await config_sync.sync_on_startup()
+    asyncio.create_task(config_sync.replica_pull_loop())
     task_raffle = asyncio.create_task(auto_draw_loop())
     from services.supabase_mirror import mirror_loop
     task_supabase = asyncio.create_task(mirror_loop())

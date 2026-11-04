@@ -462,8 +462,9 @@ async def set_setting(key: str, value: str):
     # or main Pi + backup) see the same configuration. Best-effort — never
     # blocks the local write on Atlas being reachable.
     try:
-        from services import mongo_store
+        from services import mongo_store, config_sync
         await mongo_store.upsert_setting(key, value)
+        await config_sync.save_setting(key, value)
     except Exception:
         import logging
         logging.getLogger(__name__).exception("mongo_store.upsert_setting failed (non-fatal)")

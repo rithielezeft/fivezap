@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import Layout from "@/components/Layout";
 import { PaymentAccounts } from "@/components/settings/PaymentAccounts";
 import { SecurityPanel } from "@/components/settings/SecurityPanel";
+import { ConfigSyncBanner } from "@/components/settings/ConfigSyncBanner";
 import { settingsApi, painelApi, paymentsApi, systemApi, setDisplayTimezone } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -575,6 +576,7 @@ export default function Settings() {
         <SettingsNav active={section} onSelect={setSection} />
         <div className="space-y-6 min-w-0" data-testid={`settings-section-${section}`}>
         <SectionHeader section={section} />
+        <ConfigSyncBanner />
         {section === "system" && <UpdatePiCard />}
         {section === "security" && <SecurityPanel />}
 

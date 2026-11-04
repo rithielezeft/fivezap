@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ConfigSyncBanner } from "@/components/settings/ConfigSyncBanner";
 import { Bell, Image as ImageIcon, FloppyDisk, PaperPlaneRight, X, UploadSimple, Trash, PaperPlaneTilt, ShieldCheck, ArrowClockwise, CheckCircle, Clock, WarningCircle } from "@phosphor-icons/react";
 
 // Legenda das variáveis dinâmicas — aparece como tooltip nos chips.
@@ -380,6 +381,7 @@ export default function Notifications() {
       title="Notificações"
       subtitle="Templates + Histórico de envios + Bloqueio de duplicatas"
     >
+      <div className="mb-4"><ConfigSyncBanner /></div>
       {/* Top-level section switcher */}
       <div className="flex gap-1 p-1 bg-white/5 rounded-lg mb-4 max-w-2xl">
         <button

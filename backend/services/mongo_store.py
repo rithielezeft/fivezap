@@ -49,6 +49,10 @@ def _clean_url(raw: Optional[str]) -> Optional[str]:
     return v if v.startswith(("mongodb://", "mongodb+srv://")) else None
 
 
+def _replica() -> bool:
+    return os.environ.get("CONFIG_SYNC_MODE", "primary").strip().lower() == "replica"
+
+
 def _get_db():
     """Lazy-init the MongoDB client & database. Reads config from env each
     call (so tests can monkeypatch MONGO_URL/DB_NAME freely)."""
@@ -191,6 +195,8 @@ async def ping() -> bool:
 # ---------------------------------------------------------------------------
 
 async def upsert_setting(key: str, value: str) -> bool:
+    if _replica():
+        return False
     """Mirror a single setting from SQLite → Atlas.
 
     Atlas collection `settings` — same shape as SQLite: {_id: key, value}.
@@ -213,6 +219,8 @@ async def upsert_setting(key: str, value: str) -> bool:
 
 
 async def upsert_template(template: dict) -> bool:
+    if _replica():
+        return False
     """Mirror a notification_templates row → Atlas.
 
     Called from the templates router on create/update/delete. Best-effort.
@@ -237,6 +245,8 @@ async def upsert_template(template: dict) -> bool:
 
 
 async def upsert_command_template(t: dict) -> bool:
+    if _replica():
+        return False
     """Mirror a command_templates row (Comandos page) → Atlas `command_templates`."""
     try:
         await _get_db().command_templates.update_one(
@@ -248,6 +258,8 @@ async def upsert_command_template(t: dict) -> bool:
 
 
 async def delete_command_template(template_id: str) -> bool:
+    if _replica():
+        return False
     try:
         await _get_db().command_templates.delete_one({"_id": str(template_id)})
         return True
@@ -267,7 +279,7 @@ async def sync_command_templates():
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             local = [dict(r) for r in await (await db.execute("SELECT * FROM command_templates")).fetchall()]
-            for t in local:
+            for t in ([] if _replica() else local):
                 await upsert_command_template(t)
             triggers = {t["trigger_command"].strip().lower() for t in local}
             ids = {t["id"] for t in local}
@@ -285,6 +297,8 @@ async def sync_command_templates():
 
 
 async def delete_template(template_id: str) -> bool:
+    if _replica():
+        return False
     try:
         db = _get_db()
         await db.notification_templates.delete_one({"_id": str(template_id)})

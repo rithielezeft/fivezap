@@ -42,6 +42,12 @@ class DiscountConfig(BaseModel):
     percent: int = Field(0, ge=0, le=50)
 
 
+@router.get("/config-sync")
+async def config_sync_status():
+    from services import config_sync
+    return await config_sync.status()
+
+
 @router.get("/discounts")
 async def list_discounts():
     """Return every supported event with its current discount config."""

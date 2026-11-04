@@ -198,6 +198,8 @@ async def update_notification(event_key: str, payload: NotifUpdate):
     try:
         from services import mongo_store
         await mongo_store.upsert_template(result.model_dump())
+        from services import config_sync
+        await config_sync.save_notification(result.model_dump())
     except Exception:
         logger.exception("mongo template sync failed (non-fatal)")
     return result
@@ -234,6 +236,8 @@ async def restore_default_template(event_key: str):
     try:
         from services import mongo_store
         await mongo_store.upsert_template(result.model_dump())
+        from services import config_sync
+        await config_sync.save_notification(result.model_dump())
     except Exception:
         logger.exception("mongo template sync (restore) failed (non-fatal)")
 
